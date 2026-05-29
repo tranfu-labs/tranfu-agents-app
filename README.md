@@ -38,6 +38,7 @@ TF_KEY=secret python -m uvicorn server.app:app --host 0.0.0.0 --port 8787
 # or Docker (single container)
 cp deploy/.env.example deploy/.env   # set TF_KEY
 docker compose -f deploy/docker-compose.yml up -d
+# Docker exposes http://localhost:8788
 ```
 Deploy the container to any always-on host (Fly.io, Railway, Render, a small VPS,
 Cloud Run). Put the dashboard behind your VPN/SSO if content capture is on.

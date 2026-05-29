@@ -2,14 +2,14 @@
 
 本文按当前项目实际结构编写：服务端是 `FastAPI + uvicorn`，看板静态页是 `dashboard/index.html`，由服务端在 `/` 路由读取并返回，SQLite 数据保存在 Docker volume 中。
 
-和参考里的纯静态站不同，本项目虽然有静态 HTML，但页面需要调用同一个服务的 `/api/state` 接口，所以不要在 Caddy 中配置 `root` / `file_server`，Caddy 只做 HTTPS 反向代理到本机 `8787` 端口。
+和参考里的纯静态站不同，本项目虽然有静态 HTML，但页面需要调用同一个服务的 `/api/state` 接口，所以不要在 Caddy 中配置 `root` / `file_server`，Caddy 只做 HTTPS 反向代理到本机 `8788` 端口。
 
 以下示例默认：
 
 - 域名：`tranfu-agents-app.tranfu.com`
 - 服务器公网 IP：`120.77.223.183`
 - 项目目录：`/var/www/tranfu/tranfu-agents-app`
-- 服务端口：`127.0.0.1:8787`
+- 宿主机服务端口：`127.0.0.1:8788`
 
 本文后续命令均按 `tranfu-agents-app.tranfu.com` 编写。
 
@@ -162,7 +162,7 @@ docker compose -p tranfu-agents-app -f deploy/docker-compose.yml logs -f --tail=
 本机验证：
 
 ```bash
-curl http://127.0.0.1:8787/healthz
+curl http://127.0.0.1:8788/healthz
 ```
 
 期望得到：
@@ -175,7 +175,7 @@ ok
 
 ```yaml
 ports:
-  - "127.0.0.1:8787:8787"
+  - "127.0.0.1:8788:8787"
 ```
 
 然后重启：
@@ -200,7 +200,7 @@ sudo vi /etc/caddy/Caddyfile
 
 ```caddyfile
 tranfu-agents-app.tranfu.com {
-    reverse_proxy 127.0.0.1:8787
+    reverse_proxy 127.0.0.1:8788
 
     tls {
         dns alidns {
@@ -258,7 +258,7 @@ journalctl -u caddy -n 100 --no-pager
 base64-decoding password: illegal base64 data at input byte 0
 ```
 
-说明 Caddyfile 里还残留了错误的 `basic_auth` 配置。当前部署不需要它，删掉整段 `basic_auth { ... }` 和相关 `handle` 分支，只保留上面的 `reverse_proxy 127.0.0.1:8787` 配置。
+说明 Caddyfile 里还残留了错误的 `basic_auth` 配置。当前部署不需要它，删掉整段 `basic_auth { ... }` 和相关 `handle` 分支，只保留上面的 `reverse_proxy 127.0.0.1:8788` 配置。
 
 ---
 
@@ -469,7 +469,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 HTTP_PROXY=http://127.0.0.1:3128 docker compos
 
 这种写法不一定会影响 Docker daemon 拉镜像。更稳的做法是给 Docker 服务配置代理。
 
-这个代理配置主要影响 Docker daemon 自己的外网请求，例如拉取基础镜像、查询镜像元数据、推送镜像等；不会自动让已经运行的业务容器流量都走代理，也不会改变 Caddy 访问 `127.0.0.1:8787` 的方式。需要注意的是，执行 `sudo systemctl restart docker` 应用配置时，运行中的容器可能会有短暂中断。
+这个代理配置主要影响 Docker daemon 自己的外网请求，例如拉取基础镜像、查询镜像元数据、推送镜像等；不会自动让已经运行的业务容器流量都走代理，也不会改变 Caddy 访问 `127.0.0.1:8788` 的方式。需要注意的是，执行 `sudo systemctl restart docker` 应用配置时，运行中的容器可能会有短暂中断。
 
 如果代理就在服务器本机，并且监听 `127.0.0.1:3128`：
 
@@ -524,7 +524,7 @@ journalctl -u caddy -n 200 --no-pager
 检查端口：
 
 ```bash
-ss -lntp | grep 8787
+ss -lntp | grep 8788
 ```
 
 如果事件上报返回 `401`，检查客户端使用的 `X-TF-Key` 是否等于服务器 `deploy/.env` 中的 `TF_KEY`。
