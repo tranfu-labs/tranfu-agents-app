@@ -1,0 +1,14 @@
+# 一键起服务端(含看板)：
+#   cp .env.example .env  &&  填好 TF_KEY
+#   docker compose up -d
+services:
+  server:
+    build: { context: .., dockerfile: server/Dockerfile }
+    env_file: [ .env ]
+    environment:
+      TF_DB: /data/tf.db
+    volumes: [ "tf-data:/data" ]
+    ports: [ "8787:8787" ]
+    restart: unless-stopped
+volumes:
+  tf-data:

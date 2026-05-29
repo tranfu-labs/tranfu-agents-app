@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TRANFU//AGENTS · Telemetry</title>
+<link rel="icon" href="https://tranfu.com/brand/logo/png/favicon-32x32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* 品牌红 (--brand) 只用于:头部 logo 降级标记 + 标题里的 //。其余中性线框 + 标准语义色。
+     精确品牌红请替换 --brand。*/
+  :root{
+    --bg:#0b0b0c; --elev:rgba(255,255,255,.022); --elev2:rgba(255,255,255,.014);
+    --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15); --tick:rgba(255,255,255,.3);
+    --hover:rgba(255,255,255,.04);
+    --text:#ededee; --muted:#9ca0a6; --faint:#626670;
+    --brand:#ec1c2b;
+    --run:#3fb950; --wait:#d29922; --err:#f85149; --info:#58a6ff; --done:#6e7681;
+    --r:10px; --sans:'Inter',system-ui,-apple-system,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+    background-size:56px 56px;background-position:center top}
+  ::selection{background:rgba(255,255,255,.16)}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  a{color:inherit} :focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+
+  .frame{position:relative;border:1px solid var(--line);border-radius:var(--r);background:var(--elev)}
+  .frame::before,.frame::after{content:"";position:absolute;width:7px;height:7px;border:1px solid var(--tick)}
+  .frame::before{left:-1px;top:-1px;border-right:0;border-bottom:0;border-top-left-radius:var(--r)}
+  .frame::after{right:-1px;bottom:-1px;border-left:0;border-top:0;border-bottom-right-radius:var(--r)}
+
+  header{display:flex;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid var(--line);
+    background:rgba(11,11,12,.94);backdrop-filter:blur(6px);position:sticky;top:0;z-index:30;flex-wrap:wrap}
+  .logo{display:inline-flex;align-items:center;gap:11px;text-decoration:none}
+  .logo-img{height:22px;display:block}
+  .logo-fb{display:none;width:18px;height:18px;border-radius:5px;
+    background:linear-gradient(135deg,var(--brand),#a60f1a);transform:skewX(-11deg)}
+  .wm{font-weight:700;font-size:17px;letter-spacing:.04em;color:var(--text)}
+  .wm i{color:var(--brand);font-style:normal;margin:0 .03em}
+  .live-pill{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--muted);
+    padding:3px 9px;border:1px solid var(--line);border-radius:999px}
+  .beat{width:6px;height:6px;border-radius:50%;background:var(--run);box-shadow:0 0 7px var(--run);animation:beat 2s ease-in-out infinite}
+  @keyframes beat{50%{opacity:.45}}
+  .demo{display:none;font-size:11px;color:#0b0b0c;background:var(--wait);padding:2px 9px;border-radius:4px;font-weight:600}
+  body.is-demo .demo{display:inline-block}
+  .readouts{margin-left:auto;display:flex;gap:4px}
+  .ro{text-align:right;padding:3px 18px;border-left:1px solid var(--line);min-width:84px}
+  .ro .n{font-family:var(--mono);font-size:23px;font-weight:600;color:var(--text);line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .ro .n.live{color:var(--run)} .ro .l{font-size:10px;color:var(--muted);letter-spacing:.11em;text-transform:uppercase;margin-top:3px}
+
+  main{display:grid;grid-template-columns:1fr 332px;gap:16px;padding:20px 24px;align-items:start;max-width:1440px;margin:0 auto}
+  @media(max-width:920px){main{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:16px}
+  h2{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;font-weight:600;
+    letter-spacing:.13em;color:var(--muted);margin:0;padding:13px 18px;border-bottom:1px solid var(--line);text-transform:uppercase}
+  h2 .sl{color:var(--faint);font-family:var(--mono);margin-right:7px;font-weight:400}
+  h2 .cnt{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:0;color:var(--faint);text-transform:none}
+  h2 .cnt b{color:var(--run);font-weight:600}
+  .pad{padding:18px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(296px,1fr));gap:12px}
+  .card{position:relative;border:1px solid var(--line);background:var(--elev2);border-radius:9px;padding:15px;
+    transition:border-color .2s ease,background .2s ease}
+  .card:hover{border-color:var(--line2);background:var(--hover)}
+  .card::after{content:"";position:absolute;left:15px;right:15px;top:0;height:2px;background:var(--done);opacity:.7;border-radius:2px}
+  .card.s-running::after,.card.s-started::after{background:var(--run);opacity:1}
+  .card.s-waiting::after{background:var(--wait);opacity:1}
+  .card.s-blocked::after,.card.s-error::after{background:var(--err);opacity:1}
+  .crow{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .mk{width:8px;height:8px;flex:none;border-radius:50%;background:var(--done)}
+  .s-running .mk,.s-started .mk{background:var(--run);box-shadow:0 0 6px var(--run);animation:beat 1.6s ease-in-out infinite}
+  .s-waiting .mk{background:var(--wait);box-shadow:0 0 6px var(--wait)}
+  .s-blocked .mk,.s-error .mk{background:var(--err);box-shadow:0 0 6px var(--err)}
+  .op{font-weight:600;font-size:14px}
+  .agtag{font-family:var(--mono);font-size:10px;color:var(--muted);border:1px solid var(--line2);padding:1px 7px;border-radius:4px}
+  .badge{font-size:10px;color:var(--muted);border:1px solid var(--line2);padding:1px 7px;border-radius:4px}
+  .coarse{font-size:10px;color:var(--wait);border:1px solid rgba(210,153,34,.4);padding:1px 7px;border-radius:4px}
+  .age{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .task{font-size:14px;font-weight:500;margin:1px 0 5px;line-height:1.4}
+  .step{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .step .ar{color:var(--faint)}
+  .metrics{display:flex;gap:8px 18px;margin-top:12px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint);
+    padding-top:11px;border-top:1px solid var(--line)}
+  .metrics b{color:var(--text);font-weight:500}
+  .dur{display:flex;align-items:flex-end;gap:14px;margin-top:11px}
+  .dur .lab{font-size:11px;color:var(--muted)}.dur .lab b{font-family:var(--mono);color:var(--text);font-size:13px}
+  .spark{display:flex;align-items:flex-end;gap:2px;height:22px;margin-left:auto}
+  .spark i{width:5px;background:var(--line2);min-height:2px;border-radius:1px;transition:height .4s ease}
+  .spark i.today{background:var(--info)}
+  details{margin-top:11px} summary{cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--muted);list-style:none;display:inline-block}
+  summary:hover{color:var(--text)} summary::before{content:"[+] ";color:var(--faint)}details[open] summary::before{content:"[−] "}
+  pre{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:6px;padding:9px;font-family:var(--mono);
+    font-size:11px;max-height:150px;overflow:auto;white-space:pre-wrap;color:var(--muted);margin:7px 0 0}
+
+  .feed-item{display:flex;gap:11px;padding:11px 18px;border-bottom:1px solid var(--line);font-size:12.5px}
+  .feed-item:last-child{border:0}
+  .ft{font-family:var(--mono);font-size:11px;color:var(--faint);flex:none;width:42px}
+  .fmain{min-width:0}.fmain .l1{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fmain .l1 .stx{font-weight:400;color:var(--muted)}
+  .fmain .sub{font-family:var(--mono);font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .empty{padding:30px 18px;text-align:center}
+  .empty .t{color:var(--muted);font-size:13px}.empty .h{color:var(--faint);font-size:12px;margin-top:5px;font-family:var(--mono)}
+  .sk{border:1px solid var(--line);border-radius:9px;height:118px;background:var(--elev2);position:relative;overflow:hidden}
+  .sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.04),transparent);
+    transform:translateX(-100%);animation:shimmer 1.5s infinite}
+  @keyframes shimmer{100%{transform:translateX(100%)}}
+
+  @media(max-width:760px){
+    header{gap:12px;padding:12px 16px}
+    .readouts{width:100%;margin-left:0;overflow-x:auto;gap:0}
+    .ro{border-left:0;border-right:1px solid var(--line);padding:2px 16px 2px 0;margin-right:16px;min-width:0}
+    .ro:last-child{border-right:0}
+    main{padding:14px 16px}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="https://tranfu.com" target="_blank" rel="noopener" aria-label="TranFu Agents">
+    <img class="logo-img" src="https://tranfu.com/brand/logo/svg/logo-symbol-primary-on-dark.svg" alt=""
+         onerror="this.remove();document.getElementById('lf').style.display='inline-block'">
+    <span class="logo-fb" id="lf" aria-hidden="true"></span>
+    <span class="wm">TRANFU<i>//</i>AGENTS</span>
+  </a>
+  <span class="live-pill"><span class="beat" aria-hidden="true"></span><span class="mono" id="clock" role="timer" aria-label="当前时间">--:--:--</span></span>
+  <span class="demo">演示数据 · 未连接服务端</span>
+  <div class="readouts">
+    <div class="ro"><div class="n live" id="r-active">--</div><div class="l">在线</div></div>
+    <div class="ro"><div class="n" id="r-agents">--</div><div class="l">Agent 数</div></div>
+    <div class="ro"><div class="n" id="r-active-time">--</div><div class="l">今日活跃</div></div>
+  </div>
+</header>
+<main>
+  <div class="col">
+    <section class="frame">
+      <h2><span><span class="sl">//</span>实时 Agent</span><span class="cnt" id="agent-count"></span></h2>
+      <div class="pad"><div class="grid" id="grid"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>
+    </section>
+  </div>
+  <div class="col">
+    <section class="frame">
+      <h2><span><span class="sl">//</span>活动流</span></h2>
+      <div id="feed" aria-live="polite" aria-label="活动流"><div class="empty"><div class="t mono">连接中…</div></div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const RT = {"claude-code":"Claude Code","codex":"Codex","open-claw":"Open Claw","hermes":"Hermes",
+  "manus":"Manus","mulerun":"MuleRun","chatgpt":"ChatGPT","shell":"shell"};
+const ST = {running:"运行中",started:"启动",waiting:"等待输入",blocked:"受阻",error:"错误",done:"完成",idle:"空闲"};
+const esc = s => (s||"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+const ago = ts => {const s=(Date.now()-new Date(ts).getTime())/1000;
+  return s<60?Math.round(s)+"s":s<3600?Math.round(s/60)+"m":Math.round(s/3600)+"h";};
+const dur = s => {if(!s)return"0";if(s<60)return s+"s";const m=Math.floor(s/60);
+  if(m<60)return m+"m";const h=Math.floor(m/60);return h+"h"+(m%60?" "+(m%60)+"m":"");};
+
+function spark(series){
+  const mx=Math.max(...series,1);
+  return '<div class="spark" role="img" aria-label="近 7 天每日活跃时长" title="近 7 天每日活跃时长">'+series.map((v,i)=>{
+    const h=Math.max(2,Math.round(v/mx*22));
+    return '<i class="'+(i===6?"today":"")+'" style="height:'+h+'px" title="'+dur(v)+'"></i>';
+  }).join("")+'</div>';
+}
+
+function render(d){
+  const t=d.totals||{live:0,agents:0,today_active:0};
+  document.getElementById("clock").textContent = new Date(d.now).toLocaleTimeString("zh-CN",{hour12:false});
+  document.getElementById("r-active").textContent = String(t.live).padStart(2,"0");
+  document.getElementById("r-agents").textContent = t.agents;
+  document.getElementById("r-active-time").textContent = dur(t.today_active);
+  document.getElementById("agent-count").innerHTML = d.sessions.length?('运行 <b>'+t.live+'</b> / 共 '+d.sessions.length):"";
+
+  document.getElementById("grid").innerHTML = d.sessions.map(s=>{
+    const coarse=s.fidelity==="coarse", series=s.active_series||[0,0,0,0,0,0,0];
+    const body=(s.input||s.output)?'<details><summary>查看 prompt / 输出</summary>'
+      +(s.input?'<pre>'+esc(s.input)+'</pre>':"")+(s.output?'<pre>'+esc(s.output)+'</pre>':"")+'</details>':"";
+    return '<div class="card s-'+s.status+'">'
+      +'<div class="crow"><span class="mk" aria-hidden="true"></span><span class="op">'+esc(s.operator)+'</span>'
+      +(s.agent?'<span class="agtag">'+esc(s.agent)+'</span>':"")
+      +'<span class="badge">'+esc(RT[s.runtime]||s.runtime)+'</span>'
+      +(coarse?'<span class="coarse">云端·粗粒度</span>':"")
+      +'<span class="age mono">'+ago(s.ts)+'</span></div>'
+      +'<div class="task">'+(esc(s.task)||'<span style="color:var(--faint)">—</span>')+'</div>'
+      +'<div class="step">'+(s.current_step?'<span class="ar">▸</span> '+esc(s.current_step):'<span style="color:var(--faint)">'+(ST[s.status]||s.status)+'</span>')+'</div>'
+      +'<div class="metrics"><span>状态 <b>'+(ST[s.status]||s.status)+'</b></span>'
+      +(s.model?'<span><b>'+esc(s.model)+'</b></span>':"")+'</div>'
+      +'<div class="dur"><span class="lab">今日 <b>'+dur(s.today_active)+'</b></span>'
+      +'<span class="lab">本周 <b>'+dur(s.week_active)+'</b></span>'+spark(series)+'</div>'
+      +body+'</div>';
+  }).join("") || '<div class="empty"><div class="t">尚无 agent 上报</div><div class="h">在某台机器上跑 tf-run 后即出现</div></div>';
+
+  document.getElementById("feed").innerHTML = d.feed.map(f=>
+    '<div class="feed-item"><span class="ft">'+ago(f.ts)+'</span>'
+    +'<div class="fmain"><div class="l1">'+esc(f.operator)
+    +(f.agent?' · '+esc(f.agent):"")+'  <span class="stx">'+(ST[f.status]||f.status)+'</span></div>'
+    +'<div class="sub">'+esc(RT[f.runtime]||f.runtime)+' — '+esc(f.current_step||f.task||"")+'</div></div></div>').join("")
+    || '<div class="empty"><div class="t">静默中…</div></div>';
+}
+
+const now=new Date(), iso=s=>new Date(now.getTime()-s*1000).toISOString();
+const DEMO={now:now.toISOString(),
+ totals:{live:6,agents:7,today_active:33120},
+ sessions:[
+  {operator:"alice",agent:"backend",runtime:"claude-code",status:"running",task:"重构支付模块",current_step:"editing payments/charge.py",model:"claude-sonnet-4-6",ts:iso(12),fidelity:"full",today_active:9120,week_active:31800,active_series:[4200,5400,3600,6100,5200,4300,9120]},
+  {operator:"bob",agent:"copy",runtime:"open-claw",status:"running",task:"改写落地页文案",current_step:"drafting hero section",ts:iso(18),fidelity:"full",today_active:2640,week_active:14400,active_series:[1800,2100,1500,3000,2200,1200,2640]},
+  {operator:"bob",agent:"code",runtime:"codex",status:"waiting",task:"迁移测试到 pytest",current_step:"等待 shell 执行授权",ts:iso(40),fidelity:"full",today_active:5280,week_active:22800,active_series:[3000,4200,2400,5100,3600,2700,5280]},
+  {operator:"chen",agent:"code",runtime:"open-claw",status:"running",task:"增加 OAuth 登录流程",current_step:"writing auth/oauth.ts",ts:iso(6),fidelity:"full",today_active:3900,week_active:18600,active_series:[2400,3000,1800,3600,2900,2100,3900]},
+  {operator:"dana",runtime:"manus",status:"running",task:"Q2 竞品市场报告",current_step:"云端 VM 运行中",ts:iso(95),fidelity:"coarse",today_active:7200,week_active:7200,active_series:[0,0,0,0,0,0,7200]},
+  {operator:"alice",agent:"slides",runtime:"mulerun",status:"running",task:"生成发布会幻灯片",current_step:"云端 agent 工作中",ts:iso(150),fidelity:"coarse",today_active:4500,week_active:4500,active_series:[0,0,0,0,0,0,4500]},
+  {operator:"bob",agent:"index",runtime:"hermes",status:"error",task:"文档向量化入库",current_step:"exit 1 · connection refused",ts:iso(220),fidelity:"full",today_active:480,week_active:3600,active_series:[600,900,300,1200,800,400,480]}],
+ feed:[
+  {operator:"chen",agent:"code",runtime:"open-claw",status:"running",current_step:"writing auth/oauth.ts",ts:iso(6)},
+  {operator:"alice",agent:"backend",runtime:"claude-code",status:"running",current_step:"editing payments/charge.py",ts:iso(12)},
+  {operator:"bob",agent:"copy",runtime:"open-claw",status:"running",current_step:"drafting hero section",ts:iso(18)},
+  {operator:"bob",agent:"code",runtime:"codex",status:"waiting",current_step:"等待 shell 执行授权",ts:iso(40)},
+  {operator:"dana",runtime:"manus",status:"started",current_step:"Q2 竞品市场报告",ts:iso(95)},
+  {operator:"bob",agent:"index",runtime:"hermes",status:"error",current_step:"exit 1 · connection refused",ts:iso(220)}]};
+
+async function tick(){
+  try{const r=await fetch("/api/state",{cache:"no-store"});if(!r.ok)throw 0;
+    document.body.classList.remove("is-demo");render(await r.json());}
+  catch(e){document.body.classList.add("is-demo");render(DEMO);}
+}
+tick(); setInterval(tick,2000);
+</script>
+</body>
+</html>
