@@ -18,7 +18,7 @@ while [ $# -gt 0 ]; do case "$1" in
 
 mkdir -p ~/.tranfu
 BASE="${SERVER%/}/shims"
-for f in tf_client.sh tf_client.py tf_profile.py tf_report.py wrapper/tf-run; do
+for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py wrapper/tf-run; do
   curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
 done
 chmod +x ~/.tranfu/tf-run

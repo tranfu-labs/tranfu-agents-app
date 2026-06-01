@@ -1,0 +1,10 @@
+{
+  "_comment": "把下面的 hooks 块合并进 ~/.claude/settings.json(用户级,对所有项目生效)。所有事件都调用同一个 ~/.tranfu/tf_hook.py——它从 stdin 读 hook_event_name 自行映射状态,并用事件里的 session_id 保持同一身份。身份(TF_OPERATOR/TF_RUNTIME/TF_AGENT)与 server/key 从你的 shell rc 环境继承(install.sh 已写入)。若从非终端方式启动 claude 导致取不到环境变量,可改用 settings.json 的 env 块或在命令前 source 环境。",
+  "hooks": {
+    "SessionStart":     [ { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.tranfu/tf_hook.py\"" } ] } ],
+    "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.tranfu/tf_hook.py\"" } ] } ],
+    "PreToolUse":       [ { "matcher": "", "hooks": [ { "type": "command", "command": "python3 \"$HOME/.tranfu/tf_hook.py\"" } ] } ],
+    "Stop":             [ { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.tranfu/tf_hook.py\"" } ] } ],
+    "SessionEnd":       [ { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.tranfu/tf_hook.py\"" } ] } ]
+  }
+}
