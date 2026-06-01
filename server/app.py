@@ -20,12 +20,11 @@ import os, json, sqlite3, time, threading
 from datetime import datetime, timezone, timedelta
 from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
 
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
 DASH_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboard", "index.html")
-INSTALL_PATH = os.path.join(os.path.dirname(__file__), "..", "install.sh")
 
 # profile keys the shim MAY include on an event (all optional, opt-in)
 PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
@@ -359,14 +358,6 @@ def agent_detail(key: str):
 @app.get("/healthz")
 def healthz():
     return PlainTextResponse("ok")
-
-
-@app.get("/install.sh")
-def installer():
-    path = os.path.abspath(INSTALL_PATH)
-    if not os.path.exists(path):
-        raise HTTPException(404, "install.sh not found")
-    return FileResponse(path, media_type="text/x-shellscript")
 
 
 @app.get("/")

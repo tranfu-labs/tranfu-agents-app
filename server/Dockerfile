@@ -4,7 +4,6 @@ COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY server ./server
 COPY dashboard ./dashboard
-COPY install.sh ./install.sh
 ENV TF_DB=/data/tf.db PORT=8787
 VOLUME /data
 EXPOSE 8787
