@@ -11,7 +11,7 @@
 ## 1. 一键安装(每台机器一次)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/install.sh | bash -s -- \
+curl -fsSL https://你的看板地址/install.sh | bash -s -- \
   --server https://你的看板地址 --key 接入密钥 --operator 你的名字 --runtime claude-code
 ```
 

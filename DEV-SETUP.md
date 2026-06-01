@@ -103,10 +103,10 @@ git pull
 
 接入命令(每人改 `--operator/--runtime`):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<新库owner>/<库名>/main/install.sh | bash -s -- \
+curl -fsSL https://tranfu-agents-app.tranfu.com/install.sh | bash -s -- \
   --server https://tranfu-agents-app.tranfu.com --key <TF_KEY> --operator 名字 --runtime claude-code
 ```
-> 一键安装要 raw 可读 → 库需公开,或在私有库下改用其它分发方式。成员细节见 `QUICKSTART.md`。
+> 一键安装从部署域名下载 installer 和 shims,不依赖 GitHub raw 可读。成员细节见 `QUICKSTART.md`。
 
 ---
 
