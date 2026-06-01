@@ -4,4 +4,3 @@ __pycache__/
 *.bak
 .env
 deploy/.env
-.DS_Store

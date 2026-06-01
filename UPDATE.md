@@ -37,13 +37,13 @@ sudo systemctl restart tranfu
 
 ```bash
 # a) 健康检查,必须返回 ok
-curl http://localhost:8788/healthz
+curl http://localhost:8787/healthz
 
 # b) 页面接口,必须返回 JSON(包含 sessions/feed/totals 等字段)
-curl http://localhost:8788/api/state | head -c 200
+curl http://localhost:8787/api/state | head -c 200
 
 # c) 发一条测试事件(把 <TF_KEY> 换成线上用的那个密钥)
-curl -s -XPOST http://localhost:8788/v1/events \
+curl -s -XPOST http://localhost:8787/v1/events \
   -H "content-type: application/json" -H "X-TF-Key: <TF_KEY>" \
   -d '{"operator":"test","runtime":"claude-code","session_id":"smoke1","status":"running","task":"联通测试","current_step":"hello"}'
 ```
@@ -52,12 +52,12 @@ curl -s -XPOST http://localhost:8788/v1/events \
 
 ## 4. 如果刷新后仍显示「未连接服务端」
 
-多半是 **Tunnel 只把网页代理过来了,但 `/api/*`、`/v1/*` 没走到后端**,或后端没在 `localhost:8788`。检查 Tunnel 配置 `~/.cloudflared/config.yml`,确保是**整个站点**指向后端,而不是只挂了一个静态文件:
+多半是 **Tunnel 只把网页代理过来了,但 `/api/*`、`/v1/*` 没走到后端**,或后端没在 `localhost:8787`。检查 Tunnel 配置 `~/.cloudflared/config.yml`,确保是**整个站点**指向后端,而不是只挂了一个静态文件:
 
 ```yaml
 ingress:
   - hostname: tranfu-agents-app.tranfu.com
-    service: http://localhost:8788      # 指向后端服务,不是某个静态 HTML
+    service: http://localhost:8787      # 指向后端服务,不是某个静态 HTML
   - service: http_status:404
 ```
 改完重启 Tunnel:

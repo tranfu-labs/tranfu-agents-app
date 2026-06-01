@@ -51,6 +51,4 @@ echo ""
 echo "Done. New shells pick up the config automatically (or: source $PROFILE)."
 echo "From now on, run your agent through the wrapper so steps show live:"
 echo "  tf-run --runtime ${RUNTIME:-<rt>} --agent \"${AGENT:-<label>}\" --task \"…\" -- <your agent command>"
-if [ "$RUNTIME" = "claude-code" ]; then
-  echo "Claude Code 也可用钩子上报实时步骤,见 shims/claude-code/README.md。"
-fi
+[ "$RUNTIME" = "claude-code" ] && echo "Claude Code 也可用钩子上报实时步骤,见 shims/claude-code/README.md。"

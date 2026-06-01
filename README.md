@@ -53,7 +53,7 @@ Engineering and operations teams whose members run **multiple, different AI agen
 ```bash
 cp deploy/.env.example deploy/.env      # set TF_KEY (the access key)
 docker compose -f deploy/docker-compose.yml up -d
-# open http://localhost:8788
+# open http://localhost:8787
 ```
 
 Deploy to any always-on host — Fly.io, Railway, Render, or a small VPS. Full instructions are in `DEPLOY.md`.
@@ -62,7 +62,7 @@ Deploy to any always-on host — Fly.io, Railway, Render, or a small VPS. Full i
 
 A teammate just tells their own agent, in plain language:
 
-> Install TRANFU//AGENTS from https://tranfu-agents-app.tranfu.com/install.sh — I'm bob, using Open Claw for copywriting.
+> Install TRANFU//AGENTS from github.com/tranfu-labs/tranfu-agents-app — I'm bob, using Open Claw for copywriting.
 
 The agent reads `SKILL.md` and self-installs. For a second agent, they say another sentence (for example, "I'm bob, using Codex for code"). Full guide in `USAGE.md`.
 

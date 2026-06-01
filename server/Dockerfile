@@ -4,9 +4,7 @@ COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY server ./server
 COPY dashboard ./dashboard
-COPY install.sh ./install.sh
-COPY shims ./shims
-ENV TF_DB=/data/tf.db PORT=8788
+ENV TF_DB=/data/tf.db PORT=8787
 VOLUME /data
-EXPOSE 8788
-CMD ["python","-m","uvicorn","server.app:app","--host","0.0.0.0","--port","8788"]
+EXPOSE 8787
+CMD ["python","-m","uvicorn","server.app:app","--host","0.0.0.0","--port","8787"]

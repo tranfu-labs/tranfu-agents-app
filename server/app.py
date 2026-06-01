@@ -11,8 +11,6 @@ Read:
   GET  /api/state        snapshot the dashboard polls (sessions + profile +
                          computed quality + leverage + 90d activity)
   GET  /api/agent/{key}  single agent detail (key = "operator::agentOrRuntime")
-  GET  /install.sh       installer script for teammates
-  GET  /shims/{path}     shim files downloaded by install.sh
   GET  /                 the dashboard
   GET  /healthz
 
@@ -22,17 +20,11 @@ import os, json, sqlite3, time, threading
 from datetime import datetime, timezone, timedelta
 from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
 
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
-APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DASH_PATH = os.path.join(APP_ROOT, "dashboard", "index.html")
-INSTALL_PATHS = (
-    os.path.join(APP_ROOT, "install.sh"),
-    os.path.join(APP_ROOT, "files", "install.sh"),
-)
-SHIMS_PATH = os.path.join(APP_ROOT, "shims")
+DASH_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboard", "index.html")
 
 # profile keys the shim MAY include on an event (all optional, opt-in)
 PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
@@ -368,24 +360,6 @@ def healthz():
     return PlainTextResponse("ok")
 
 
-@app.get("/install.sh")
-def installer():
-    for path in INSTALL_PATHS:
-        path = os.path.abspath(path)
-        if os.path.isfile(path):
-            return FileResponse(path, media_type="text/x-shellscript")
-    raise HTTPException(404, "install.sh not found")
-
-
-@app.get("/shims/{rel_path:path}")
-def shim_file(rel_path: str):
-    root = os.path.abspath(SHIMS_PATH)
-    path = os.path.abspath(os.path.join(root, rel_path))
-    if os.path.commonpath([root, path]) != root or not os.path.isfile(path):
-        raise HTTPException(404, "shim not found")
-    return FileResponse(path)
-
-
 @app.get("/")
 def dashboard():
     try:
@@ -399,4 +373,4 @@ init_db()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8788")))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8787")))

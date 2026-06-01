@@ -32,7 +32,7 @@ description: Install and connect this agent to the team's TRANFU//AGENTS live da
 ## 第 3 步:安装上报工具(办入职)
 
 ```bash
-curl -fsSL <接入地址>/install.sh \
+curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/install.sh \
   | bash -s -- --server <接入地址> --key <接入密钥> --operator <operator>
 ```
 装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR`——该调度员的 Pod 即建立。
