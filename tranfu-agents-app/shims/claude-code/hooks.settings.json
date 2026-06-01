@@ -1,0 +1,24 @@
+{
+  "_comment": "合并进 ~/.claude/settings.json。SessionStart 上报 started+自动探测的 profile;之后每步上报 running;Stop 上报 done。",
+  "env": {
+    "TF_SERVER": "https://agents.tranfu.io",
+    "TF_KEY": "REPLACE_ME",
+    "TF_OPERATOR": "alice",
+    "TF_RUNTIME": "claude-code",
+    "TF_AGENT": "code"
+  },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command",
+        "command": "source ~/.tranfu/tf_client.sh && TF_SESSION=$CLAUDE_SESSION_ID TF_WITH_PROFILE=1 tf_emit started --step \"session start\"" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command",
+        "command": "source ~/.tranfu/tf_client.sh && TF_SESSION=$CLAUDE_SESSION_ID tf_emit running --task \"$(echo \\\"$CLAUDE_USER_PROMPT\\\" | head -c 120)\" --step working" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command",
+        "command": "source ~/.tranfu/tf_client.sh && TF_SESSION=$CLAUDE_SESSION_ID tf_emit done --step finished" } ] }
+    ]
+  }
+}
