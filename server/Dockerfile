@@ -4,6 +4,8 @@ COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY server ./server
 COPY dashboard ./dashboard
+COPY install.sh ./install.sh
+COPY shims ./shims
 ENV TF_DB=/data/tf.db PORT=8788
 VOLUME /data
 EXPOSE 8788
