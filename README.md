@@ -1,69 +1,123 @@
-# Tranfu Agent Telemetry
+# TRANFU//AGENTS — open-source observability for AI coding agents
 
-See what every teammate's AI agent is doing — live — no matter which agent they
-run (Claude Code, Codex, Open Claw, Hermes, Manus, MuleRun, ChatGPT…). One tiny
-protocol, one collector, one dashboard. Field names follow the OpenTelemetry
-GenAI conventions so you can graduate to Grafana/Langfuse later with no rework.
+**TRANFU//AGENTS is a free, self-hosted, vendor-neutral dashboard that shows, in real time, what every teammate's AI agent is doing.** It tracks who is running which agent, the current step, the status, and how long each agent has been active — across Claude Code, Codex, Open Claw, Hermes, Manus, MuleRun, ChatGPT, and any other CLI agent. One team, many different agents, one live view.
+
+> 中文一句话:TRANFU//AGENTS 是一个开源、可自托管、跨厂商的实时看板,让团队在一个页面上看到每个人的 AI agent 在干什么——谁、哪个 agent、当前到哪一步、状态、活跃了多久。支持 Claude Code、Codex、Open Claw、Hermes、Manus、MuleRun、ChatGPT 等。
+
+*Last updated: 2026-05 · License: MIT · Status: production-ready starter · Home: https://tranfu.com*
+
+---
+
+## What it is
+
+TRANFU//AGENTS has three small parts: a tiny **event protocol**, a single-container **collector/server**, and a real-time **dashboard**.
+
+- **Vendor-neutral.** One lightweight reporter ("shim") works across heterogeneous agents — you do not have to standardize on a single tool.
+- **Self-hosted and private.** Runs as one small container; no data leaves your own infrastructure.
+- **Standards-aligned.** Event field names follow the OpenTelemetry GenAI conventions, so it interoperates with standard observability backends later.
+
+## Who it is for
+
+Engineering and operations teams whose members run **multiple, different AI agents** and want a single live view of activity — without forcing everyone onto the same vendor.
+
+## Why teams use it
+
+- See **who is running what, right now**: operator → agent → current step → status.
+- Track **active time per agent**: today, this week, and a 7-day trend.
+- Support **one person with many agents**: each agent is labelled by purpose (for example, "copy" vs "code").
+- Stay **heterogeneous by design**: local CLI agents (Claude Code, Codex, Open Claw, Hermes) report step-level detail; cloud agents (Manus, MuleRun, ChatGPT) report at start/end granularity.
+
+## Supported agents
+
+| Agent | Type | What the board shows |
+|---|---|---|
+| Claude Code | local CLI / desktop | status + current step + active time |
+| Codex | local CLI / desktop | status + active time |
+| Open Claw | local CLI | status + active time |
+| Hermes | local CLI | status + active time |
+| Manus | cloud | start / end (coarse) |
+| MuleRun | cloud | start / end (coarse) |
+| ChatGPT | web | start / end (coarse) |
+
+## Architecture
 
 ```
-   agents (heterogeneous)            ingest                  read
-   ───────────────────────          ──────                  ────
    Claude Code (hook) ───────────┐
-   Codex / OpenClaw / Hermes ──tf-run wrapper──▶ server ──▶ dashboard (live)
-   Manus / MuleRun / ChatGPT ──tf-run --coarse─┘     │        status · 活跃时长
+   Codex / Open Claw / Hermes ──tf-run wrapper──▶ server ──▶ dashboard (live)
+   Manus / MuleRun / ChatGPT ──tf-run --coarse─┘     │        status · active time
                                                       └─ SQLite store
 ```
 
-## What you get
-- **Live board** of who's running what, current step, status, age.
-- **Active-time per agent** (today / this week + 7-day sparkline).
-- **Activity feed** + optional prompt/code/output capture for a feedback loop.
+## Quick start (self-host in about 1 minute)
 
-> 看板聚焦「谁在跑、在哪一步、状态、活跃时长」。
-
-## Fidelity by runtime
-| Runtime | Path | 可见度 |
-|---|---|---|
-| Claude Code (CLI/desktop) | 钩子 / `tf-run` | 状态 + 步骤 + 活跃时长 |
-| Codex, Open Claw, Hermes (local CLI/API) | `tf-run` 包装器 | 状态 + 活跃时长 |
-| Manus, MuleRun, ChatGPT (cloud/web) | `tf-run --coarse` | 仅开始/结束(粗粒度) |
-
-## Run the server
 ```bash
-# local
-pip install -r server/requirements.txt
-TF_KEY=secret python -m uvicorn server.app:app --host 0.0.0.0 --port 8787
-# open http://localhost:8787
-
-# or Docker (single container)
-cp deploy/.env.example deploy/.env   # set TF_KEY
+cp deploy/.env.example deploy/.env      # set TF_KEY (the access key)
 docker compose -f deploy/docker-compose.yml up -d
-# Docker exposes http://localhost:8788
-```
-Deploy the container to any always-on host (Fly.io, Railway, Render, a small VPS,
-Cloud Run). Put the dashboard behind your VPN/SSO if content capture is on.
-
-## Onboard a teammate (natural language)
-Because this lives in your `tranfu-skills` repo, a teammate can just tell their
-agent: *"install tranfu telemetry, I'm bob on codex"* — the agent reads
-`SKILL.md` and runs `install.sh`. Or manually:
-```bash
-curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-skills/main/tranfu-agent-telemetry/install.sh \
-  | bash -s -- --server https://agents.tranfu.com --key SECRET --operator bob --runtime codex
+# open http://localhost:8787
 ```
 
-## Files
-- `DEPLOY.md` — 部署文档(管理员)
-- `USAGE.md` — 安装使用指引(团队成员)
-- `PROTOCOL.md` — the event spec + fidelity tiers + privacy posture
-- `SKILL.md` — agent-readable self-install (the natural-language path)
-- `server/app.py` — collector + quota math + serves the dashboard
-- `dashboard/index.html` — the live board (self-contained)
-- `shims/` — `tf_client.sh`, `tf_client.py`, `wrapper/tf-run`, `claude-code/`
-- `deploy/` — `docker-compose.yml`, `otel-collector-config.yaml`
-- `install.sh` — one-shot per-machine setup
+Deploy to any always-on host — Fly.io, Railway, Render, or a small VPS. Full instructions are in `DEPLOY.md`.
 
-> ⚠️ Artifacts (the in-chat preview) can't host an always-on endpoint that your
-> teammates' machines POST to — that's why the collector is a small deployable
-> server, not an artifact. The dashboard *is* plain HTML and renders anywhere;
-> the in-chat preview shows demo data when no server is reachable.
+## How a teammate connects an agent (natural language)
+
+A teammate just tells their own agent, in plain language:
+
+> Install TRANFU//AGENTS from github.com/tranfu-labs/tranfu-agents-app — I'm bob, using Open Claw for copywriting.
+
+The agent reads `SKILL.md` and self-installs. For a second agent, they say another sentence (for example, "I'm bob, using Codex for code"). Full guide in `USAGE.md`.
+
+## Documentation
+
+- `DEPLOY.md` — deploy the server (for the administrator).
+- `USAGE.md` — install and use (for team members, natural-language flow).
+- `PROTOCOL.md` — the event protocol and privacy posture.
+- `SKILL.md` — agent-readable self-install skill.
+- `llms.txt` — a structured overview for AI engines.
+
+## FAQ
+
+**What is TRANFU//AGENTS?**
+An open-source, self-hosted dashboard that shows a team, in real time, what each member's AI coding agent is doing — across many different vendors.
+
+**Which AI agents does it support?**
+Claude Code, Codex, Open Claw, Hermes, Manus, MuleRun, ChatGPT, and any CLI agent via a universal wrapper.
+
+**Is it free and open source?**
+Yes. It is MIT-licensed and fully self-hosted; nothing is sent to third parties.
+
+**Does every agent need to support the same API?**
+No. A small shim reports a tiny status event, so heterogeneous agents are first-class.
+
+**Can one person run multiple agents?**
+Yes. Each agent is labelled by purpose (for example "copy" or "code") under the same operator (person).
+
+**Does it track usage or cost?**
+Not in this version, which is deliberately kept to a single container. The protocol leaves room to add it later.
+
+**How is it deployed?**
+As a single container that serves both the API and the dashboard. No external services are required.
+
+**Where does the data live?**
+In a local SQLite file inside your own deployment. Optional prompt/output capture is off by default.
+
+## Repository layout
+
+```
+tranfu-agents-app/
+├── README.md            # this file
+├── DEPLOY.md            # admin deploy guide
+├── USAGE.md             # team-member usage guide (natural language)
+├── PROTOCOL.md          # event protocol + privacy
+├── SKILL.md             # agent-readable self-install
+├── llms.txt             # overview for AI engines (GEO)
+├── robots.txt           # AI-crawler-friendly (place at site root)
+├── LICENSE              # MIT
+├── server/              # FastAPI collector + dashboard host
+├── dashboard/           # the live board (self-contained HTML)
+├── shims/               # tf_client.sh / .py, wrapper/tf-run, claude-code/
+└── deploy/              # docker-compose.yml + .env.example
+```
+
+## License
+
+MIT © TranFu — https://tranfu.com

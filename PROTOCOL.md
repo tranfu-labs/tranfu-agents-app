@@ -98,6 +98,46 @@ these sessions as `coarse` so nobody mistakes silence for inactivity.
 
 ---
 
+## 2.5 Optional profile fields (for the agent detail / governance page)
+
+Any event MAY also carry a few **optional profile fields**. The server keeps the
+**latest** one per agent identity (`operator`+`agent`+`runtime`) and shows them on
+the agent detail page. They're all optional — send what you can read locally.
+
+```jsonc
+{
+  // ... the core event fields above ...
+  "models":   ["claude-opus-4-6", "gpt-4o"],          // models in use
+  "config":   { "temperature": 0.4, "sandbox": "read-only" },  // key params
+  "mcp":      ["figma", "github"],                    // connected MCP servers
+  "skills":   { "local":  [{"name":"prd-to-wireframe","desc":"需求→框架"}],
+                "cross":  [{"name":"组件命名规范","desc":"三段式"}],
+                "pitfalls":["别用红底白字"] },
+  "integrations": [{"name":"Figma","desc":"读写设计稿"}],       // tools & what they do
+  "about":    "一句话需求 → 低保真原型",               // what this agent is good at
+  "tips":     "先说清谁用、要完成什么动作",            // dispatcher's how-to-use note
+  "cf":       { "ver":"Open Claw v1.4", "role":"品牌文案执行体",
+                "location":"~/work/copy", "terminal":"zsh", "ims":["飞书"] },
+
+  // --- sensitive, OPT-IN only (more content leaves the machine) ---
+  "instructions": "完整系统提示 ...",                  // opt-in
+  "memory":   { "file":"~/.claude/CLAUDE.md", "updated": 7200,
+                "conventions":["命名三段式"], "learned":["hero 浅底深字转化更高"] }  // opt-in
+}
+```
+
+**Computed by the server, never reported:** the quality block
+(`runs / success / error / avg_sec / auto_rate`) is derived from event history,
+and `reuse` is derived from cross-operator skill overlap. Leverage
+(`assets`, `skills_week`) is derived from the skills the team has reported.
+The shim should NOT try to compute these.
+
+`instructions` and `memory` are sensitive (they expose how the agent is wired and
+what it has learned). Treat them like `input`/`output`: **opt-in**, and restrict
+dashboard read access when enabled.
+
+---
+
 ## 3. Privacy
 
 Default posture: send `operator`, `runtime`, `status`, `task`, `current_step`,

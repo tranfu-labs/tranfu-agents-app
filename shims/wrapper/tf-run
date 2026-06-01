@@ -7,7 +7,8 @@
 #
 # Emits: started -> (heartbeat every 30s while running) -> done|error.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../tf_client.sh"
+export TF_SHIM_DIR="$SCRIPT_DIR"
+source "$SCRIPT_DIR/tf_client.sh" 2>/dev/null || { export TF_SHIM_DIR="$SCRIPT_DIR/.."; source "$SCRIPT_DIR/../tf_client.sh"; }
 
 RUNTIME="cli"; TASK=""; COARSE=0; AGENT=""
 while [ $# -gt 0 ]; do case "$1" in
@@ -24,7 +25,7 @@ export TF_SESSION="${TF_SESSION:-${AGENT:-$RUNTIME}-$(date +%s)-$RANDOM}"
 
 [ $# -eq 0 ] && { echo "usage: tf-run --runtime X --task Y -- <command...>"; exit 2; }
 
-tf_emit started --task "$TASK" --step "launching: $*"
+TF_WITH_PROFILE=1 tf_emit started --task "$TASK" --step "launching: $*"
 
 # background heartbeat (skipped for coarse cloud runs)
 HB_PID=""
