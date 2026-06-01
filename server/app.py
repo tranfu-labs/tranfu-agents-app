@@ -25,6 +25,11 @@ from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
 DASH_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboard", "index.html")
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
+INSTALL_PATH = os.path.join(REPO_ROOT, "install.sh")
+_MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
+          ".json": "application/json", ".md": "text/markdown"}
 
 # profile keys the shim MAY include on an event (all optional, opt-in)
 PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
@@ -320,6 +325,16 @@ def _snapshot(conn):
         return d
 
     cards = [card(r) for r in sessions]
+    # collapse to ONE card per identity (operator + agent||runtime): keep the most
+    # recently active session, so the same agent over many runs/sessions = one card.
+    _best = {}
+    for c in cards:
+        k = (c["operator"], c.get("agent") or c.get("runtime") or "")
+        tcur = c.get("last_seen") or c.get("ts") or ""
+        prev = _best.get(k)
+        if prev is None or tcur > (prev.get("last_seen") or prev.get("ts") or ""):
+            _best[k] = c
+    cards = list(_best.values())
     live = [c for c in cards if c["status"] in LIVE_ST]
     ops = {c["operator"] for c in cards}
     agents = {(c["operator"], (c.get("agent") or c["runtime"])) for c in cards}
@@ -369,8 +384,30 @@ def dashboard():
         return HTMLResponse("<h1>dashboard/index.html not found</h1>", status_code=404)
 
 
+@app.get("/install.sh")
+def install_sh():
+    """Serve the installer from the dashboard domain, so teammates can install
+    even when the GitHub repo is private:  curl -fsSL $SERVER/install.sh | bash -s -- ..."""
+    try:
+        with open(INSTALL_PATH, encoding="utf-8") as f:
+            return PlainTextResponse(f.read(), media_type="text/x-shellscript")
+    except FileNotFoundError:
+        return PlainTextResponse("install.sh not found", status_code=404)
+
+
+@app.get("/shims/{path:path}")
+def shim_file(path: str):
+    """Serve shim client files (install.sh fetches these from $SERVER/shims/...)."""
+    target = os.path.abspath(os.path.join(SHIMS_DIR, path))
+    if not (target == SHIMS_DIR or target.startswith(SHIMS_DIR + os.sep)) or not os.path.isfile(target):
+        raise HTTPException(status_code=404)
+    media = _MEDIA.get(os.path.splitext(target)[1], "text/plain")
+    with open(target, encoding="utf-8") as f:
+        return PlainTextResponse(f.read(), media_type=media)
+
+
 init_db()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8787")))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8788")))

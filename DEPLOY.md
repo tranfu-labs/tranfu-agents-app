@@ -47,9 +47,9 @@ docker compose up -d
 
 **4) 确认活着**
 ```bash
-curl http://localhost:8787/healthz      # 返回 ok 就对了
+curl http://localhost:8788/healthz      # 返回 ok 就对了
 ```
-浏览器打开 `http://localhost:8787` 应能看到看板(还没有数据是正常的)。
+浏览器打开 `http://localhost:8788` 应能看到看板(还没有数据是正常的)。
 
 - 数据存在 Docker 卷 `tf-data` 里,容器重启不丢。
 - 看日志:`docker compose logs -f server`
@@ -65,7 +65,7 @@ cd tranfu-agents-app
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r server/requirements.txt
 TF_KEY=<TF_KEY> TF_DB=/var/lib/tranfu/tf.db \
-  python -m uvicorn server.app:app --host 0.0.0.0 --port 8787
+  python -m uvicorn server.app:app --host 0.0.0.0 --port 8788
 ```
 要常驻(开机自启、崩溃重拉)就装成 systemd 服务:
 ```bash
@@ -78,7 +78,7 @@ After=network.target
 Environment=TF_KEY=<TF_KEY>
 Environment=TF_DB=/var/lib/tranfu/tf.db
 WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/.venv/bin/python -m uvicorn server.app:app --host 0.0.0.0 --port 8787
+ExecStart=$(pwd)/.venv/bin/python -m uvicorn server.app:app --host 0.0.0.0 --port 8788
 Restart=always
 [Install]
 WantedBy=multi-user.target
@@ -92,7 +92,7 @@ systemctl status tranfu       # 看是否 running
 
 ## B. 给它一个带 HTTPS 的网址
 
-`localhost:8787` 只有本机能看。要让团队访问、且 agent 能 HTTPS 上报,三选一(从易到难):
+`localhost:8788` 只有本机能看。要让团队访问、且 agent 能 HTTPS 上报,三选一(从易到难):
 
 ### 方式 B1 — Cloudflare Tunnel(最推荐:不用开端口、不用公网 IP、自动 HTTPS)
 
@@ -119,7 +119,7 @@ tunnel: tranfu-agents-app
 credentials-file: /Users/你的用户名/.cloudflared/<Tunnel-ID>.json
 ingress:
   - hostname: agents.tranfu.com
-    service: http://localhost:8787
+    service: http://localhost:8788
   - service: http_status:404
 ```
 
@@ -137,13 +137,13 @@ sudo cloudflared service install
 把域名 A 记录指到这台 VPS 的公网 IP,然后:
 ```bash
 # 安装 caddy 后,一条命令即可(自动申请并续期 HTTPS 证书)
-caddy reverse-proxy --from agents.tranfu.com --to localhost:8787
+caddy reverse-proxy --from agents.tranfu.com --to localhost:8788
 ```
 (要常驻就写 Caddyfile + `systemctl enable --now caddy`。)
 
 ### 方式 B3 — 只在内网/LAN 用(最简单,临时)
 
-同一局域网的人直接访问 `http://<这台机器的内网IP>:8787` 即可,无需 HTTPS。
+同一局域网的人直接访问 `http://<这台机器的内网IP>:8788` 即可,无需 HTTPS。
 仅适合内网试用;给 agent 上报也用这个地址。
 
 ---

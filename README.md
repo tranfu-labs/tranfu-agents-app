@@ -53,7 +53,7 @@ Engineering and operations teams whose members run **multiple, different AI agen
 ```bash
 cp deploy/.env.example deploy/.env      # set TF_KEY (the access key)
 docker compose -f deploy/docker-compose.yml up -d
-# open http://localhost:8787
+# open http://localhost:8788
 ```
 
 Deploy to any always-on host — Fly.io, Railway, Render, or a small VPS. Full instructions are in `DEPLOY.md`.

@@ -50,8 +50,8 @@ docker compose up -d --build
 ```
 本机自检:
 ```bash
-curl http://localhost:8787/healthz            # 返回 ok
-curl http://localhost:8787/api/state | head   # 返回 JSON
+curl http://localhost:8788/healthz            # 返回 ok
+curl http://localhost:8788/api/state | head   # 返回 JSON
 ```
 > 不想用 Docker 就走 systemd,见 `DEPLOY.md` 的 A2 段。
 
@@ -62,7 +62,7 @@ curl http://localhost:8787/api/state | head   # 返回 JSON
 ```yaml
 ingress:
   - hostname: tranfu-agents-app.tranfu.com
-    service: http://localhost:8787      # 关键:指向后端服务(含页面+API),不是静态文件
+    service: http://localhost:8788      # 关键:指向后端服务(含页面+API),不是静态文件
   - service: http_status:404
 ```
 改完重启隧道:
@@ -87,7 +87,7 @@ curl -s -XPOST https://tranfu-agents-app.tranfu.com/v1/events \
 且**不再显示「未连接服务端」**。
 
 若仍显示「未连接服务端」:基本就是第 4 步的 Tunnel 没把 `/api/*`、`/v1/*` 代理到后端
-(只挂了静态页)。回到第 4 步,确认 `service: http://localhost:8787`。
+(只挂了静态页)。回到第 4 步,确认 `service: http://localhost:8788`。
 
 ---
 

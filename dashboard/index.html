@@ -195,6 +195,24 @@
   .empty{padding:30px 18px;text-align:center}.empty .t{color:var(--muted);font-size:13px}.empty .h{color:var(--faint);font-size:12px;margin-top:5px;font-family:var(--mono)}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:.25s;z-index:60}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media(max-width:600px){
+    header{gap:8px 10px;padding:10px 14px}
+    .wm{font-size:15px}
+    nav.tabs{order:5;width:100%;margin-left:0;justify-content:flex-start}
+    nav.tabs button{padding:6px 11px}
+    .ctl{margin-left:auto}
+    .readouts{order:6;width:100%;margin-left:0;justify-content:flex-start;margin-top:2px}
+    .readouts .ro{text-align:left;border-left:0;border-right:1px solid var(--line);padding:2px 12px 2px 0}
+    .readouts .ro:last-child{border-right:0}
+    .readouts .ro .n{font-size:16px}
+    main{padding:14px 12px}
+    .pad{padding:14px}
+    h2{padding:11px 14px}
+    .feed-item{padding:10px 14px}
+    .dgrid{gap:12px}
+    .qrow{grid-template-columns:1fr}
+    section table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  }
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
