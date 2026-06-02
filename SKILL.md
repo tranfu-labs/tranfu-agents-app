@@ -33,18 +33,23 @@ description: Install and connect this agent to the team's TRANFU//AGENTS live da
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/install.sh \
-  | bash -s -- --server <接入地址> --key <接入密钥> --operator <operator>
+  | bash -s -- --server <接入地址> --key <接入密钥> --operator <operator> --runtime <runtime> --agent <用途>
 ```
-装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR`——该调度员的 Pod 即建立。
+装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR / TF_RUNTIME / TF_AGENT`——该调度员的 Pod 即建立。
+如果 `<runtime>` 是 `claude-code` 或 `codex`,安装器会自动幂等合并用户级 hooks;已有其它 hooks 会保留。
 
 ## 第 4 步:按本 agent 的形态接好上报
 
-- **本地命令行**(codex / open-claw / hermes / 任意 CLI):用包装器运行,带上 `--agent`(用途):
+- **本地命令行**(open-claw / hermes / 任意 CLI;Codex 也可这样临时包装):用包装器运行,带上 `--agent`(用途):
   ```bash
   tf-run --runtime <runtime> --agent <用途> --task "<在做什么>" -- <原本的启动命令>
   ```
-- **Claude Code**:把 `shims/claude-code/hooks.settings.json` 合并进 `~/.claude/settings.json`
-  (填入 server/密钥/operator/agent),或直接用上面的 `tf-run` 包装。
+- **Claude Code / Codex**:优先用安装器自动 hooks。手动维护:
+  ```bash
+  python3 ~/.tranfu/tf_hooks.py --target claude status
+  python3 ~/.tranfu/tf_hooks.py --target codex status
+  ```
+  卸载 / 回退分别用 `uninstall` / `restore`。不要把密钥写进 hooks JSON;TF_* 从 shell rc 继承。
 - **云端**(manus / mulerun / chatgpt):只能粗粒度,包住派发那一步:
   ```bash
   tf-run --runtime <runtime> --agent <用途> --task "<任务>" --coarse -- <派发脚本>
@@ -56,7 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
 source ~/.tranfu/tf_client.sh
 TF_RUNTIME=<runtime> TF_AGENT=<用途> tf_emit running --task "测试" --step "hello"
 ```
-告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。
+告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。Claude Code / Codex 装 hooks 后需要重启对应 agent;
+Codex 首次运行新增 hook 时可能要求信任,确认一次即可。
 
 ## 隐私
 默认只上报 谁/用途/状态/步骤/活跃时长。若用户要回传 prompt/代码/输出,设 `TF_CAPTURE_CONTENT=1`,

@@ -31,8 +31,8 @@ Engineering and operations teams whose members run **multiple, different AI agen
 
 | Agent | Type | What the board shows |
 |---|---|---|
-| Claude Code | local CLI / desktop | status + current step + active time |
-| Codex | local CLI / desktop | status + active time |
+| Claude Code | local CLI / desktop | status + current step + active time via hooks |
+| Codex | local CLI / desktop | status + current step + active time via hooks or wrapper |
 | Open Claw | local CLI | status + active time |
 | Hermes | local CLI | status + active time |
 | Manus | cloud | start / end (coarse) |
@@ -42,10 +42,10 @@ Engineering and operations teams whose members run **multiple, different AI agen
 ## Architecture
 
 ```
-   Claude Code (hook) ───────────┐
-   Codex / Open Claw / Hermes ──tf-run wrapper──▶ server ──▶ dashboard (live)
-   Manus / MuleRun / ChatGPT ──tf-run --coarse─┘     │        status · active time
-                                                      └─ SQLite store
+   Claude Code / Codex hooks ───┐
+   Open Claw / Hermes ─────────tf-run wrapper──▶ server ──▶ dashboard (live)
+   Manus / MuleRun / ChatGPT ─tf-run --coarse─┘     │        status · active time
+                                                     └─ SQLite store
 ```
 
 ## Quick start (self-host in about 1 minute)
@@ -114,7 +114,7 @@ tranfu-agents-app/
 ├── LICENSE              # MIT
 ├── server/              # FastAPI collector + dashboard host
 ├── dashboard/           # the live board (self-contained HTML)
-├── shims/               # tf_client.sh / .py, wrapper/tf-run, claude-code/
+├── shims/               # tf_client.sh / .py, wrapper/tf-run, claude-code/, codex/
 └── deploy/              # docker-compose.yml + .env.example
 ```
 

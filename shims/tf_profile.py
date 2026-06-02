@@ -4,7 +4,7 @@ TRANFU//AGENTS — local agent profile auto-detector (stdlib only).
 
 Detects, best-effort and NEVER raising, the optional profile fields the
 dashboard's agent-detail page shows. Used by all three shim paths
-(tf-run / Claude Code hook / MCP reporter).
+(tf-run / local agent hooks / MCP reporter).
 
 Auto-detected:
   cf.ver        runtime + version  (e.g. "Claude Code 1.2.3")

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-TRANFU//AGENTS — Claude Code hook dispatcher.
+TRANFU//AGENTS — local agent hook dispatcher.
 
-Claude Code passes the hook event as JSON on stdin (session_id, hook_event_name,
-tool_name, ...). This maps the event to a report status and calls tf_report.py.
-It NEVER blocks Claude (no stdout decision, always exits 0).
+Claude Code and Codex pass the hook event as JSON on stdin (session_id,
+hook_event_name, tool_name, ...). This maps the event to a report status and
+calls tf_report.py. It NEVER blocks the host agent (no stdout decision, always
+exits 0).
 
-Wire it in ~/.claude/settings.json for the events you want; this one script
-handles all of them (it reads hook_event_name from stdin):
+Wire it through tf_hooks.py for the events you want; this one script handles
+all of them (it reads hook_event_name from stdin):
   SessionStart -> started (+profile, registers the agent once)
   UserPromptSubmit -> running ("prompt")
   PreToolUse -> running ("tool: <name>")   # live step = which tool
@@ -39,14 +40,17 @@ def main():
         d = json.loads(raw) if raw.strip() else {}
     except Exception:
         d = {}
-    ev = d.get("hook_event_name", "")
+    ev = d.get("hook_event_name") or d.get("event") or d.get("type") or ""
     if ev not in MAP:
         return
     status, step, prof = MAP[ev]
-    tool = d.get("tool_name") or ""
+    tool = d.get("tool_name") or d.get("tool") or ""
+    if isinstance(tool, dict):
+        tool = tool.get("name") or tool.get("tool_name") or ""
     if ev in ("PreToolUse", "PostToolUse") and tool:
         step = f"{step.split(' ')[0]}: {tool}" if ev == "PreToolUse" else f"tool done: {tool}"
-    sid = d.get("session_id") or ""
+    session_obj = d.get("session") if isinstance(d.get("session"), dict) else {}
+    sid = d.get("session_id") or d.get("conversation_id") or d.get("thread_id") or session_obj.get("id") or ""
     args = ["python3", os.path.join(HERE, "tf_report.py"), "--status", status, "--step", step]
     if sid:
         args += ["--session", sid]

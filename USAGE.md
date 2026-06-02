@@ -93,7 +93,8 @@ export TF_ROLE="品牌文案执行体"     # 这个 agent 的角色/定位
 
 | 你用的 | 看板能看到 |
 |---|---|
-| 本地命令行(Codex / Open Claw / Hermes…) | 开始 / 运行中 / 完成或出错 + 活跃时长 |
+| Codex | 实时步骤 + 状态 + 活跃时长(或用 `tf-run` 临时包装) |
+| 本地命令行(Open Claw / Hermes…) | 开始 / 运行中 / 完成或出错 + 活跃时长 |
 | Claude Code | 实时步骤 + 状态 + 活跃时长 |
 | Claude 桌面版 / 支持 MCP 的 | 通过内置上报工具,开始/步骤/完成 |
 | 云端(Manus / MuleRun / ChatGPT 网页) | 仅「开始 / 结束」,标记为「云端·粗粒度」 |
@@ -125,8 +126,8 @@ A:超过 3 分钟没收到心跳判为掉线(空闲),重新跑任务即可恢复
 A:只有 agent **真的换了状态/步骤**才记一条;没变化的心跳不进活动流(但卡片和活跃时长照常更新)。
 
 **Q:云端网页版 agent(ChatGPT/Manus)能接吗?**
-A:能,但只能看到"开始/结束",标记为"云端·粗粒度";要细到步骤,用本地 agent 或 Claude Code。
+A:能,但只能看到"开始/结束",标记为"云端·粗粒度";要细到步骤,用本地 agent、Claude Code 或 Codex hooks。
 
 ---
 
-> 想看更技术化的三条接入路径(tf-run / Claude Code 钩子 / MCP reporter)与各自细节,见 `QUICKSTART.md`。
+> 想看更技术化的三条接入路径(tf-run / Claude Code 或 Codex 钩子 / MCP reporter)与各自细节,见 `QUICKSTART.md`。

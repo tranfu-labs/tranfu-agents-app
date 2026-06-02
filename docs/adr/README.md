@@ -13,4 +13,5 @@
 | 0006 | 看板按身份(operator + agent‖runtime)合并卡片 | Accepted |
 | 0007 | install.sh 与 shim 从看板域名分发(支持私有库) | Accepted |
 | 0008 | 服务端默认端口 8788 | Accepted |
-| 0009 | Claude Code 钩子用 stdin 分发器(tf_hook),不依赖环境变量取上下文 | Accepted |
+| 0009 | 本地 agent 钩子用 stdin 分发器(tf_hook),不依赖环境变量取上下文 | Accepted |
+| 0010 | 本地 hooks 配置必须幂等且可回退(Claude Code / Codex) | Accepted |
