@@ -6,8 +6,10 @@
 #
 # 环境变量:
 #   TF_SERVER         例 https://agents.tranfu.com   (必填)
-#   TF_KEY            接入密钥(若服务端开启校验则必填)
+#   TF_KEY            团队写入密钥(若服务端开启校验则必填)
+#   TF_TOKEN          per-operator 令牌(开启强制归因时必填;tf_report enroll 获取)
 #   TF_OPERATOR       你的名字 (默认 $USER)
+#   TF_PARENT_SESSION 父 run 的 session_id(子 agent 挂到父 run 下,可选)
 #   TF_RUNTIME        agent 工具 (默认 shell)
 #   TF_AGENT          用途标签,如 copy / code (可选)
 #   TF_SESSION        会话 id (默认随机,本 shell 内稳定)

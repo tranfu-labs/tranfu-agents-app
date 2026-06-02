@@ -14,7 +14,7 @@ TRANFU//AGENTS has three small parts: a tiny **event protocol**, a single-contai
 
 - **Vendor-neutral.** One lightweight reporter ("shim") works across heterogeneous agents — you do not have to standardize on a single tool.
 - **Self-hosted and private.** Runs as one small container; no data leaves your own infrastructure.
-- **Standards-aligned.** Event field names follow the OpenTelemetry GenAI conventions, so it interoperates with standard observability backends later.
+- **Self-defined & forwardable.** The event schema is small and fully original (see `PROTOCOL.md`); a thin mapping layer can forward the same data to any observability backend later.
 
 ## Who it is for
 

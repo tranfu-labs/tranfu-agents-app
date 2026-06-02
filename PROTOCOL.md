@@ -1,148 +1,258 @@
 # Tranfu Agent Telemetry Protocol (TATP) v0.1
 
-A tiny, vendor-neutral protocol so a team can see what everyone's AI agents are
-doing in real time — regardless of whether they run Claude Code, Codex, Open Claw,
-Hermes, Manus, MuleRun, ChatGPT, etc.
+一个小而中立的协议，让团队能实时看到每个人的 AI agent 正在做什么 ——
+无论它跑在 Claude Code、Codex、Open Claw、Hermes、Manus、MuleRun、ChatGPT 还是别的工具上。
 
-Field names deliberately follow the **OpenTelemetry GenAI semantic conventions**
-(`gen_ai.*`) so you can later forward the same data into Grafana / Langfuse /
-Datadog with zero schema migration.
+TATP 是**完全原创**的。它只借鉴了"先发标识/操作名、内容载荷按需开启"这一类通用可观测性
+思路，但**不依赖、也不声称兼容任何第三方语义约定**。字段、状态机、鉴权与隐私规则都在本文件里
+自洽定义；要往别的后端转发时，自己写一层映射即可。
 
 ---
 
-## 1. The event
+## 1. 事件（the event）
 
-Every agent emits a small JSON event whenever its state changes: when it starts,
-changes step, finishes, errors, or blocks waiting for input. One `POST` per event.
+每个 agent 在状态变化时发出一个小 JSON 事件：开始、换步骤、完成、出错、或卡住等待输入。
+**一次状态变化 = 一个 `POST`。**
 
 ```
 POST {SERVER}/v1/events
 Content-Type: application/json
-X-TF-Key: <接入密钥>
+X-TF-Key:   <团队写入密钥>     // 团队级写入闸门（粗粒度）
+X-TF-Token: <operator 令牌>    // 可选；开启强制归因时必填（见 §4）
 ```
 
 ```jsonc
 {
-  "operator":   "bob",              // REQUIRED. which teammate (the PERSON)
-  "agent":      "copy",             // optional. this teammate's named agent/lane: "copy" / "code" / "research"
+  "v":          "0.1",              // REQUIRED. 协议版本，便于服务端兼容路由
+  "operator":   "bob",              // REQUIRED. 哪个队友（人）。组织语义，非身份凭证（见 §4）
+  "agent":      "copy",             // optional. 这个人的命名 agent/lane: "copy" / "code" / "research"
   "runtime":    "open-claw",        // REQUIRED. claude-code | codex | open-claw | hermes | manus | mulerun | chatgpt ...
-  "session_id": "ab12cd34",         // REQUIRED. stable per run; reuse across an agent's lifecycle
-  "status":     "running",          // REQUIRED. see enum below
-  "task":       "Refactor payments module",   // human-readable goal
-  "current_step": "editing payments.py",       // what it's doing right now
-  "ts":         "2026-05-29T10:03:00Z",        // RFC3339; server fills if omitted
+  "session_id": "ab12cd34",         // REQUIRED. 每个 run 稳定；在该 agent 生命周期内复用
+  "parent_session_id": "root-77",   // optional. 父 run 的 session_id；子 agent 用它挂到父 run 下，形成 agent 树
+  "status":     "running",          // REQUIRED. 见下方枚举
+  "task":       "重构支付模块",       // 人类可读目标。组织语义
+  "current_step": "editing payments.py",   // 此刻在做什么
+  "ts":         "2026-05-29T10:03:00Z",     // optional. 客户端本地时间，RFC3339；仅供展示，省略由服务端补
 
+  // --- 可选内容（反馈闭环载荷），仅当内容捕获开启时发送，见 §5 ---
+  "input":  "完整 prompt 文本 ...",
+  "output": "模型输出 / diff ...",
 
-  // --- optional content (the feedback-loop payload) ---
-  "input":  "full prompt text ...",   // only sent when content capture is ON
-  "output": "model output / diff ...",
-
-  // --- optional free-form ---
+  // --- 可选自由字段 ---
   "meta": { "repo": "payments-svc", "branch": "feat/x" }
 }
 ```
 
-### `status` enum
-| value     | meaning                                  |
-|-----------|------------------------------------------|
-| `started` | session began                            |
-| `running` | actively working                         |
-| `waiting` | blocked on human input / approval        |
-| `blocked` | stuck (rate limit, error it can't pass)  |
-| `done`    | finished successfully                    |
-| `error`   | failed                                   |
-| `idle`    | alive but doing nothing                  |
+> **时间口径（重要）。** 客户端 `ts` 只用于展示。所有时长/活跃度计算一律用**服务端落库时间**
+> （`recv`），不受跨机时钟漂移影响。客户端无需 NTP 同步也不会污染看板指标。
 
-## Identity model — one person, several agents
+### `status` 枚举
+| value     | 含义                                   | 计入活跃时间 | 终态 |
+|-----------|----------------------------------------|:-----------:|:----:|
+| `started` | session 开始                            | ✓ | |
+| `running` | 正在干活                                | ✓ | |
+| `waiting` | 等待人工输入 / 审批                       | ✓ | |
+| `blocked` | 卡住（限流、过不去的错误，需要人介入）        | ✓ | |
+| `done`    | 成功结束                                | | ✓ |
+| `error`   | 失败                                    | | ✓ |
+| `idle`    | 存活但无事可做                            | | |
 
-Three levels of identity, so a teammate running multiple agents is the natural case:
+> **`blocked` 的归属（明确定义）。** `blocked` 视为**存活态**：它确实占用着一个 run，因此
+> 计入活跃时间、且不会被判成 `idle`。同时服务端在质量统计里**单列** `blocked` 计数，便于治理
+> 快速看到"谁卡住了、需要人介入"。简言之：既计活跃、又单列。
 
-| field        | scope        | example          | set where |
+### 心跳与判活
+- 长时间停留在 `running`/`started`/`waiting`/`blocked` 的 agent，**推荐每 60s 发一次心跳**
+  （重复同一 status/step 即可）。
+- 服务端判活阈值 = **180s**（3 个心跳周期）。超过未见心跳的存活态会被显示为 `idle`。
+- 重复心跳不产生新历史行，只刷新存活时间（见 §6 去重）。
+
+## 身份模型 —— 一个人，多个 agent
+
+三层标识，让"一个队友同时跑多个 agent"成为最自然的情形：
+
+| 字段         | 范围         | 例子              | 设置位置 |
 |--------------|--------------|------------------|-----------|
-| `operator`   | the person   | `bob`            | global (shell profile) |
-| `agent`      | a named lane | `copy`, `code`   | **per run** (wrapper `--agent`) |
-| `runtime`    | the tool     | `open-claw`, `codex` | **per run** |
-| `session_id` | one run      | `copy-1717…`     | auto |
+| `operator`   | 人           | `bob`            | 全局（shell profile） |
+| `agent`      | 命名 lane    | `copy`、`code`   | **每个 run**（wrapper `--agent`） |
+| `runtime`    | 工具         | `open-claw`、`codex` | **每个 run** |
+| `session_id` | 一次 run     | `copy-1717…`     | 自动 |
 
-So Bob's two agents are just two streams under `operator=bob`:
-`bob/copy` on Open Claw and `bob/code` on Codex. The board shows them as separate
-cards grouped under Bob, all under `operator=bob`. `agent` is optional — if you omit it, the board
-falls back to showing the `runtime`, which is enough when each agent is a
-different tool. You only *need* `agent` to tell two instances of the *same*
-runtime apart (e.g. two Codex sessions, one for code and one for docs).
+所以 Bob 的两个 agent 就是 `operator=bob` 下的两条流：Open Claw 上的 `bob/copy` 和
+Codex 上的 `bob/code`。看板把它们显示为 Bob 名下的两张卡片。`agent` 可省略 —— 省略时看板回退到用
+`runtime` 区分，这在"每个 agent 是不同工具"时已经够用。只有当同一 `runtime` 跑多个实例
+（例如两个 Codex，一个写代码一个写文档）才**需要** `agent` 来区分。
 
-That's the whole protocol. Everything below is about *how each kind of agent
-emits it*.
+> `operator` / `agent` / `task` 是**组织语义**（谁、哪条 lane、要达成什么），不是技术标识符，
+> 也不映射到任何外部约定 —— 诚实标注即可。
+
+到这里就是协议的全部。下面都是讲*每类 agent 如何发出它*。
 
 ---
 
-## 2. Three fidelity tiers
+## 2. 三档保真度
 
-Heterogeneous agents give you different amounts of visibility. Be honest about
-which tier each one is in — the dashboard renders all three.
+异构 agent 能给的可见度不同。诚实标注每个 agent 处在哪一档 —— 看板会区分渲染。
 
 ### Tier A — hook  → 实时状态/步骤
-**Claude Code / Codex** (或任何带钩子的本地 agent)。用钩子在每步上报 status/step。
+**Claude Code / Codex**（或任何带钩子的本地 agent）。用钩子在每步上报 status/step。
 见 `shims/claude-code/` 与 `shims/codex/`。
 
 ### Tier B — wrapper  → 状态(开始/心跳/结束)
-**Open Claw / Claw Code, Hermes, 任意本地 CLI / API 脚本;Codex 也可用此方式临时包装。**
-用通用包装器 `tf-run`,自动发 `started` → `running` 心跳 → `done`/`error`。见 `shims/wrapper/`。
+**Open Claw / Claw Code、Hermes、任意本地 CLI / API 脚本；Codex 也可用此方式临时包装。**
+用通用包装器 `tf-run`，自动发 `started` → `running` 心跳（每 60s） → `done`/`error`。见 `shims/wrapper/`。
 
-### Tier C — cloud black box  → run-level start/end only
-**Manus, MuleRun, ChatGPT web.** You can't see inside these. You instrument the
-*submission* point: emit `started` when you dispatch the task and `done` when it
-returns (via their API/webhook if available, or a manual wrapper around your
-dispatch script). No internal steps. The dashboard marks
-these sessions as `coarse` so nobody mistakes silence for inactivity.
+### Tier C — cloud black box  → 仅 run 级 start/end
+**Manus、MuleRun、ChatGPT web。** 你看不到内部。只在**派发点**埋点：派发任务时发 `started`，
+返回时发 `done`（有 API/webhook 就用，否则手动包一层派发脚本）。没有内部步骤。看板把这些 session
+标为 `coarse`，避免有人把"沉默"误当成"没在干活"。
 
 ---
 
-## 2.5 Optional profile fields (for the agent detail / governance page)
+## 3. 传输可靠性（上报方必须遵守）
 
-Any event MAY also carry a few **optional profile fields**. The server keeps the
-**latest** one per agent identity (`operator`+`agent`+`runtime`) and shows them on
-the agent detail page. They're all optional — send what you can read locally.
+可观测性工具**绝不能反过来拖垮被观测的 agent**。所以上报方（钩子 / wrapper / 客户端库）必须：
+
+- **Fire-and-forget + 短超时。** 单次 POST 超时 ≤ 5s，失败不阻塞宿主 agent，永远不让上报影响主流程。
+- **失败本地 spool。** POST 失败（服务端挂了、网络断了）时，把事件追加到本地暂存文件
+  （`~/.tranfu/spool.ndjson`），不要丢弃。
+- **至少一次投递。** 下次有事件要发时，先尽力把 spool 里积压的事件按序补发，再发当前事件。
+  服务端通过 §6 的去重容忍重复投递，所以"至少一次"是安全的。
+- **有界 spool。** 暂存文件设上限（默认 1000 行 / 5 MiB），超出丢最旧的，避免离线太久撑爆磁盘。
+
+> 钩子尤其要注意：钩子运行在宿主 agent 的关键路径上，必须立即返回、异常吞掉、退出码 0。
+
+---
+
+## 4. 身份与鉴权
+
+写入有两道关：
+
+1. **`X-TF-Key`（团队写入密钥，粗粒度）。** 团队级共享，决定"能不能写"。这是 ADR-0002 唯一的写凭证基线。
+2. **`X-TF-Token`（per-operator 令牌，可归因）。** 每个队友一把，决定"以谁的身份写"。
+
+### 威胁模型 —— 为什么需要 per-operator 令牌
+只有团队密钥时，`operator` 字段是**完全自证**的：任何拿到团队密钥的人都能发
+`"operator":"alice"` 冒充别人上报。对一个"治理 / 可见性"工具来说，这意味着看板上的数据
+**无法可靠归因到真人**。因此：
+
+> **`operator` 不是身份凭证。** 在未开启强制令牌时，它只是一个展示标签，看板会标注
+> "未验证（unverified）"。要让归因可信，必须走下面的入职注册流程拿到 per-operator 令牌。
+
+### 入职注册流程（轻量，无账号体系）
+沿用 ADR-0001"单容器 / 无账号库"的取舍 —— **不做登录页、不做会话、不做多租户**，只加一张
+`operators` 绑定表：
+
+```
+# 管理员用团队密钥为某个队友签发一次性令牌（令牌只在响应里出现一次，服务端只存 sha256）
+POST {SERVER}/v1/enroll
+X-TF-Key: <团队写入密钥>
+{ "operator": "alice" }
+→ 200 { "operator": "alice", "token": "ttk_9f3c…", "note": "保存到 TF_TOKEN，仅此一次可见" }
+```
+
+队友把 `token` 存进 `TF_TOKEN` 环境变量，shim 上报时带上 `X-TF-Token`。服务端校验：
+
+- 令牌有效 **且** 其绑定的 operator == body 里的 `operator` → 接受，标记 `verified=true`。
+- 不一致 / 令牌无效 → **403**（开启强制时），不允许冒名。
+
+服务端通过 `TF_REQUIRE_TOKEN=1` 开启强制归因；关闭时（默认，向后兼容）允许 `operator` 自证，但
+事件标 `verified=false`，看板据此显示"未验证"。
+
+---
+
+## 5. 隐私与内容捕获
+
+**默认姿态：** 发送 `operator`、`runtime`、`status`、`task`、`current_step` —— 但**不发** `input`/`output`。
+内容捕获是 opt-in 的（shim 侧 `TF_CAPTURE_CONTENT=1`），因为你明确想要这个反馈闭环。
+
+> 本协议**不含任何 token / 费用字段**，这是刻意的取舍（见 ADR-0002）。本工具是"谁在干什么"的协作可观测，
+> 不是计费系统。
+
+### 硬约束：开启内容捕获前必须先有读侧鉴权
+看板默认"谁有网址谁就能看"。一旦开启敏感上报（`input` / `output` / `instructions` / `memory`），
+等于把 prompt、代码、系统提示明文挂到一个对外可见的页面。因此本协议规定：
+
+> **在开启 `TF_CAPTURE_CONTENT` / `instructions` / `memory` 之前，必须先落地读侧鉴权**
+> （边缘 Cloudflare Access / Caddy basic auth，或应用内 `TF_READ_KEY`）。这不是建议，是硬约束。
+
+服务端据此**强制执行**：若收到含敏感字段的事件，但服务端未声明读侧鉴权已就位
+（`TF_READ_AUTH=1` 或设置了 `TF_READ_KEY`），则**丢弃这些敏感字段不予存储**，只保留状态类字段，
+并记一条告警。这样即便有人误开了捕获，也不会造成明文裸奔。
+
+**业务流程影响（知情）：** 内容捕获从"改个环境变量就开"变成"先配读侧鉴权、再开捕获"两步。
+新人入职默认全关；要开内容捕获需先完成部署侧鉴权配置并走团队审批。代价是开启有摩擦 —— 这正是目的。
+
+---
+
+## 6. 服务端语义（上报方无需自己算）
+
+这些由服务端从事件历史推导，**shim 不要尝试计算**：
+
+- **去重 / 心跳。** 去重键 = `operator + runtime + agent + session_id`。与上一条
+  status/step 完全相同的事件视为纯心跳：只刷新存活时间，不产生新历史行、不进 feed。
+  **去重键包含 `session_id`** —— 同一身份并发多个 session 不会互相吞掉活性。
+- **质量块**（`runs / success / error / blocked / avg_sec / auto_rate`）：从事件历史推导。
+- **活跃时长**：用服务端落库时间（`recv`）做区间累加，按天分桶（today / week / 7日 / 90日）。
+- **reuse**：跨 operator 的技能名重叠信号。
+- **leverage**（`assets` / `skills_week`）：从团队上报过的技能推导。口径是
+  **"累计曾出现过的技能资产"**（cumulative），不是"当前在用"。
+
+### Profile 全量覆盖语义
+profile 字段（见 §7）按 **full-snapshot / 全量覆盖**语义上报：带 profile 的事件必须携带该 agent
+**当前完整的** profile，服务端整体替换旧 profile（**不做增量 merge**）。这样本地删掉的技能/集成会
+真正从看板消失，避免陈旧条目把 leverage / reuse 越刷越高。偶尔上报一次即可，不必每个事件都带。
+
+### 数据保留
+事件表只保留 **90 天**窗口；更早的历史按天聚合后删除。SQLite 开启 WAL，读写互不阻塞。
+
+---
+
+## 7. 可选 profile 字段（用于 agent 详情 / 治理页）
+
+任何事件都 MAY 携带这些**可选 profile 字段**。服务端按 §6 的全量覆盖语义保存每个 agent 身份
+（`operator`+`agent`+`runtime`）的**最新**一份，展示在 agent 详情页。全部可选 —— 本地能读到什么就发什么。
 
 ```jsonc
 {
-  // ... the core event fields above ...
-  "models":   ["claude-opus-4-6", "gpt-4o"],          // models in use
-  "config":   { "temperature": 0.4, "sandbox": "read-only" },  // key params
-  "mcp":      ["figma", "github"],                    // connected MCP servers
+  // ... 上面的核心事件字段 ...
+  "models":   ["claude-opus-4-8", "gpt-4o"],          // 在用模型
+  "config":   { "temperature": 0.4, "sandbox": "read-only" },  // 关键参数
+  "mcp":      ["figma", "github"],                    // 连接的 MCP server
   "skills":   { "local":  [{"name":"prd-to-wireframe","desc":"需求→框架"}],
                 "cross":  [{"name":"组件命名规范","desc":"三段式"}],
                 "pitfalls":["别用红底白字"] },
-  "integrations": [{"name":"Figma","desc":"读写设计稿"}],       // tools & what they do
-  "about":    "一句话需求 → 低保真原型",               // what this agent is good at
-  "tips":     "先说清谁用、要完成什么动作",            // dispatcher's how-to-use note
+  "integrations": [{"name":"Figma","desc":"读写设计稿"}],       // 工具及其作用
+  "about":    "一句话需求 → 低保真原型",               // 这个 agent 擅长什么
+  "tips":     "先说清谁用、要完成什么动作",            // 派单人的使用说明
   "cf":       { "ver":"Open Claw v1.4", "role":"品牌文案执行体",
                 "location":"~/work/copy", "terminal":"zsh", "ims":["飞书"] },
 
-  // --- sensitive, OPT-IN only (more content leaves the machine) ---
-  "instructions": "完整系统提示 ...",                  // opt-in
+  // --- 敏感，OPT-IN（更多内容离开本机），受 §5 硬约束 ---
+  "instructions": "完整系统提示 ...",
   "memory":   { "file":"~/.claude/CLAUDE.md", "updated": 7200,
-                "conventions":["命名三段式"], "learned":["hero 浅底深字转化更高"] }  // opt-in
+                "conventions":["命名三段式"], "learned":["hero 浅底深字转化更高"] }
 }
 ```
 
-**Computed by the server, never reported:** the quality block
-(`runs / success / error / avg_sec / auto_rate`) is derived from event history,
-and `reuse` is derived from cross-operator skill overlap. Leverage
-(`assets`, `skills_week`) is derived from the skills the team has reported.
-The shim should NOT try to compute these.
+**由服务端计算、绝不上报：** 质量块（`runs / success / error / blocked / avg_sec / auto_rate`）由
+事件历史推导，`reuse` 由跨 operator 技能重叠推导，`leverage`（`assets` / `skills_week`）由团队上报
+的技能推导。shim **不要**尝试计算这些。
 
-`instructions` and `memory` are sensitive (they expose how the agent is wired and
-what it has learned). Treat them like `input`/`output`: **opt-in**, and restrict
-dashboard read access when enabled.
+`instructions` 和 `memory` 是敏感字段（暴露 agent 如何被装配、学到了什么），与 `input`/`output`
+同等对待：**opt-in**，且受 §5 读侧鉴权硬约束 —— 无读侧鉴权时服务端丢弃不存。
 
 ---
 
-## 3. Privacy
+## 8. 限流与尺寸上限
 
-Default posture: send `operator`, `runtime`, `status`, `task`, `current_step`,
-and usage numbers — but **not** `input`/`output`. Content capture is opt-in via
-`TF_CAPTURE_CONTENT=1` on the shim side, because you explicitly want the
-feedback loop. When on, restrict dashboard read access (VPN / SSO) since
-prompts and code will be visible. OpenTelemetry's own guidance is the same:
-identifiers and operation names by default, full payloads opt-in.
+按 tranfu agent 的实际（看板只要"谁在干嘛"，全量内容是 opt-in 反馈闭环、无需存完整大 diff）：
+
+| 项                  | 上限       | 超限处理 |
+|---------------------|-----------|----------|
+| 请求体总大小         | **256 KiB** | 直接 `413` 拒绝 |
+| 落库 `input`/`output` | 各 **16 KiB** | 截断存储（尾部标 `…[truncated]`） |
+| 落库 `meta`         | **4 KiB**  | 截断存储 |
+| 看板展示 `input`/`output` | 4000 字 | 读取时再截断 |
+
+这道闸防止超大 POST 撑爆 SQLite / 内存，同时保证看板要的状态信息永远能进。

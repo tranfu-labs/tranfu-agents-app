@@ -5,7 +5,7 @@
 #   tf-run --runtime open-claw --task "add tests"  -- claw run ./task.md
 #   tf-run --runtime manus --task "market report" --coarse -- ./dispatch_manus.sh
 #
-# Emits: started -> (heartbeat every 30s while running) -> done|error.
+# Emits: started -> (heartbeat every 60s while running) -> done|error.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export TF_SHIM_DIR="$SCRIPT_DIR"
 source "$SCRIPT_DIR/tf_client.sh" 2>/dev/null || { export TF_SHIM_DIR="$SCRIPT_DIR/.."; source "$SCRIPT_DIR/../tf_client.sh"; }
@@ -30,7 +30,7 @@ TF_WITH_PROFILE=1 tf_emit started --task "$TASK" --step "launching: $*"
 # background heartbeat (skipped for coarse cloud runs)
 HB_PID=""
 if [ "$COARSE" -eq 0 ]; then
-  ( while true; do sleep 30; tf_emit running --task "$TASK" --step "working…"; done ) &
+  ( while true; do sleep 60; tf_emit running --task "$TASK" --step "working…"; done ) &
   HB_PID=$!
 fi
 
@@ -41,10 +41,10 @@ CODE=${PIPESTATUS[0]}
 
 if [ "$CODE" -eq 0 ]; then
   tf_emit done --task "$TASK" --step "exit 0" \
-    ${TF_CAPTURE_CONTENT:+--output "$(tail -c 4000 "$LOG")"}
+    ${TF_CAPTURE_CONTENT:+--output "$(tail -c 16384 "$LOG")"}
 else
   tf_emit error --task "$TASK" --step "exit $CODE" \
-    ${TF_CAPTURE_CONTENT:+--output "$(tail -c 4000 "$LOG")"}
+    ${TF_CAPTURE_CONTENT:+--output "$(tail -c 16384 "$LOG")"}
 fi
 rm -f "$LOG"
 exit "$CODE"

@@ -51,9 +51,13 @@ def main():
         step = f"{step.split(' ')[0]}: {tool}" if ev == "PreToolUse" else f"tool done: {tool}"
     session_obj = d.get("session") if isinstance(d.get("session"), dict) else {}
     sid = d.get("session_id") or d.get("conversation_id") or d.get("thread_id") or session_obj.get("id") or ""
+    # subagent -> parent run, so the agent tree can be reconstructed (TATP §1)
+    parent = d.get("parent_session_id") or d.get("parent_id") or session_obj.get("parent_id") or ""
     args = ["python3", os.path.join(HERE, "tf_report.py"), "--status", status, "--step", step]
     if sid:
         args += ["--session", sid]
+    if parent:
+        args += ["--parent", parent]
     if prof:
         args += ["--profile"]
     try:
