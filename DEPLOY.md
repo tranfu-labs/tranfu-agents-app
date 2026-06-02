@@ -174,13 +174,44 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
 
 ## D. 加访问控制(开放给全员前,务必做)
 
-看板默认**谁有网址谁就能看**。在让它对外、尤其在打开敏感上报(`TF_CAPTURE_CONTENT` / `TF_REPORT_MEMORY`)之前,给"读"加一道门:
+看板默认**谁有网址谁就能看**。在让它对外、尤其在打开敏感上报(`TF_CAPTURE_CONTENT` / `TF_REPORT_MEMORY`)之前,给"读"加一道门。
 
-- **Cloudflare Access(配 B1 用,最省事)**:Cloudflare Zero Trust → Access → 给 `agents.tranfu.com` 建一条策略,限定公司邮箱/Google 登录。**注意只保护网页路径,放行 `/v1/events`**(否则 agent 上报会被挡):给 `/v1/events*` 单独配 Bypass,或让 agent 走另一个不加 Access 的子域名。
-- **Caddy Basic Auth(配 B2 用)**:在 Caddyfile 里对 `/` 加 `basicauth`,对 `/v1/events` 放行。
+### D1. 读侧鉴权(给"看板"加门)
+- **Cloudflare Access(配 B1 用,最省事)**:Cloudflare Zero Trust → Access → 给 `agents.tranfu.com` 建一条策略,限定公司邮箱/Google 登录。**注意只保护网页路径,放行 `/v1/events`、`/install.sh`、`/shims/*`、`/healthz`**(否则 agent 上报/安装会被挡):给这些路径单独配 Bypass,或让 agent 走另一个不加 Access 的子域名。
+- **Caddy Basic Auth(配 B2 用)**:在 Caddyfile 里对 `/` 与 `/api/*` 加 `basicauth`,对 `/v1/events`、`/install.sh`、`/shims/*`、`/healthz` 放行。
 - **VPN/内网**:整台机器只在 VPN 内可达,最省事但成员需连 VPN。
 
 > 写入侧已有 `TF_KEY` 保护;这一步是给**读取(看板)**加保护。
+
+### D2. 内容捕获是硬约束(服务端会强制执行)
+一旦打开 `input`/`output`/`instructions`/`memory` 上报,等于把 prompt、代码、系统提示挂到看板。服务端因此**强制要求先声明读侧已受保护**,否则**直接丢弃这些敏感字段不予存储**(状态类字段照常)。配好 D1 后,在服务端环境里二选一声明:
+
+```bash
+# 走了边缘鉴权(Cloudflare Access / Caddy)→ 声明已就位:
+TF_READ_AUTH=1
+# 或:用应用内只读令牌(非空即视为读侧受保护;真正的读侧中间件强制为后续工作):
+TF_READ_KEY=<另一串随机密钥>
+```
+
+> 这是 ADR-0012 的硬约束:**没配读侧鉴权就拿不到敏感内容**,无侥幸空间。
+
+### D3. 身份归因(可选:让数据可信地对应到真人)
+默认只有团队密钥 `TF_KEY` 时,`operator` 是**自证**的——任何拿到密钥的人都能冒名上报,看板标"未验证"。要让归因可信,开启 per-operator 令牌(ADR-0011):
+
+```bash
+# 1) 服务端开启强制归因:
+TF_REQUIRE_TOKEN=1        # 加进 .env 或 systemd Environment,重启服务
+
+# 2) 用团队密钥为每个成员签发一次性令牌(明文仅返回一次,服务端只存 sha256):
+curl -s -XPOST https://agents.tranfu.com/v1/enroll \
+  -H "content-type: application/json" -H "X-TF-Key: <TF_KEY>" \
+  -d '{"operator":"alice"}'
+#   → {"operator":"alice","token":"ttk_...","note":"保存到 TF_TOKEN，仅此一次可见"}
+
+# 3) 把 token 发给该成员,存进其环境变量 TF_TOKEN(shim 上报时自动带 X-TF-Token)。
+```
+
+开启后:令牌与 `operator` 不一致 → 403;一致 → 看板标 `verified`。不开则向后兼容(仍允许自证)。
 
 ---
 
@@ -218,6 +249,9 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 | `curl /healthz` 不通 | 服务没起来。看 `docker compose logs` / `systemctl status tranfu`。 |
 | 看板打开是空的 | 正常——还没人上报。先用 C-2 的测试事件验证。 |
 | 测试事件返回 401 | `X-TF-Key` 和服务端 `TF_KEY` 不一致。 |
+| 测试事件返回 403 | 开了 `TF_REQUIRE_TOKEN`,但没带 `X-TF-Token` 或令牌与 `operator` 不匹配(见 D3,重新 enroll)。 |
+| 测试事件返回 413 | 请求体超过 256 KiB 上限(见 PROTOCOL §8),减小 `input`/`output`/`task`。 |
+| 看板没有 prompt/代码内容 | 没声明读侧鉴权,敏感字段被服务端丢弃(见 D2),配 `TF_READ_AUTH=1` 或 `TF_READ_KEY`。 |
 | 成员上报没反应 | 成员的 `TF_SERVER` 写错、或没带对 key;让其 `echo $TF_SERVER $TF_KEY` 核对;新装后要新开终端。 |
 | 卡片变灰/不动 | 超过 3 分钟没心跳判为掉线,重新跑任务即可。 |
 | 上报被 Access 挡住 | `/v1/events` 没放行,见 D 节。 |
@@ -229,9 +263,11 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 
 - [ ] `TF_KEY` 已设成随机串,没用示例值。
 - [ ] 看板走 HTTPS(B1/B2),不是裸 `http` 暴露公网。
-- [ ] 对外前给"读"加了门(D 节),`/v1/events` 已放行。
-- [ ] 打开 `TF_CAPTURE_CONTENT` 或 `TF_REPORT_MEMORY` 之前,确认看板在 VPN/SSO 之后——
+- [ ] 对外前给"读"加了门(D1),`/v1/events`、`/install.sh`、`/shims/*`、`/healthz` 已放行。
+- [ ] 打开 `TF_CAPTURE_CONTENT` 或 `TF_REPORT_MEMORY` 之前,确认看板在 VPN/SSO 之后,并已设
+      `TF_READ_AUTH=1` 或 `TF_READ_KEY`(D2)——否则服务端会**丢弃**敏感字段。
       这两个会把 **prompt/代码/系统指令/记忆** 上报并展示,默认都是关的。
+- [ ] (可选)需要可信归因时开 `TF_REQUIRE_TOKEN` 并给成员 enroll 令牌(D3)。
 - [ ] 定期备份 `tf.db`。
 
 > 活跃时长按 **UTC 日/周** 统计,跨天会话按当天边界自动拆分(后续可加 `TF_TZ` 改时区)。
