@@ -4,11 +4,21 @@
 不再依赖人工发事件。所有事件共用一个分发器 `~/.tranfu/tf_hook.py`。
 
 ## 前提
-已用 `install.sh` 装好 shim(`~/.tranfu/` 下有 tf_report.py / tf_profile.py / tf_hook.py),
+已用 `install.sh` 装好 shim(`~/.tranfu/` 下有 tf_report.py / tf_profile.py / tf_hook.py / tf_hooks.py),
 且 shell rc 里已 `export TF_SERVER/TF_KEY/TF_OPERATOR/TF_RUNTIME=claude-code/TF_AGENT=...`。
 
 ## 安装钩子(用户级,对所有项目生效)
-把 `hooks.settings.json` 里的 `hooks` 块合并进 `~/.claude/settings.json`(已有该文件就合并,不要整文件覆盖),然后重启 Claude Code。
+如果安装时传了 `--runtime claude-code`,安装器会自动幂等合并 hooks 到 `~/.claude/settings.json`。
+手动维护时用:
+
+```bash
+python3 ~/.tranfu/tf_hooks.py --target claude status
+python3 ~/.tranfu/tf_hooks.py --target claude install
+python3 ~/.tranfu/tf_hooks.py --target claude uninstall
+python3 ~/.tranfu/tf_hooks.py --target claude restore
+```
+
+写入前会生成 `~/.claude/settings.json.tranfu.bak.*` 备份。然后重启 Claude Code。
 
 事件 → 上报状态:
 - `SessionStart` → started(并附带自动探测的 profile,注册这个 agent)

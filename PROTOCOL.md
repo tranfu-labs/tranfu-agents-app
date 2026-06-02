@@ -82,11 +82,11 @@ Heterogeneous agents give you different amounts of visibility. Be honest about
 which tier each one is in — the dashboard renders all three.
 
 ### Tier A — hook  → 实时状态/步骤
-**Claude Code** (或任何带钩子的本地 agent)。用钩子在每步上报 status/step。
-见 `shims/claude-code/`。
+**Claude Code / Codex** (或任何带钩子的本地 agent)。用钩子在每步上报 status/step。
+见 `shims/claude-code/` 与 `shims/codex/`。
 
 ### Tier B — wrapper  → 状态(开始/心跳/结束)
-**Codex CLI, Open Claw / Claw Code, Hermes, 任意本地 CLI / API 脚本。**
+**Open Claw / Claw Code, Hermes, 任意本地 CLI / API 脚本;Codex 也可用此方式临时包装。**
 用通用包装器 `tf-run`,自动发 `started` → `running` 心跳 → `done`/`error`。见 `shims/wrapper/`。
 
 ### Tier C — cloud black box  → run-level start/end only

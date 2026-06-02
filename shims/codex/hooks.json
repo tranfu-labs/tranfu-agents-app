@@ -1,0 +1,60 @@
+{
+  "_comment": "Codex 用户级 hooks 模板。推荐用 `python3 ~/.tranfu/tf_hooks.py --target codex install` 自动合并到 ~/.codex/hooks.json,不要整文件覆盖。所有事件都调用同一个 ~/.tranfu/tf_hook.py,它从 stdin 读 hook_event_name 自行映射状态。身份/server/key 从 shell rc 环境继承(install.sh 已写入)。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.tranfu/tf_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.tranfu/tf_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.tranfu/tf_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.tranfu/tf_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.tranfu/tf_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -6,22 +6,39 @@
 #   curl -fsSL https://tranfu-agents-app.tranfu.com/install.sh | bash -s -- \
 #       --server https://tranfu-agents-app.tranfu.com --key SECRET \
 #       --operator nezha --runtime hermes --agent "多儿" --role "哪吒的 Lark 助手,写文档/调研"
+#
+# Claude Code:
+#   --runtime claude-code installs idempotent user-level hooks by default.
+#   Use --no-claude-hooks to skip, or --claude-hooks status|install|uninstall|restore.
+# Codex:
+#   --runtime codex installs idempotent user-level hooks by default.
+#   Use --no-codex-hooks to skip, or --codex-hooks status|install|uninstall|restore.
 set -e
 SERVER=""; KEY=""; OPERATOR="$USER"; RUNTIME=""; AGENT=""; ROLE=""; ABOUT=""; TIPS=""
+CLAUDE_HOOKS=""; CLAUDE_SETTINGS=""
+CODEX_HOOKS=""; CODEX_SETTINGS=""
 while [ $# -gt 0 ]; do case "$1" in
   --server) SERVER="$2"; shift 2;; --key) KEY="$2"; shift 2;;
   --operator) OPERATOR="$2"; shift 2;; --runtime) RUNTIME="$2"; shift 2;;
   --agent) AGENT="$2"; shift 2;; --role) ROLE="$2"; shift 2;;
   --about) ABOUT="$2"; shift 2;; --tips) TIPS="$2"; shift 2;;
+  --install-claude-hooks) CLAUDE_HOOKS="install"; shift;;
+  --no-claude-hooks) CLAUDE_HOOKS="skip"; shift;;
+  --claude-hooks) CLAUDE_HOOKS="$2"; shift 2;;
+  --claude-settings) CLAUDE_SETTINGS="$2"; shift 2;;
+  --install-codex-hooks) CODEX_HOOKS="install"; shift;;
+  --no-codex-hooks) CODEX_HOOKS="skip"; shift;;
+  --codex-hooks) CODEX_HOOKS="$2"; shift 2;;
+  --codex-settings) CODEX_SETTINGS="$2"; shift 2;;
   *) shift;; esac; done
 [ -z "$SERVER" ] && { echo "need --server"; exit 1; }
 
 mkdir -p ~/.tranfu
 BASE="${SERVER%/}/shims"
-for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py wrapper/tf-run; do
+for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run; do
   curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
 done
-chmod +x ~/.tranfu/tf-run
+chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py
 
 # persist config to shell rc (so every future run reports with the same identity)
 PROFILE="${HOME}/.$(basename "$SHELL")rc"
@@ -49,6 +66,49 @@ TF_WITH_PROFILE=1 python3 ~/.tranfu/tf_report.py \
 
 echo ""
 echo "Done. New shells pick up the config automatically (or: source $PROFILE)."
-echo "From now on, run your agent through the wrapper so steps show live:"
-echo "  tf-run --runtime ${RUNTIME:-<rt>} --agent \"${AGENT:-<label>}\" --task \"…\" -- <your agent command>"
-[ "$RUNTIME" = "claude-code" ] && echo "Claude Code 也可用钩子上报实时步骤,见 shims/claude-code/README.md。"
+if [ "$RUNTIME" = "claude-code" ] || [ "$RUNTIME" = "codex" ]; then
+  echo "${RUNTIME} reports through hooks after restart. For one-off CLI runs you can still use:"
+  echo "  tf-run --runtime ${RUNTIME} --agent \"${AGENT:-<label>}\" --task \"…\" -- ${RUNTIME%%-*}"
+else
+  echo "From now on, run your agent through the wrapper so steps show live:"
+  echo "  tf-run --runtime ${RUNTIME:-<rt>} --agent \"${AGENT:-<label>}\" --task \"…\" -- <your agent command>"
+fi
+
+if [ -z "$CLAUDE_HOOKS" ] && [ "$RUNTIME" = "claude-code" ]; then
+  CLAUDE_HOOKS="install"
+fi
+if [ -z "$CODEX_HOOKS" ] && [ "$RUNTIME" = "codex" ]; then
+  CODEX_HOOKS="install"
+fi
+if [ -n "$CLAUDE_HOOKS" ] && [ "$CLAUDE_HOOKS" != "skip" ]; then
+  case "$CLAUDE_HOOKS" in
+    status|install|uninstall|restore) ;;
+    *) echo "Unknown --claude-hooks action: $CLAUDE_HOOKS (expected status|install|uninstall|restore|skip)"; exit 1;;
+  esac
+  echo ""
+  echo "Claude Code hooks: $CLAUDE_HOOKS"
+  if [ -n "$CLAUDE_SETTINGS" ]; then
+    python3 ~/.tranfu/tf_hooks.py --target claude --settings "$CLAUDE_SETTINGS" "$CLAUDE_HOOKS" \
+      || echo "  ! could not update Claude Code hooks — run: python3 ~/.tranfu/tf_hooks.py --target claude $CLAUDE_HOOKS"
+  else
+    python3 ~/.tranfu/tf_hooks.py --target claude "$CLAUDE_HOOKS" \
+      || echo "  ! could not update Claude Code hooks — run: python3 ~/.tranfu/tf_hooks.py --target claude $CLAUDE_HOOKS"
+  fi
+  [ "$CLAUDE_HOOKS" = "install" ] && echo "Restart Claude Code for hooks to take effect."
+fi
+if [ -n "$CODEX_HOOKS" ] && [ "$CODEX_HOOKS" != "skip" ]; then
+  case "$CODEX_HOOKS" in
+    status|install|uninstall|restore) ;;
+    *) echo "Unknown --codex-hooks action: $CODEX_HOOKS (expected status|install|uninstall|restore|skip)"; exit 1;;
+  esac
+  echo ""
+  echo "Codex hooks: $CODEX_HOOKS"
+  if [ -n "$CODEX_SETTINGS" ]; then
+    python3 ~/.tranfu/tf_hooks.py --target codex --settings "$CODEX_SETTINGS" "$CODEX_HOOKS" \
+      || echo "  ! could not update Codex hooks — run: python3 ~/.tranfu/tf_hooks.py --target codex $CODEX_HOOKS"
+  else
+    python3 ~/.tranfu/tf_hooks.py --target codex "$CODEX_HOOKS" \
+      || echo "  ! could not update Codex hooks — run: python3 ~/.tranfu/tf_hooks.py --target codex $CODEX_HOOKS"
+  fi
+  [ "$CODEX_HOOKS" = "install" ] && echo "Restart Codex for hooks to take effect. If Codex asks to trust the new hook, approve it once."
+fi

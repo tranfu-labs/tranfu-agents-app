@@ -36,7 +36,8 @@ agent 机器                         中心服务器(单容器)              浏
   - `tf_profile.py` 自动探测 profile(版本/终端/位置/IM/MCP/技能/集成);
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`);
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
-  - `tf_hook.py` Claude Code 钩子分发器(读 stdin 事件→状态→调 tf_report);
+  - `tf_hook.py` Claude Code / Codex 钩子分发器(读 stdin 事件→状态→调 tf_report);
+  - `tf_hooks.py` Claude Code / Codex hooks JSON 幂等安装、卸载、恢复管理器;
   - `mcp/server.py` MCP reporter(桌面/黑盒,首次上报附 profile);
   - `tf_client.py` python 客户端。
 - **入口**:使用者运行(tf-run / 钩子 / MCP 工具),或 `install.sh` 安装后由各 agent 触发。
