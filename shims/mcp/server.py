@@ -6,15 +6,19 @@
 
 环境变量:
   TF_SERVER    https://你的看板            (必填)
-  TF_KEY       接入密钥                    (服务端开启校验时必填)
+  TF_KEY       团队写入密钥                (服务端开启校验时必填)
+  TF_TOKEN     per-operator 令牌           (服务端开启 TF_REQUIRE_TOKEN 时必填,见 §4)
   TF_OPERATOR  你的名字(调度员)            (默认 $USER)
   TF_RUNTIME   运行时标签                  (默认 claude-desktop)
   TF_AGENT     默认用途标签                (可选,如 code / research)
+  TF_PARENT_SESSION 父 run 的 session_id   (可选,子 agent 挂到父 run 下)
 
 启动(stdio):  python3 server.py
 """
 import os, sys, json, time, random, asyncio, urllib.request, importlib.util
 from mcp.server.fastmcp import FastMCP
+
+PROTOCOL_VERSION = "0.1"
 
 
 def _load_tf_profile():
@@ -32,9 +36,11 @@ tf_profile = _load_tf_profile()
 
 TF_SERVER = os.environ.get("TF_SERVER", "").rstrip("/")
 TF_KEY = os.environ.get("TF_KEY", "")
+TF_TOKEN = os.environ.get("TF_TOKEN", "")
 TF_OPERATOR = os.environ.get("TF_OPERATOR") or os.environ.get("USER") or "unknown"
 TF_RUNTIME = os.environ.get("TF_RUNTIME", "claude-desktop")
 TF_AGENT = os.environ.get("TF_AGENT")
+TF_PARENT_SESSION = os.environ.get("TF_PARENT_SESSION")
 SESSION = f"mcp-{int(time.time())}-{random.randint(1000, 9999)}"
 _profiled = False  # attach auto-detected profile once per process
 
@@ -43,10 +49,12 @@ mcp = FastMCP("tranfu-reporter")
 
 def _post(payload):
     data = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        f"{TF_SERVER}/v1/events", data=data,
-        headers={"content-type": "application/json", "X-TF-Key": TF_KEY}, method="POST")
-    with urllib.request.urlopen(req, timeout=5) as r:
+    headers = {"content-type": "application/json", "X-TF-Key": TF_KEY}
+    if TF_TOKEN:                              # per-operator attribution (§4)
+        headers["X-TF-Token"] = TF_TOKEN
+    req = urllib.request.Request(f"{TF_SERVER}/v1/events", data=data,
+                                 headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=5) as r:   # §3 short timeout
         return r.read()
 
 
@@ -70,8 +78,9 @@ async def tranfu_report(status: str, task: str = "", step: str = "", agent: str 
     if not TF_SERVER:
         return "TRANFU not configured: set TF_SERVER in this server's env."
     payload = {
+        "v": PROTOCOL_VERSION,
         "operator": TF_OPERATOR, "runtime": TF_RUNTIME, "agent": agent or TF_AGENT,
-        "session_id": SESSION, "status": status,
+        "session_id": SESSION, "parent_session_id": TF_PARENT_SESSION, "status": status,
         "task": task or None, "current_step": step or None,
     }
     payload = {k: v for k, v in payload.items() if v}
