@@ -130,21 +130,28 @@ def _parse_skill_md(p):
 
 
 def _skill_sources(runtime, cwd):
-    """[(root_dir, [glob_patterns])] — the skill locations THIS runtime loads from.
-    Skills are per-runtime: Claude reads ~/.claude/skills, Codex ~/.codex/skills,
-    Hermes ~/.hermes/skills (nested one level under category dirs). Scanning the
-    wrong runtime's dir is why every agent on a shared box used to report an
-    identical skill list."""
+    """[(root_dir, [glob_patterns], skip_symlinks)] — where THIS runtime loads
+    skills from. Per-runtime: Claude ~/.claude/skills, Codex ~/.codex/skills,
+    Hermes ~/.hermes/skills (also one level deeper under category dirs).
+
+    skip_symlinks differs by ecosystem:
+      - Claude/Codex: their skills dir is a flat install dir where a shared pool
+        (~/.agents/skills) gets SYMLINKED in as extras. Those are "borrowed",
+        not this agent's own -> skip, so e.g. 赛博哪吒 doesn't advertise lark-*.
+      - Hermes: ~/.hermes/skills is a CURATED repo; the agent deliberately
+        symlinks its core toolset there (e.g. 多儿 the Lark assistant links the
+        lark-* skills). Those ARE its skills -> keep. (This is the bug fix: the
+        old blanket symlink-skip dropped 多儿's 24 lark-* skills.)"""
     rt = (runtime or "").lower()
 
-    def flat(d):
-        return (d, [str(d / "*" / "SKILL.md")])
+    def flat(d, skip_symlinks=True):
+        return (d, [str(d / "*" / "SKILL.md")], skip_symlinks)
 
-    def nested(d):  # also match one extra level (category/skill/SKILL.md)
-        return (d, [str(d / "*" / "SKILL.md"), str(d / "*" / "*" / "SKILL.md")])
+    def nested(d, skip_symlinks):  # also match category/skill/SKILL.md
+        return (d, [str(d / "*" / "SKILL.md"), str(d / "*" / "*" / "SKILL.md")], skip_symlinks)
 
     if rt == "hermes":
-        return [nested(HOME / ".hermes" / "skills")]
+        return [nested(HOME / ".hermes" / "skills", skip_symlinks=False)]
     if rt == "codex":
         return [flat(HOME / ".codex" / "skills"), flat(Path(cwd) / ".codex" / "skills")]
     # claude-code / claude-desktop / cli / unknown -> Claude's skill dirs
@@ -158,12 +165,11 @@ def detect_skills(cwd, runtime=None):
         names = [s.strip() for s in override.split(",") if s.strip()]
         return {"local": [{"name": n, "desc": ""} for n in names],
                 "cross": [], "pitfalls": []} if names else None
-    # By default skip skills SYMLINKED in from a shared pool — those are "borrowed",
-    # not this agent's own (e.g. ~/.claude/skills/lark-* -> ~/.agents/skills).
-    # Set TF_SKILLS_INCLUDE_LINKS=1 to include them.
-    include_links = os.environ.get("TF_SKILLS_INCLUDE_LINKS") == "1"
+    # TF_SKILLS_INCLUDE_LINKS=1 forces symlinked skills to count everywhere.
+    force_links = os.environ.get("TF_SKILLS_INCLUDE_LINKS") == "1"
     local, seen = [], set()
-    for d, patterns in _skill_sources(runtime, cwd):
+    for d, patterns, skip_symlinks in _skill_sources(runtime, cwd):
+        skip = skip_symlinks and not force_links
         for pat in patterns:
             for sk in sorted(glob.glob(pat)):
                 if (os.sep + ".archive" + os.sep) in sk:
@@ -173,7 +179,7 @@ def detect_skills(cwd, runtime=None):
                     first = Path(d) / Path(sk).relative_to(d).parts[0]
                 except Exception:
                     first = Path(os.path.dirname(sk))
-                if not include_links and first.is_symlink():
+                if skip and first.is_symlink():
                     continue
                 nm, desc = _safe(lambda: _parse_skill_md(sk), (None, None))
                 if nm and nm not in seen:
