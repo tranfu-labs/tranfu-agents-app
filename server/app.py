@@ -109,6 +109,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS operators (
           operator TEXT PRIMARY KEY, token_hash TEXT, created TEXT
         );
+
+        -- operator identity: case/space-insensitive key -> first-seen display
+        -- casing. Lets NEZHA / nezha / " NeZhA " resolve to ONE dispatcher.
+        CREATE TABLE IF NOT EXISTS identities (
+          norm TEXT PRIMARY KEY, display TEXT, created TEXT
+        );
         """)
         # tolerate upgrades from an older schema (add columns if missing)
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
@@ -116,6 +122,35 @@ def init_db():
                           ("parent_session_id", "TEXT"), ("verified", "INTEGER DEFAULT 0")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
+
+        # --- identity normalization migration (idempotent) ---
+        # Merge case/space variants of operator (NEZHA/nezha) and lowercase
+        # runtime (Hermes/hermes), so one human/agent = one Pod/card. Safe to
+        # re-run: operators converge to first-seen display; lower() is stable.
+        conn.execute("""INSERT OR IGNORE INTO identities(norm,display,created)
+          SELECT lower(trim(operator)), trim(operator), MIN(COALESCE(recv,ts,''))
+          FROM events WHERE trim(COALESCE(operator,'')) <> ''
+          GROUP BY lower(trim(operator))""")
+        conn.execute("""UPDATE events SET operator = COALESCE(
+          (SELECT display FROM identities WHERE norm = lower(trim(events.operator))),
+          operator)""")
+        conn.execute("UPDATE events SET runtime = lower(trim(runtime)) WHERE runtime IS NOT NULL")
+        # profiles PK is (operator,ak,runtime); canonicalizing can collide ->
+        # rebuild keeping the latest 'updated' per canonical key.
+        prof = conn.execute("SELECT operator,ak,runtime,json,updated FROM profiles").fetchall()
+        if prof:
+            best = {}
+            for r in prof:
+                row = conn.execute("SELECT display FROM identities WHERE norm=?",
+                                   ((r["operator"] or "").strip().casefold(),)).fetchone()
+                opd = row["display"] if row else r["operator"]
+                k = (opd, r["ak"], (r["runtime"] or "").strip().lower())
+                if k not in best or (r["updated"] or "") > (best[k]["updated"] or ""):
+                    best[k] = {"json": r["json"], "updated": r["updated"]}
+            conn.execute("DELETE FROM profiles")
+            for (opd, ak, rt), v in best.items():
+                conn.execute("INSERT INTO profiles(operator,ak,runtime,json,updated) VALUES(?,?,?,?,?)",
+                             (opd, ak, rt, v["json"], v["updated"]))
         conn.commit()
 
 
@@ -126,6 +161,19 @@ def now_iso():
 def check_auth(key):
     if INGEST_KEY and key != INGEST_KEY:
         raise HTTPException(status_code=401, detail="bad ingest key")
+
+
+def canon_operator(conn, raw, when):
+    """Resolve an operator string to its canonical display (first-seen casing),
+    case/space-insensitively. 'NEZHA', ' nezha ' -> one identity = one Pod."""
+    raw = (raw or "").strip()
+    norm = raw.casefold()
+    if not norm:
+        return raw
+    conn.execute("INSERT OR IGNORE INTO identities(norm,display,created) VALUES(?,?,?)",
+                 (norm, raw, when))
+    row = conn.execute("SELECT display FROM identities WHERE norm=?", (norm,)).fetchone()
+    return row["display"] if row else raw
 
 
 def verify_operator(conn, operator, token):
@@ -162,11 +210,12 @@ async def enroll(request: Request, x_tf_key: str = Header(default="")):
     The plaintext token is returned ONCE; the server stores only its sha256."""
     check_auth(x_tf_key)
     body = await request.json()
-    operator = (body.get("operator") or "").strip()
-    if not operator:
+    raw_op = (body.get("operator") or "").strip()
+    if not raw_op:
         raise HTTPException(400, "operator required")
     token = "ttk_" + secrets.token_urlsafe(24)
     with _lock, closing(db()) as conn:
+        operator = canon_operator(conn, raw_op, now_iso())   # bind token to canonical identity
         conn.execute("""INSERT INTO operators(operator,token_hash,created) VALUES(?,?,?)
           ON CONFLICT(operator) DO UPDATE SET token_hash=excluded.token_hash,created=excluded.created""",
           (operator, _sha(token), now_iso()))
@@ -192,8 +241,6 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         raise HTTPException(400, "operator, runtime, session_id, status are required")
     ts = e.get("ts") or now_iso()
     recv = now_iso()                               # server-authoritative time (§6)
-    op, rt = e["operator"], e["runtime"]
-    ag = e.get("agent") or rt                      # agent identity label
     sid = e["session_id"]
     status, step = e["status"], e.get("current_step")
 
@@ -206,6 +253,10 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
     meta_json = _clip(json.dumps(e.get("meta"), ensure_ascii=False), MAX_META) if e.get("meta") else None
 
     with _lock, closing(db()) as conn:
+        # normalize identity: operator case/space-insensitive, runtime lowercased
+        op = canon_operator(conn, e["operator"], recv)
+        rt = (e["runtime"] or "").strip().lower()
+        ag = e.get("agent") or rt                      # agent identity label
         verified = 1 if verify_operator(conn, op, x_tf_token) else 0
 
         # OPTIONAL profile payload — full-snapshot replace per identity (§6)
@@ -274,18 +325,18 @@ async def delete_events(request: Request, x_tf_key: str = Header(default="")):
             conn.commit()
             return {"ok": True, "deleted": deleted, "by": "session_ids"}
         agent, runtime = body.get("agent"), body.get("runtime")
-        clauses, params = ["operator=?"], [operator]
+        clauses, params = ["lower(trim(operator))=lower(trim(?))"], [operator]
         if agent:
             clauses.append("COALESCE(agent,runtime)=?"); params.append(agent)
         if runtime:
-            clauses.append("runtime=?"); params.append(runtime)
+            clauses.append("lower(trim(runtime))=lower(trim(?))"); params.append(runtime)
         deleted = conn.execute(
             f"DELETE FROM events WHERE {' AND '.join(clauses)}", params).rowcount
         cleared_profile = 0
         if body.get("profile") and agent:
             cleared_profile = conn.execute(
-                "DELETE FROM profiles WHERE operator=? AND ak=?"
-                + (" AND runtime=?" if runtime else ""),
+                "DELETE FROM profiles WHERE lower(trim(operator))=lower(trim(?)) AND ak=?"
+                + (" AND lower(trim(runtime))=lower(trim(?))" if runtime else ""),
                 ([operator, agent, runtime] if runtime else [operator, agent])).rowcount
         conn.commit()
         return {"ok": True, "deleted": deleted,

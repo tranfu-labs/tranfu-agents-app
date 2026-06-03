@@ -132,3 +132,22 @@ def test_delete_requires_key_when_set(client, app_mod):
     ok = client.request("DELETE", "/v1/events", json={"session_id": "x"},
                         headers={"X-TF-Key": "secret"})
     assert ok.status_code == 200
+
+
+# ---- 身份归一化：operator 大小写/空格 + runtime 大小写 合并为一个 Pod ----------
+def test_operator_and_runtime_normalized_to_one_card(client):
+    ev(client, operator="NEZHA", runtime="Hermes", agent="多儿", session_id="a", current_step="x")
+    ev(client, operator=" nezha ", runtime="hermes", agent="多儿", session_id="b", current_step="y")
+    cards = client.get("/api/state").json()["sessions"]
+    duo = [c for c in cards if c.get("agent") == "多儿"]
+    assert len(duo) == 1                                   # 合成一张卡，不再裂成两个
+    assert duo[0]["operator"] == "NEZHA"                   # 首次出现的写法作为展示
+    assert duo[0]["runtime"] == "hermes"                   # runtime 统一小写
+    assert client.get("/api/state").json()["totals"]["operators"] == 1
+
+
+def test_enroll_token_verifies_across_operator_casing(client):
+    tok = client.post("/v1/enroll", json={"operator": "NEZHA"}).json()["token"]
+    # 用不同大小写上报，仍应被验证为同一 operator
+    r = ev(client, operator="nezha", session_id="s9", headers={"X-TF-Token": tok})
+    assert r.json()["verified"] is True
