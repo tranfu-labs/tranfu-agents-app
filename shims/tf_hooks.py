@@ -21,9 +21,21 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Source the identity env first so the hook works under ANY shell/launch context
-# (hooks run in a non-interactive shell that does NOT read ~/.zshrc — see install.sh).
-DEFAULT_COMMAND = '. "$HOME/.tranfu/tf_env.sh" 2>/dev/null; python3 "$HOME/.tranfu/tf_hook.py"'
+# Each target sources its OWN per-runtime identity file (tf_env.<runtime>.sh),
+# NOT the shared tf_env.sh. This is critical when multiple agents share one
+# machine (e.g. Claude Code + Hermes): a single shared file gets clobbered by
+# whichever install ran last, silently mis-attributing one agent's activity to
+# the other. Per-runtime files keep each agent's identity isolated. The hook
+# still sources a file (vs inheriting env) because hooks run in a non-interactive
+# shell that does NOT read ~/.zshrc — see install.sh.
+RUNTIME_FOR_TARGET = {"claude": "claude-code", "codex": "codex"}
+
+
+def _command(target):
+    env_file = f'$HOME/.tranfu/tf_env.{RUNTIME_FOR_TARGET[target]}.sh'
+    return f'. "{env_file}" 2>/dev/null; python3 "$HOME/.tranfu/tf_hook.py"'
+
+
 COMMON_EVENTS = (
     ("SessionStart", None),
     ("UserPromptSubmit", None),
@@ -122,7 +134,7 @@ def _is_tranfu_hook(hook):
 
 
 def _entry(target, event):
-    item = {"hooks": [{"type": "command", "command": DEFAULT_COMMAND}]}
+    item = {"hooks": [{"type": "command", "command": _command(target)}]}
     timeout = TARGETS[target]["timeout"]
     if timeout is not None:
         item["hooks"][0]["timeout"] = timeout
@@ -192,9 +204,11 @@ def install_hooks(cfg, target):
                     if not seen:
                         seen = True
                         # upgrade an older TRANFU hook to the current command form
-                        if hook.get("command") != DEFAULT_COMMAND:
+                        # (e.g. one that sourced the shared tf_env.sh -> per-runtime)
+                        want = _command(target)
+                        if hook.get("command") != want:
                             hook = dict(hook)
-                            hook["command"] = DEFAULT_COMMAND
+                            hook["command"] = want
                             upgraded += 1
                             group_changed = True
                         new_hook_list.append(hook)

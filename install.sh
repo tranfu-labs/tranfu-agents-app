@@ -40,13 +40,19 @@ for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_hook
 done
 chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py
 
-# Single source of truth for identity/env: ~/.tranfu/tf_env.sh (overwritten each
-# run — re-installing never duplicates). Hooks source THIS file directly because
-# they run in a non-interactive shell that does NOT read ~/.zshrc; writing the
-# identity only into the rc would leave hook-based runtimes (claude-code/codex)
-# blind and silently non-reporting.
-ENV_FILE="${HOME}/.tranfu/tf_env.sh"
-{
+# Identity/env files under ~/.tranfu (overwritten each run — re-installing never
+# duplicates). Hooks source these directly because they run in a non-interactive
+# shell that does NOT read ~/.zshrc; writing identity only into the rc would leave
+# hook-based runtimes (claude-code/codex) blind and silently non-reporting.
+#
+# We write TWO files:
+#   tf_env.sh             — generic; sourced by the shell rc / tf-run. Last install
+#                           wins here, which is fine: tf-run takes --agent/--runtime
+#                           explicitly, so it only needs server/key from this file.
+#   tf_env.<runtime>.sh   — per-runtime; the hook for THIS runtime sources ONLY this.
+#                           Isolates identity so co-resident agents (e.g. Claude Code
+#                           + Hermes on one machine) never clobber each other.
+_emit_env() {
   echo "# TRANFU//AGENTS identity — written by install.sh, safe to re-run."
   echo "export TF_SERVER=\"$SERVER\""
   [ -n "$KEY" ]     && echo "export TF_KEY=\"$KEY\""
@@ -56,8 +62,14 @@ ENV_FILE="${HOME}/.tranfu/tf_env.sh"
   [ -n "$ROLE" ]    && echo "export TF_ROLE=\"$ROLE\""
   [ -n "$ABOUT" ]   && echo "export TF_ABOUT=\"$ABOUT\""
   [ -n "$TIPS" ]    && echo "export TF_TIPS=\"$TIPS\""
-} > "$ENV_FILE"
-chmod 600 "$ENV_FILE"
+}
+_emit_env > "${HOME}/.tranfu/tf_env.sh"
+chmod 600 "${HOME}/.tranfu/tf_env.sh"
+if [ -n "$RUNTIME" ]; then
+  RT_SLUG=$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
+  _emit_env > "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
+  chmod 600 "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
+fi
 
 # Idempotently wire the shell rc to load it (covers interactive shells, tf-run,
 # and non-hook runtimes). One guarded block — re-running never appends duplicates.
