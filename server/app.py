@@ -8,6 +8,9 @@ Ingest:
                          skills, integrations, about, tips, cf, instructions,
                          memory). instructions+memory are sensitive -> opt-in and
                          gated by read-side auth (see PROTOCOL.md §5).
+  DELETE /v1/events      admin (X-TF-Key) cleanup — drop events by session_ids or
+                         by identity (operator[/agent/runtime]); optional profile
+                         clear. For pruning test/junk sessions off the board.
 
 Read:
   GET  /api/state        snapshot the dashboard polls (sessions + profile +
@@ -235,6 +238,58 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         _maybe_prune(conn)
         conn.commit()
     return {"ok": True, "logged": True, "verified": bool(verified)}
+
+
+# ---------------------------------------------------------------- delete (admin)
+@app.delete("/v1/events")
+async def delete_events(request: Request, x_tf_key: str = Header(default="")):
+    """Admin cleanup, guarded by the team write key (same gate as ingest).
+    Delete by ONE of:
+      {"session_ids": ["s1","s2"]} / {"session_id": "s1"}  -> drop those sessions
+      {"operator": "...", "agent": "...", "runtime": "...", -> drop a whole identity
+       "profile": true}                                        (profile:true also
+                                                                clears its card profile)
+    Returns the number of event rows deleted (deleted may be 0 — no-op safe)."""
+    check_auth(x_tf_key)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "body must be a JSON object")
+    sids = list(body.get("session_ids") or [])
+    if isinstance(body.get("session_id"), str):
+        sids.append(body["session_id"])
+    operator = body.get("operator")
+    if not sids and not operator:
+        raise HTTPException(400, "need session_ids or operator")
+    if sids and not all(isinstance(s, str) for s in sids):
+        raise HTTPException(400, "session_ids must be strings")
+
+    with _lock, closing(db()) as conn:
+        if sids:
+            marks = ",".join("?" * len(sids))
+            deleted = conn.execute(
+                f"DELETE FROM events WHERE session_id IN ({marks})", sids).rowcount
+            conn.commit()
+            return {"ok": True, "deleted": deleted, "by": "session_ids"}
+        agent, runtime = body.get("agent"), body.get("runtime")
+        clauses, params = ["operator=?"], [operator]
+        if agent:
+            clauses.append("COALESCE(agent,runtime)=?"); params.append(agent)
+        if runtime:
+            clauses.append("runtime=?"); params.append(runtime)
+        deleted = conn.execute(
+            f"DELETE FROM events WHERE {' AND '.join(clauses)}", params).rowcount
+        cleared_profile = 0
+        if body.get("profile") and agent:
+            cleared_profile = conn.execute(
+                "DELETE FROM profiles WHERE operator=? AND ak=?"
+                + (" AND runtime=?" if runtime else ""),
+                ([operator, agent, runtime] if runtime else [operator, agent])).rowcount
+        conn.commit()
+        return {"ok": True, "deleted": deleted,
+                "cleared_profile": cleared_profile, "by": "identity"}
 
 
 _prune_state = {"n": 0}

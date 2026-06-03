@@ -129,15 +129,56 @@ def _parse_skill_md(p):
     return name, desc
 
 
-def detect_skills(cwd):
-    dirs = [HOME / ".claude" / "skills", Path(cwd) / ".claude" / "skills"]
+def _skill_sources(runtime, cwd):
+    """[(root_dir, [glob_patterns])] — the skill locations THIS runtime loads from.
+    Skills are per-runtime: Claude reads ~/.claude/skills, Codex ~/.codex/skills,
+    Hermes ~/.hermes/skills (nested one level under category dirs). Scanning the
+    wrong runtime's dir is why every agent on a shared box used to report an
+    identical skill list."""
+    rt = (runtime or "").lower()
+
+    def flat(d):
+        return (d, [str(d / "*" / "SKILL.md")])
+
+    def nested(d):  # also match one extra level (category/skill/SKILL.md)
+        return (d, [str(d / "*" / "SKILL.md"), str(d / "*" / "*" / "SKILL.md")])
+
+    if rt == "hermes":
+        return [nested(HOME / ".hermes" / "skills")]
+    if rt == "codex":
+        return [flat(HOME / ".codex" / "skills"), flat(Path(cwd) / ".codex" / "skills")]
+    # claude-code / claude-desktop / cli / unknown -> Claude's skill dirs
+    return [flat(HOME / ".claude" / "skills"), flat(Path(cwd) / ".claude" / "skills")]
+
+
+def detect_skills(cwd, runtime=None):
+    # Escape hatch: TF_SKILLS="name1,name2" reports exactly these (manual curation).
+    override = os.environ.get("TF_SKILLS", "").strip()
+    if override:
+        names = [s.strip() for s in override.split(",") if s.strip()]
+        return {"local": [{"name": n, "desc": ""} for n in names],
+                "cross": [], "pitfalls": []} if names else None
+    # By default skip skills SYMLINKED in from a shared pool — those are "borrowed",
+    # not this agent's own (e.g. ~/.claude/skills/lark-* -> ~/.agents/skills).
+    # Set TF_SKILLS_INCLUDE_LINKS=1 to include them.
+    include_links = os.environ.get("TF_SKILLS_INCLUDE_LINKS") == "1"
     local, seen = [], set()
-    for d in dirs:
-        for sk in sorted(glob.glob(str(d / "*" / "SKILL.md"))):
-            nm, desc = _safe(lambda: _parse_skill_md(sk), (None, None))
-            if nm and nm not in seen:
-                seen.add(nm)
-                local.append({"name": nm, "desc": desc or ""})
+    for d, patterns in _skill_sources(runtime, cwd):
+        for pat in patterns:
+            for sk in sorted(glob.glob(pat)):
+                if (os.sep + ".archive" + os.sep) in sk:
+                    continue
+                # the entry directly under the root on the path to this skill
+                try:
+                    first = Path(d) / Path(sk).relative_to(d).parts[0]
+                except Exception:
+                    first = Path(os.path.dirname(sk))
+                if not include_links and first.is_symlink():
+                    continue
+                nm, desc = _safe(lambda: _parse_skill_md(sk), (None, None))
+                if nm and nm not in seen:
+                    seen.add(nm)
+                    local.append({"name": nm, "desc": desc or ""})
     return {"local": local, "cross": [], "pitfalls": []} if local else None
 
 
@@ -197,7 +238,7 @@ def collect(runtime=None, cwd=None):
     cf = {k: v for k, v in cf.items() if v not in (None, "", [])}
 
     mcp = _safe(lambda: detect_mcp(runtime, cwd), []) or []
-    skills = _safe(lambda: detect_skills(cwd))
+    skills = _safe(lambda: detect_skills(cwd, runtime))
     ims = cf.get("ims", [])
     integrations = [{"name": m, "desc": "MCP 服务"} for m in mcp] + \
                    [{"name": im, "desc": "IM 集成"} for im in ims]
