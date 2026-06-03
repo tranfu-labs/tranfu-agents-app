@@ -35,10 +35,10 @@ while [ $# -gt 0 ]; do case "$1" in
 
 mkdir -p ~/.tranfu
 BASE="${SERVER%/}/shims"
-for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run; do
+for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh; do
   curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
 done
-chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py
+chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf-hermes-hook.sh
 
 # Identity/env files under ~/.tranfu (overwritten each run — re-installing never
 # duplicates). Hooks source these directly because they run in a non-interactive
@@ -98,6 +98,16 @@ echo "Done. New shells pick up the config automatically (or: source $PROFILE)."
 if [ "$RUNTIME" = "claude-code" ] || [ "$RUNTIME" = "codex" ]; then
   echo "${RUNTIME} reports through hooks after restart. For one-off CLI runs you can still use:"
   echo "  tf-run --runtime ${RUNTIME} --agent \"${AGENT:-<label>}\" --task \"…\" -- ${RUNTIME%%-*}"
+elif [ "$RUNTIME" = "hermes" ]; then
+  echo "Hermes: for live event-driven reporting (no cron heartbeat needed), add to"
+  echo "~/.hermes/config.yaml and restart the gateway (hermes gateway restart):"
+  echo "  hooks:"
+  for ev in on_session_start pre_llm_call pre_tool_call post_llm_call on_session_end; do
+    echo "    ${ev}:"
+    echo "      - command: \"~/.tranfu/tf-hermes-hook.sh\""
+  done
+  echo "  hooks_auto_accept: true   # or approve once interactively / pre-seed allowlist"
+  echo "One-off CLI runs can still use: tf-run --runtime hermes --agent \"${AGENT:-多儿}\" --task \"…\" -- <cmd>"
 else
   echo "From now on, run your agent through the wrapper so steps show live:"
   echo "  tf-run --runtime ${RUNTIME:-<rt>} --agent \"${AGENT:-<label>}\" --task \"…\" -- <your agent command>"
