@@ -89,3 +89,46 @@ def test_v_and_parent_persisted(client):
     card = next(c for c in cards if c["session_id"] == "child")
     assert card["parent_session_id"] == "root"
     assert card["v"] == "0.1"
+
+
+# ---- DELETE /v1/events admin 清理 ------------------------------------------
+def test_delete_by_session_id(client):
+    ev(client, session_id="junk1", current_step="x")
+    ev(client, session_id="keep1", current_step="x")
+    r = client.request("DELETE", "/v1/events", json={"session_id": "junk1"})
+    assert r.status_code == 200 and r.json()["deleted"] >= 1
+    sids = {c["session_id"] for c in client.get("/api/state").json()["sessions"]}
+    assert "junk1" not in sids and "keep1" in sids
+
+
+def test_delete_by_session_ids_list(client):
+    ev(client, session_id="a", current_step="x")
+    ev(client, session_id="b", current_step="x")
+    r = client.request("DELETE", "/v1/events", json={"session_ids": ["a", "b"]})
+    assert r.status_code == 200 and r.json()["deleted"] >= 2
+
+
+def test_delete_by_identity_clears_profile(client):
+    # 一个带 profile 的身份（中文 agent 名，验证 body 传参不受 URL 编码影响）
+    ev(client, operator="zoe", runtime="claude-code", agent="赛博测试",
+       session_id="s", current_step="x", skills={"local": [{"name": "k"}]})
+    r = client.request("DELETE", "/v1/events",
+                       json={"operator": "zoe", "agent": "赛博测试", "profile": True})
+    assert r.status_code == 200
+    assert r.json()["deleted"] >= 1 and r.json()["cleared_profile"] == 1
+    cards = client.get("/api/state").json()["sessions"]
+    assert not any(c["operator"] == "zoe" for c in cards)
+
+
+def test_delete_requires_target_400(client):
+    r = client.request("DELETE", "/v1/events", json={})
+    assert r.status_code == 400
+
+
+def test_delete_requires_key_when_set(client, app_mod):
+    app_mod.INGEST_KEY = "secret"
+    bad = client.request("DELETE", "/v1/events", json={"session_id": "x"})
+    assert bad.status_code == 401
+    ok = client.request("DELETE", "/v1/events", json={"session_id": "x"},
+                        headers={"X-TF-Key": "secret"})
+    assert ok.status_code == 200

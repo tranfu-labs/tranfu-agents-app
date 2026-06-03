@@ -40,20 +40,37 @@ for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_hook
 done
 chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py
 
-# persist config to shell rc (so every future run reports with the same identity)
-PROFILE="${HOME}/.$(basename "$SHELL")rc"
+# Single source of truth for identity/env: ~/.tranfu/tf_env.sh (overwritten each
+# run — re-installing never duplicates). Hooks source THIS file directly because
+# they run in a non-interactive shell that does NOT read ~/.zshrc; writing the
+# identity only into the rc would leave hook-based runtimes (claude-code/codex)
+# blind and silently non-reporting.
+ENV_FILE="${HOME}/.tranfu/tf_env.sh"
 {
-  echo ""; echo "# --- tranfu agent telemetry ---"
+  echo "# TRANFU//AGENTS identity — written by install.sh, safe to re-run."
   echo "export TF_SERVER=\"$SERVER\""
-  echo "export TF_KEY=\"$KEY\""
+  [ -n "$KEY" ]     && echo "export TF_KEY=\"$KEY\""
   echo "export TF_OPERATOR=\"$OPERATOR\""
   [ -n "$RUNTIME" ] && echo "export TF_RUNTIME=\"$RUNTIME\""
   [ -n "$AGENT" ]   && echo "export TF_AGENT=\"$AGENT\""
   [ -n "$ROLE" ]    && echo "export TF_ROLE=\"$ROLE\""
   [ -n "$ABOUT" ]   && echo "export TF_ABOUT=\"$ABOUT\""
   [ -n "$TIPS" ]    && echo "export TF_TIPS=\"$TIPS\""
-  echo "export PATH=\"\$HOME/.tranfu:\$PATH\""
-} >> "$PROFILE"
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+# Idempotently wire the shell rc to load it (covers interactive shells, tf-run,
+# and non-hook runtimes). One guarded block — re-running never appends duplicates.
+PROFILE="${HOME}/.$(basename "$SHELL")rc"
+MARKER="# --- tranfu agent telemetry (managed) ---"
+if [ ! -f "$PROFILE" ] || ! grep -qF "$MARKER" "$PROFILE"; then
+  {
+    echo ""
+    echo "$MARKER"
+    echo '[ -f "$HOME/.tranfu/tf_env.sh" ] && . "$HOME/.tranfu/tf_env.sh"'
+    echo 'export PATH="$HOME/.tranfu:$PATH"'
+  } >> "$PROFILE"
+fi
 
 # register now: one profile-bearing event so the agent shows up WITH its detail
 echo "Registering on the board…"

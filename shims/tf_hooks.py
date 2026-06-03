@@ -21,7 +21,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_COMMAND = 'python3 "$HOME/.tranfu/tf_hook.py"'
+# Source the identity env first so the hook works under ANY shell/launch context
+# (hooks run in a non-interactive shell that does NOT read ~/.zshrc — see install.sh).
+DEFAULT_COMMAND = '. "$HOME/.tranfu/tf_env.sh" 2>/dev/null; python3 "$HOME/.tranfu/tf_hook.py"'
 COMMON_EVENTS = (
     ("SessionStart", None),
     ("UserPromptSubmit", None),
@@ -176,6 +178,7 @@ def install_hooks(cfg, target):
 
         seen = False
         removed = 0
+        upgraded = 0
         new_groups = []
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
@@ -183,26 +186,37 @@ def install_hooks(cfg, target):
                 continue
 
             new_hook_list = []
+            group_changed = False
             for hook in group["hooks"]:
                 if _is_tranfu_hook(hook):
                     if not seen:
                         seen = True
+                        # upgrade an older TRANFU hook to the current command form
+                        if hook.get("command") != DEFAULT_COMMAND:
+                            hook = dict(hook)
+                            hook["command"] = DEFAULT_COMMAND
+                            upgraded += 1
+                            group_changed = True
                         new_hook_list.append(hook)
                     else:
                         removed += 1
+                        group_changed = True
                 else:
                     new_hook_list.append(hook)
 
             if new_hook_list:
-                if len(new_hook_list) != len(group["hooks"]):
+                if group_changed:
                     group = dict(group)
                     group["hooks"] = new_hook_list
                 new_groups.append(group)
 
-        if removed:
+        if removed or upgraded:
             hooks[event] = new_groups
             changed = True
-            actions.append(f"deduped {event}")
+            if removed:
+                actions.append(f"deduped {event}")
+            if upgraded:
+                actions.append(f"upgraded {event}")
 
         if not seen:
             new_groups.append(_entry(target, event))
