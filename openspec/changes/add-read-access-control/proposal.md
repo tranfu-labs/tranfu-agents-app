@@ -1,7 +1,15 @@
 # 变更提案:add-read-access-control(看板读侧访问控制)
 
-- 状态:Proposed(设计中,未实现)
-- 关联:ADR-0002(写侧已有 TF_KEY)、specs/board、specs/ingest、DEPLOY.md「D. 访问控制」
+- 状态:Partially implemented(部分实现)
+- 关联:ADR-0002(写侧 TF_KEY)、**ADR-0012(内容捕获硬闸,已落地)**、ADR-0011(身份令牌)、specs/board、specs/ingest、DEPLOY.md「D. 访问控制」
+
+## 进度(2026-06-02 更新)
+- ✅ **内容捕获硬闸已实现**(ADR-0012):服务端用 `TF_READ_KEY`(非空)或 `TF_READ_AUTH=1`
+  判断读侧是否受保护;未受保护时**丢弃** `input/output/instructions/memory` 不予存储。
+  DEPLOY.md「D2」已写入带放行清单的标准步骤。
+- ⬜ **方案 A(边缘鉴权)** 仍是首选,属部署侧配置(Cloudflare Access / Caddy),见 tasks。
+- ⬜ **方案 B(应用内读侧中间件)** 未实现:目前 `TF_READ_KEY` 仅作"读侧已就位"的信号,
+  **尚未**对 `/` 与 `/api/*` 强制校验 Cookie/Bearer。若将来脱离边缘平台部署再落地。
 
 ## 背景 / 问题
 看板默认"谁有网址谁就能看"。写入有 `TF_KEY` 保护,但**读取(看板页 + `/api/state`)无鉴权**。

@@ -1,11 +1,13 @@
 """
-TRANFU//AGENTS — collector server.
+TRANFU//AGENTS — collector server. Implements TATP v0.1 (see ../PROTOCOL.md).
 
 Ingest:
+  POST /v1/enroll        admin (X-TF-Key) issues a per-operator token (one-time)
   POST /v1/events        JSON heartbeat (all agents via shim / MCP reporter)
                          May carry OPTIONAL profile fields (models, config, mcp,
                          skills, integrations, about, tips, cf, instructions,
-                         memory). instructions+memory are sensitive -> opt-in.
+                         memory). instructions+memory are sensitive -> opt-in and
+                         gated by read-side auth (see PROTOCOL.md §5).
 
 Read:
   GET  /api/state        snapshot the dashboard polls (sessions + profile +
@@ -14,9 +16,9 @@ Read:
   GET  /                 the dashboard
   GET  /healthz
 
-Storage is SQLite (file at $TF_DB, default ./tf.db). No external services.
+Storage is SQLite (WAL) at $TF_DB, default ./tf.db. No external services.
 """
-import os, json, sqlite3, time, threading
+import os, json, sqlite3, time, threading, hashlib, secrets
 from datetime import datetime, timezone, timedelta
 from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException
@@ -24,6 +26,13 @@ from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
 
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
+# per-operator attribution: when on, every event MUST carry a valid X-TF-Token
+# whose bound operator matches the body's `operator` (TATP v0.1 §4).
+REQUIRE_TOKEN = os.environ.get("TF_REQUIRE_TOKEN", "0") == "1"
+# read-side auth gate for content capture (TATP v0.1 §5). Sensitive fields are
+# stored ONLY when read access is protected: either the app read-key is set, or
+# the operator asserts an edge gate (Cloudflare Access / Caddy) via TF_READ_AUTH=1.
+READ_AUTH_OK = bool(os.environ.get("TF_READ_KEY")) or os.environ.get("TF_READ_AUTH", "0") == "1"
 DASH_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboard", "index.html")
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
@@ -34,14 +43,35 @@ _MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
 # profile keys the shim MAY include on an event (all optional, opt-in)
 PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
                 "about", "tips", "cf", "instructions", "memory")
+# sensitive fields gated behind read-side auth (dropped if read access is open)
+SENSITIVE_KEYS = ("input", "output", "instructions", "memory")
+
+# §8 size limits
+MAX_BODY = 256 * 1024          # reject the whole POST above this -> 413
+MAX_CONTENT = 16 * 1024        # stored input/output, each
+MAX_META = 4 * 1024            # stored meta json
+WINDOW_DAYS = 90               # retention + read window
 
 app = FastAPI(title="TRANFU//AGENTS")
 _lock = threading.Lock()
 
 
+def _sha(s):
+    return hashlib.sha256(s.encode()).hexdigest()
+
+
+def _clip(s, n):
+    """Truncate an over-long string for storage, marking the cut."""
+    if isinstance(s, str) and len(s) > n:
+        return s[:n] + "…[truncated]"
+    return s
+
+
 def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")      # readers don't block the writer
+    conn.execute("PRAGMA busy_timeout=4000")
     return conn
 
 
@@ -50,8 +80,9 @@ def init_db():
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts TEXT, day TEXT,
-          operator TEXT, agent TEXT, runtime TEXT, session_id TEXT,
+          ts TEXT, recv TEXT, day TEXT,          -- ts=client(display), recv=server(authoritative)
+          v TEXT, operator TEXT, agent TEXT, runtime TEXT,
+          session_id TEXT, parent_session_id TEXT, verified INTEGER DEFAULT 0,
           status TEXT, task TEXT, current_step TEXT,
           model TEXT, last_seen TEXT,
           input TEXT, output TEXT, meta TEXT, source TEXT
@@ -66,11 +97,22 @@ def init_db():
           PRIMARY KEY (operator, ak, runtime)
         );
 
-        -- first time each skill name was seen (for leverage: assets / new-this-week)
+        -- first time each skill name was seen (leverage: cumulative assets / new-this-week)
         CREATE TABLE IF NOT EXISTS skills_seen (
           name TEXT PRIMARY KEY, first_day TEXT
         );
+
+        -- per-operator token bindings (TATP v0.1 §4). Stores sha256(token) only.
+        CREATE TABLE IF NOT EXISTS operators (
+          operator TEXT PRIMARY KEY, token_hash TEXT, created TEXT
+        );
         """)
+        # tolerate upgrades from an older schema (add columns if missing)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
+        for col, decl in (("recv", "TEXT"), ("v", "TEXT"),
+                          ("parent_session_id", "TEXT"), ("verified", "INTEGER DEFAULT 0")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
         conn.commit()
 
 
@@ -81,6 +123,20 @@ def now_iso():
 def check_auth(key):
     if INGEST_KEY and key != INGEST_KEY:
         raise HTTPException(status_code=401, detail="bad ingest key")
+
+
+def verify_operator(conn, operator, token):
+    """Per-operator attribution (§4). Returns True iff `token` is bound to
+    `operator`. When TF_REQUIRE_TOKEN is on, a missing/mismatched token is a 403."""
+    if not token:
+        if REQUIRE_TOKEN:
+            raise HTTPException(403, "X-TF-Token required (TF_REQUIRE_TOKEN on)")
+        return False                                   # legacy: operator self-asserted
+    row = conn.execute("SELECT operator FROM operators WHERE token_hash=?",
+                       (_sha(token),)).fetchone()
+    if not row or row["operator"] != operator:
+        raise HTTPException(403, "token does not match operator")
+    return True
 
 
 def _skill_names(skills):
@@ -96,58 +152,110 @@ def _skill_names(skills):
     return [n for n in out if n]
 
 
+# ---------------------------------------------------------------- enroll (§4)
+@app.post("/v1/enroll")
+async def enroll(request: Request, x_tf_key: str = Header(default="")):
+    """Admin issues a per-operator token. Guarded by the team write key.
+    The plaintext token is returned ONCE; the server stores only its sha256."""
+    check_auth(x_tf_key)
+    body = await request.json()
+    operator = (body.get("operator") or "").strip()
+    if not operator:
+        raise HTTPException(400, "operator required")
+    token = "ttk_" + secrets.token_urlsafe(24)
+    with _lock, closing(db()) as conn:
+        conn.execute("""INSERT INTO operators(operator,token_hash,created) VALUES(?,?,?)
+          ON CONFLICT(operator) DO UPDATE SET token_hash=excluded.token_hash,created=excluded.created""",
+          (operator, _sha(token), now_iso()))
+        conn.commit()
+    return {"operator": operator, "token": token,
+            "note": "保存到 TF_TOKEN，仅此一次可见"}
+
+
 # ---------------------------------------------------------------- ingest
 @app.post("/v1/events")
-async def ingest_event(request: Request, x_tf_key: str = Header(default="")):
+async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
+                       x_tf_token: str = Header(default="")):
     check_auth(x_tf_key)
-    e = await request.json()
+    # §8 reject oversized bodies before parsing
+    raw = await request.body()
+    if len(raw) > MAX_BODY:
+        raise HTTPException(413, f"body exceeds {MAX_BODY} bytes")
+    try:
+        e = json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "invalid JSON body")
     if not all(e.get(k) for k in ("operator", "runtime", "session_id", "status")):
         raise HTTPException(400, "operator, runtime, session_id, status are required")
     ts = e.get("ts") or now_iso()
+    recv = now_iso()                               # server-authoritative time (§6)
     op, rt = e["operator"], e["runtime"]
     ag = e.get("agent") or rt                      # agent identity label
+    sid = e["session_id"]
     status, step = e["status"], e.get("current_step")
 
-    # OPTIONAL profile payload — store latest per identity (opt-in fields)
-    profile = {k: e[k] for k in PROFILE_KEYS if e.get(k) is not None}
+    # §5 read-side auth gate: drop sensitive fields unless read access is protected
+    if not READ_AUTH_OK:
+        for k in SENSITIVE_KEYS:
+            e.pop(k, None)
+    inp = _clip(e.get("input"), MAX_CONTENT)
+    outp = _clip(e.get("output"), MAX_CONTENT)
+    meta_json = _clip(json.dumps(e.get("meta"), ensure_ascii=False), MAX_META) if e.get("meta") else None
 
     with _lock, closing(db()) as conn:
+        verified = 1 if verify_operator(conn, op, x_tf_token) else 0
+
+        # OPTIONAL profile payload — full-snapshot replace per identity (§6)
+        profile = {k: e[k] for k in PROFILE_KEYS if e.get(k) is not None}
         if profile:
-            row = conn.execute("SELECT json FROM profiles WHERE operator=? AND ak=? AND runtime=?",
-                               (op, ag, rt)).fetchone()
-            merged = json.loads(row["json"]) if row else {}
-            merged.update(profile)
             conn.execute("""INSERT INTO profiles(operator,ak,runtime,json,updated)
               VALUES(?,?,?,?,?)
               ON CONFLICT(operator,ak,runtime) DO UPDATE SET json=excluded.json,updated=excluded.updated""",
-              (op, ag, rt, json.dumps(merged, ensure_ascii=False), ts))
+              (op, ag, rt, json.dumps(profile, ensure_ascii=False), recv))
             for nm in _skill_names(profile.get("skills")):
-                conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, ts[:10]))
+                conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, recv[:10]))
 
+        # dedup key now includes session_id (§6) so concurrent sessions of one
+        # identity don't swallow each other's liveness.
         last = conn.execute("""SELECT id,status,current_step FROM events
-            WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=?
-            ORDER BY id DESC LIMIT 1""", (op, rt, ag)).fetchone()
+            WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=? AND session_id=?
+            ORDER BY id DESC LIMIT 1""", (op, rt, ag, sid)).fetchone()
         if last and last["status"] == status and (last["current_step"] or "") == (step or ""):
-            # pure heartbeat: nothing changed -> only refresh liveness, no new row, no feed
-            conn.execute("UPDATE events SET last_seen=? WHERE id=?", (ts, last["id"]))
+            # pure heartbeat: nothing changed -> only refresh liveness (server time)
+            conn.execute("UPDATE events SET last_seen=? WHERE id=?", (recv, last["id"]))
             conn.commit()
-            return {"ok": True, "heartbeat": True}
+            return {"ok": True, "heartbeat": True, "verified": bool(verified)}
         conn.execute("""INSERT INTO events
-          (ts,day,last_seen,operator,agent,runtime,session_id,status,task,current_step,model,
-           input,output,meta,source)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-          (ts, ts[:10], ts, op, e.get("agent"), rt, e["session_id"], status,
-           e.get("task"), step, e.get("model"), e.get("input"), e.get("output"),
-           json.dumps(e.get("meta")) if e.get("meta") else None, "heartbeat"))
+          (ts,recv,day,last_seen,v,operator,agent,runtime,session_id,parent_session_id,verified,
+           status,task,current_step,model,input,output,meta,source)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (ts, recv, recv[:10], recv, e.get("v"), op, e.get("agent"), rt, sid,
+           e.get("parent_session_id"), verified, status,
+           e.get("task"), step, e.get("model"), inp, outp, meta_json, "heartbeat"))
+        _maybe_prune(conn)
         conn.commit()
-    return {"ok": True, "logged": True}
+    return {"ok": True, "logged": True, "verified": bool(verified)}
+
+
+_prune_state = {"n": 0}
+
+
+def _maybe_prune(conn):
+    """Retention (§6): every ~200 inserts, drop events older than the window."""
+    _prune_state["n"] += 1
+    if _prune_state["n"] % 200 != 1:
+        return
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=WINDOW_DAYS - 1)).isoformat()
+    conn.execute("DELETE FROM events WHERE day < ?", (cutoff,))
 
 
 # ---------------------------------------------------------------- read helpers
 CLOUD_RUNTIMES = {"manus", "mulerun", "chatgpt"}
-STALE_SECONDS = 180
-WINDOW_DAYS = 90
-LIVE_ST = ("running", "started", "waiting")
+STALE_SECONDS = 180                                # = 3 heartbeat periods (§1)
+# §1: blocked is a LIVE status — it still occupies a run, so it counts as active
+# time and does not flip to idle. quality also surfaces a separate blocked count.
+ACTIVE_ST = ("running", "started", "waiting", "blocked")
+LIVE_ST = ACTIVE_ST
 
 
 def _age(ts):
@@ -164,8 +272,9 @@ def _parse(ts):
 def _iter_sessions(conn):
     """Yield (key, session_id, [rows]) grouped by identity+session over the window."""
     win_start = (datetime.now(timezone.utc).date() - timedelta(days=WINDOW_DAYS - 1)).isoformat()
-    rows = conn.execute("""SELECT operator, COALESCE(agent,runtime) k, runtime, session_id, status, ts,
-        COALESCE(last_seen, ts) ls FROM events WHERE day >= ?
+    # use server-authoritative recv time (fall back to ts/last_seen for legacy rows)
+    rows = conn.execute("""SELECT operator, COALESCE(agent,runtime) k, runtime, session_id, status,
+        COALESCE(recv, ts) rt_time, COALESCE(last_seen, recv, ts) ls FROM events WHERE day >= ?
         ORDER BY operator, k, session_id, id""", (win_start,)).fetchall()
     cur, buf = None, []
     for r in rows:
@@ -200,15 +309,17 @@ def metrics(conn):
             cur = seg
 
     for key, _sid, rows in _iter_sessions(conn):
-        q = qual.setdefault(key, {"runs": 0, "done": 0, "error": 0, "active": 0.0, "auto": 0})
+        q = qual.setdefault(key, {"runs": 0, "done": 0, "error": 0, "blocked": 0, "active": 0.0, "auto": 0})
         active_start = last_ls = None
         saw_wait = False
         sess_active = 0.0
         for r in rows:
-            t = _parse(r["ts"]); last_ls = _parse(r["ls"]); st = r["status"]
-            if st in ("running", "started", "waiting"):
+            t = _parse(r["rt_time"]); last_ls = _parse(r["ls"]); st = r["status"]
+            if st in ACTIVE_ST:                       # running/started/waiting/blocked
                 if st == "waiting":
                     saw_wait = True
+                elif st == "blocked":
+                    q["blocked"] += 1
                 if active_start is None:
                     active_start = t
             elif st in ("done", "error", "idle"):
@@ -238,7 +349,7 @@ def metrics(conn):
     for key, q in qual.items():
         runs = q["runs"]
         qout[key] = {
-            "runs": runs, "success": q["done"], "error": q["error"],
+            "runs": runs, "success": q["done"], "error": q["error"], "blocked": q["blocked"],
             "avg_sec": round(q["active"] / runs) if runs else None,
             "auto_rate": round(q["auto"] / runs, 3) if runs else None,
         }
@@ -315,8 +426,9 @@ def _snapshot(conn):
             q["reuse"] = reuse[key]
         if q:
             d["quality"] = q
+        d["verified"] = bool(d.get("verified"))
         st = r["status"]
-        if st in ("running", "started") and _age(r["last_seen"] or r["ts"]) > STALE_SECONDS:
+        if st in ACTIVE_ST and _age(r["last_seen"] or r["recv"] or r["ts"]) > STALE_SECONDS:
             st = "idle"
         d["status"] = st
         for big in ("input", "output"):

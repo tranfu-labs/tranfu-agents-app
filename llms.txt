@@ -9,7 +9,7 @@ Key facts:
 - Identity model: operator (the person) → agent (a purpose label, e.g. "copy"/"code") → runtime (the tool).
 - Heterogeneous: local CLI agents report step-level detail; cloud agents report start/end.
 - Privacy: self-hosted; optional prompt/output capture is off by default.
-- Standards: event field names follow OpenTelemetry GenAI conventions.
+- Schema: small, fully original event protocol (TATP); forward to any backend via a thin mapping layer.
 - License: MIT. Home: https://tranfu.com
 
 ## Docs

@@ -1,6 +1,10 @@
 *.db
+*.db-shm
+*.db-wal
 __pycache__/
 *.pyc
 *.bak
 .env
 deploy/.env
+.venv/
+.pytest_cache/

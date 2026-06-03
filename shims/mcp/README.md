@@ -25,7 +25,8 @@ pip install -r requirements.txt        # 装 mcp
       "args": ["/绝对路径/tranfu-agents-app/shims/mcp/server.py"],
       "env": {
         "TF_SERVER": "https://你的看板",
-        "TF_KEY": "接入密钥",
+        "TF_KEY": "团队写入密钥",
+        "TF_TOKEN": "你的 per-operator 令牌(服务端开 TF_REQUIRE_TOKEN 时必填,enroll 获取)",
         "TF_OPERATOR": "nezha",
         "TF_RUNTIME": "claude-desktop",
         "TF_AGENT": "build"
