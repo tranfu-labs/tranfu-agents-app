@@ -4,3 +4,5 @@ __pycache__/
 *.bak
 .env
 deploy/.env
+.venv/
+.pytest_cache/

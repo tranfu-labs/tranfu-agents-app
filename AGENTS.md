@@ -58,6 +58,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 ## 修改后检查
 1. 服务端:`python -m py_compile server/app.py`;关键路径用 TestClient 自测
    (`/v1/events` 去重、`/api/state` 返回结构与卡片合并、`/install.sh` 与 `/shims/<f>` 可取、目录穿越被拒)。
+   协议契约测试固化在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)会在 PR 上自动跑;
+   改协议行为时同步加/改用例。
 2. 前端:抽出 `<script>` 跑 `node --check`;暗/亮主题与手机窄屏(≤600px)各看一眼。
 3. shim:对 fake 环境跑 `tf_profile.py` / `tf_report.py --print` 验证 payload;`bash -n` 校验 sh。
 4. 文档:涉及端口/链接/字段时,同步 `DEPLOY/UPDATE/QUICKSTART/USAGE/PROTOCOL` 与本文件。

@@ -1,0 +1,29 @@
+name: CI
+
+# PR 与推送到主分支时跑:编译 + 协议契约测试(对齐 AGENTS.md 的自测约定)。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt -r tests/requirements.txt
+
+      - name: 编译检查
+        run: python -m py_compile server/app.py shims/*.py shims/mcp/server.py
+
+      - name: 协议契约测试
+        run: python -m pytest tests/ -q
