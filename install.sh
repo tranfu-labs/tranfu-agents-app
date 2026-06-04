@@ -7,6 +7,11 @@
 #       --server https://tranfu-agents-app.tranfu.com --key SECRET \
 #       --operator nezha --runtime hermes --agent "多儿" --role "哪吒的 Lark 助手,写文档/调研"
 #
+# --models "MiniMax-M2": label this agent's model(s), comma-separated. Optional —
+#   per-runtime, so it never leaks across co-resident agents. Omit it and the
+#   model is auto-detected (Claude/Codex read their own config); a runtime that
+#   can't be detected (e.g. Hermes) simply shows no model rather than a wrong one.
+#
 # Claude Code:
 #   --runtime claude-code installs idempotent user-level hooks by default.
 #   Use --no-claude-hooks to skip, or --claude-hooks status|install|uninstall|restore.
@@ -14,7 +19,7 @@
 #   --runtime codex installs idempotent user-level hooks by default.
 #   Use --no-codex-hooks to skip, or --codex-hooks status|install|uninstall|restore.
 set -e
-SERVER=""; KEY=""; OPERATOR="$USER"; RUNTIME=""; AGENT=""; ROLE=""; ABOUT=""; TIPS=""
+SERVER=""; KEY=""; OPERATOR="$USER"; RUNTIME=""; AGENT=""; ROLE=""; ABOUT=""; TIPS=""; MODELS=""
 CLAUDE_HOOKS=""; CLAUDE_SETTINGS=""
 CODEX_HOOKS=""; CODEX_SETTINGS=""
 while [ $# -gt 0 ]; do case "$1" in
@@ -22,6 +27,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --operator) OPERATOR="$2"; shift 2;; --runtime) RUNTIME="$2"; shift 2;;
   --agent) AGENT="$2"; shift 2;; --role) ROLE="$2"; shift 2;;
   --about) ABOUT="$2"; shift 2;; --tips) TIPS="$2"; shift 2;;
+  --models) MODELS="$2"; shift 2;;
   --install-claude-hooks) CLAUDE_HOOKS="install"; shift;;
   --no-claude-hooks) CLAUDE_HOOKS="skip"; shift;;
   --claude-hooks) CLAUDE_HOOKS="$2"; shift 2;;
@@ -68,6 +74,16 @@ chmod 600 "${HOME}/.tranfu/tf_env.sh"
 if [ -n "$RUNTIME" ]; then
   RT_SLUG=$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
   _emit_env > "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
+  # TF_MODELS is per-runtime and lives ONLY in this runtime's own env file (never
+  # the shared tf_env.sh), so one agent's model label can't leak into another's
+  # profile. Hooks source THIS file, so an explicit --models wins here; with no
+  # --models we `unset` to neutralize any global TF_MODELS the shell rc may have
+  # exported (e.g. Hermes's secrets.env), letting tf_profile.py auto-detect.
+  if [ -n "$MODELS" ]; then
+    echo "export TF_MODELS=\"$MODELS\"" >> "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
+  else
+    echo "unset TF_MODELS" >> "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
+  fi
   chmod 600 "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
 fi
 
@@ -88,6 +104,7 @@ fi
 echo "Registering on the board…"
 TF_SERVER="$SERVER" TF_KEY="$KEY" TF_OPERATOR="$OPERATOR" \
 TF_RUNTIME="${RUNTIME:-cli}" TF_AGENT="$AGENT" TF_ROLE="$ROLE" TF_ABOUT="$ABOUT" TF_TIPS="$TIPS" \
+TF_MODELS="$MODELS" \
 TF_WITH_PROFILE=1 python3 ~/.tranfu/tf_report.py \
   --status started --task "接入" --step "registered" --profile 2>/dev/null \
   && echo "  ✓ registered (operator=$OPERATOR, agent=${AGENT:-$RUNTIME})" \

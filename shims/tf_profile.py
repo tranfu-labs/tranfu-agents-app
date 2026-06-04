@@ -205,8 +205,19 @@ def detect_ims():
     return ims
 
 
-def detect_config(cwd):
+def detect_config(cwd, runtime=None):
     cfg = {}
+    # Codex keeps its model in ~/.codex/config.toml (or <repo>/.codex/config.toml),
+    # NOT in Claude's settings.json. Read the runtime's OWN config so a codex card
+    # never shows a model borrowed from a co-resident Claude install. A codex with
+    # only a logged-in default (no `model` key) reports no model — correct, vs. the
+    # old behavior of silently surfacing whatever Claude's settings had.
+    if runtime == "codex":
+        for p in [Path(cwd) / ".codex" / "config.toml", HOME / ".codex" / "config.toml"]:
+            d = _read_toml(p)
+            if isinstance(d, dict) and d.get("model"):
+                cfg.setdefault("model", d["model"])
+        return cfg or None
     for p in [Path(cwd) / ".claude" / "settings.json", HOME / ".claude" / "settings.json"]:
         d = _read_json(p)
         if isinstance(d, dict):
@@ -248,7 +259,7 @@ def collect(runtime=None, cwd=None):
     ims = cf.get("ims", [])
     integrations = [{"name": m, "desc": "MCP 服务"} for m in mcp] + \
                    [{"name": im, "desc": "IM 集成"} for im in ims]
-    config = _safe(lambda: detect_config(cwd))
+    config = _safe(lambda: detect_config(cwd, runtime))
 
     models = None
     if os.environ.get("TF_MODELS"):
