@@ -55,13 +55,13 @@ chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.
 _emit_env() {
   echo "# TRANFU//AGENTS identity — written by install.sh, safe to re-run."
   echo "export TF_SERVER=\"$SERVER\""
-  [ -n "$KEY" ]     && echo "export TF_KEY=\"$KEY\""
+  [ -n "$KEY" ]     && echo "export TF_KEY=\"$KEY\"" || true
   echo "export TF_OPERATOR=\"$OPERATOR\""
-  [ -n "$RUNTIME" ] && echo "export TF_RUNTIME=\"$RUNTIME\""
-  [ -n "$AGENT" ]   && echo "export TF_AGENT=\"$AGENT\""
-  [ -n "$ROLE" ]    && echo "export TF_ROLE=\"$ROLE\""
-  [ -n "$ABOUT" ]   && echo "export TF_ABOUT=\"$ABOUT\""
-  [ -n "$TIPS" ]    && echo "export TF_TIPS=\"$TIPS\""
+  [ -n "$RUNTIME" ] && echo "export TF_RUNTIME=\"$RUNTIME\"" || true
+  [ -n "$AGENT" ]   && echo "export TF_AGENT=\"$AGENT\"" || true
+  [ -n "$ROLE" ]    && echo "export TF_ROLE=\"$ROLE\"" || true
+  [ -n "$ABOUT" ]   && echo "export TF_ABOUT=\"$ABOUT\"" || true
+  [ -n "$TIPS" ]    && echo "export TF_TIPS=\"$TIPS\"" || true
 }
 _emit_env > "${HOME}/.tranfu/tf_env.sh"
 chmod 600 "${HOME}/.tranfu/tf_env.sh"
@@ -133,7 +133,7 @@ if [ -n "$CLAUDE_HOOKS" ] && [ "$CLAUDE_HOOKS" != "skip" ]; then
     python3 ~/.tranfu/tf_hooks.py --target claude "$CLAUDE_HOOKS" \
       || echo "  ! could not update Claude Code hooks — run: python3 ~/.tranfu/tf_hooks.py --target claude $CLAUDE_HOOKS"
   fi
-  [ "$CLAUDE_HOOKS" = "install" ] && echo "Restart Claude Code for hooks to take effect."
+  [ "$CLAUDE_HOOKS" = "install" ] && echo "Restart Claude Code for hooks to take effect." || true
 fi
 if [ -n "$CODEX_HOOKS" ] && [ "$CODEX_HOOKS" != "skip" ]; then
   case "$CODEX_HOOKS" in
@@ -149,5 +149,5 @@ if [ -n "$CODEX_HOOKS" ] && [ "$CODEX_HOOKS" != "skip" ]; then
     python3 ~/.tranfu/tf_hooks.py --target codex "$CODEX_HOOKS" \
       || echo "  ! could not update Codex hooks — run: python3 ~/.tranfu/tf_hooks.py --target codex $CODEX_HOOKS"
   fi
-  [ "$CODEX_HOOKS" = "install" ] && echo "Restart Codex for hooks to take effect. If Codex asks to trust the new hook, approve it once."
+  [ "$CODEX_HOOKS" = "install" ] && echo "Restart Codex for hooks to take effect. If Codex asks to trust the new hook, approve it once." || true
 fi
