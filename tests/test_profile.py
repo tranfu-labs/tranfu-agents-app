@@ -64,3 +64,31 @@ def test_codex_without_model_reports_none_not_borrowed(tmp_path, monkeypatch):
     cwd = tmp_path / "proj"; cwd.mkdir()
     cfg = tf_profile.detect_config(str(cwd), "codex")
     assert cfg is None or "model" not in cfg   # 宁可不报，也不借 Claude 的
+
+
+def test_openclaw_skills_from_own_dirs(tmp_path, monkeypatch):
+    """OpenClaw 从自己的 skills 目录探测(workspace > ~/.agents > ~/.openclaw),不再只看 ~/.claude。"""
+    monkeypatch.setattr(tf_profile, "HOME", tmp_path)
+    _mk_skill(tmp_path / ".openclaw" / "skills" / "radar", "radar")              # managed/local
+    _mk_skill(tmp_path / ".agents" / "skills" / "shared-tool", "shared-tool")    # machine-shared
+    ws = tmp_path / "workspace"
+    _mk_skill(ws / "skills" / "ws-skill", "ws-skill")                            # per-agent workspace
+    names = {s["name"] for s in tf_profile.detect_skills(str(ws), "openclaw")["local"]}
+    assert {"radar", "shared-tool", "ws-skill"} <= names
+
+
+def test_openclaw_model_from_codex_home(tmp_path, monkeypatch):
+    """OpenClaw 底层是 Codex runtime,模型来自 per-agent codex-home 的 config.toml。"""
+    monkeypatch.setattr(tf_profile, "HOME", tmp_path)
+    ch = tmp_path / ".openclaw" / "agents" / "lobster1" / "agent" / "codex-home"
+    ch.mkdir(parents=True)
+    (ch / "config.toml").write_text('model = "claude-sonnet-4-6"\n', encoding="utf-8")
+    cfg = tf_profile.detect_config(str(tmp_path / "ws"), "openclaw")
+    assert cfg and cfg.get("model") == "claude-sonnet-4-6"
+
+
+def test_openclaw_label_case_insensitive(monkeypatch):
+    """注册成驼峰 OpenClaw 也能识别成 runtime(label/版本命令大小写不敏感)。"""
+    assert tf_profile.RT_LABEL.get("openclaw") == "OpenClaw"
+    monkeypatch.setattr(tf_profile, "_sh", lambda cmd: "")   # 模拟未安装 openclaw 命令
+    assert tf_profile.detect_version("OpenClaw") == "OpenClaw"

@@ -31,10 +31,13 @@ from pathlib import Path
 
 HOME = Path.home()
 RT_LABEL = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop",
-            "codex": "Codex", "open-claw": "Open Claw", "hermes": "Hermes",
-            "manus": "Manus", "mulerun": "MuleRun", "chatgpt": "ChatGPT"}
+            "codex": "Codex", "open-claw": "OpenClaw", "openclaw": "OpenClaw",
+            "hermes": "Hermes", "manus": "Manus", "mulerun": "MuleRun", "chatgpt": "ChatGPT"}
+# OpenClaw registers as "openclaw" (no hyphen); "open-claw" kept as alias. Its CLI
+# is `openclaw` (not `claw`), and it runs on a Codex runtime under the hood, so its
+# model/MCP live in a codex config.toml (see detect_config / detect_mcp).
 VER_CMD = {"claude-code": ["claude", "--version"], "codex": ["codex", "--version"],
-           "open-claw": ["claw", "--version"]}
+           "open-claw": ["openclaw", "--version"], "openclaw": ["openclaw", "--version"]}
 
 
 def _safe(fn, default=None):
@@ -79,8 +82,9 @@ def detect_terminal():
 
 
 def detect_version(runtime):
-    label = RT_LABEL.get(runtime, runtime)
-    cmd = VER_CMD.get(runtime)
+    rt = (runtime or "").lower()
+    label = RT_LABEL.get(rt, runtime)
+    cmd = VER_CMD.get(rt)
     if cmd:
         out = _sh(cmd)
         m = re.search(r"\d+\.\d+(\.\d+)?", out)
@@ -107,12 +111,16 @@ def detect_mcp(runtime, cwd):
             ms = d.get("mcpServers") or d.get("mcp_servers")
             if isinstance(ms, dict):
                 servers.update(ms.keys())
-    # codex toml
-    d = _read_toml(HOME / ".codex" / "config.toml")
-    if isinstance(d, dict):
-        ms = d.get("mcp_servers") or d.get("mcpServers")
-        if isinstance(ms, dict):
-            servers.update(ms.keys())
+    # codex toml — also OpenClaw, which runs each agent on a Codex runtime stored
+    # under ~/.openclaw/agents/<agentId>/agent/codex-home/ (dynamic id -> glob).
+    toml_candidates = [HOME / ".codex" / "config.toml"]
+    toml_candidates += sorted(HOME.glob(".openclaw/agents/*/agent/codex-home/config.toml"))
+    for tp in toml_candidates:
+        d = _read_toml(tp)
+        if isinstance(d, dict):
+            ms = d.get("mcp_servers") or d.get("mcpServers")
+            if isinstance(ms, dict):
+                servers.update(ms.keys())
     return sorted(servers)
 
 
@@ -154,6 +162,17 @@ def _skill_sources(runtime, cwd):
         return [nested(HOME / ".hermes" / "skills", skip_symlinks=False)]
     if rt == "codex":
         return [flat(HOME / ".codex" / "skills"), flat(Path(cwd) / ".codex" / "skills")]
+    if rt in ("openclaw", "open-claw"):
+        # OpenClaw skill precedence (docs.openclaw.ai): <workspace>/skills (per-agent)
+        # > ~/.agents/skills (machine-shared) > ~/.openclaw/skills (managed/local).
+        # These are deliberately symlink-organized (sibling-repo layouts), so keep
+        # links like Hermes does. cwd is the agent's workspace at hook time. Keep
+        # ~/.claude/skills too — existing OpenClaw installs were detected there.
+        return [flat(Path(cwd) / "skills", skip_symlinks=False),
+                nested(HOME / ".agents" / "skills", skip_symlinks=False),
+                nested(HOME / ".openclaw" / "skills", skip_symlinks=False),
+                flat(HOME / ".claude" / "skills"),           # keep: existing installs
+                flat(Path(cwd) / ".claude" / "skills")]      # keep: don't regress counts
     # claude-code / claude-desktop / cli / unknown -> Claude's skill dirs
     return [flat(HOME / ".claude" / "skills"), flat(Path(cwd) / ".claude" / "skills")]
 
@@ -206,14 +225,20 @@ def detect_ims():
 
 
 def detect_config(cwd, runtime=None):
+    rt = (runtime or "").lower()
     cfg = {}
-    # Codex keeps its model in ~/.codex/config.toml (or <repo>/.codex/config.toml),
-    # NOT in Claude's settings.json. Read the runtime's OWN config so a codex card
-    # never shows a model borrowed from a co-resident Claude install. A codex with
-    # only a logged-in default (no `model` key) reports no model — correct, vs. the
-    # old behavior of silently surfacing whatever Claude's settings had.
-    if runtime == "codex":
-        for p in [Path(cwd) / ".codex" / "config.toml", HOME / ".codex" / "config.toml"]:
+    # Codex — and OpenClaw, which runs each agent on a Codex runtime — keep their
+    # model in a codex config.toml, NOT Claude's settings.json. Read the runtime's
+    # OWN config so the card never borrows a co-resident Claude model. No `model`
+    # key (e.g. logged-in default) -> report nothing, not a wrong borrowed model.
+    toml_paths = None
+    if rt == "codex":
+        toml_paths = [Path(cwd) / ".codex" / "config.toml", HOME / ".codex" / "config.toml"]
+    elif rt in ("openclaw", "open-claw"):
+        # per-agent Codex runtime under ~/.openclaw/agents/<id>/agent/codex-home/
+        toml_paths = sorted(HOME.glob(".openclaw/agents/*/agent/codex-home/config.toml"))
+    if toml_paths is not None:
+        for p in toml_paths:
             d = _read_toml(p)
             if isinstance(d, dict) and d.get("model"):
                 cfg.setdefault("model", d["model"])
