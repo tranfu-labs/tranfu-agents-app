@@ -4,15 +4,17 @@ services:
       context: .
       dockerfile: Dockerfile
     image: tranfu-agents-app:local
-    env_file:
-      - ${TF_ENV_FILE:-.env}
     environment:
       TF_DB: /data/tf.db
       PORT: "8788"
+      TF_KEY: ${TF_KEY}
+      TF_REQUIRE_TOKEN: ${TF_REQUIRE_TOKEN:-}
+      TF_READ_AUTH: ${TF_READ_AUTH:-}
+      TF_READ_KEY: ${TF_READ_KEY:-}
     volumes:
       - tf-data:/data
-    ports:
-      - "${TF_PORT:-8788}:8788"
+    expose:
+      - "8788"
     restart: unless-stopped
     healthcheck:
       test:

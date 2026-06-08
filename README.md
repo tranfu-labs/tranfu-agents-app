@@ -48,15 +48,14 @@ Engineering and operations teams whose members run **multiple, different AI agen
                                                      └─ SQLite store
 ```
 
-## Quick start (self-host in about 1 minute)
+## Quick start (Coolify)
 
 ```bash
 cp .env.example .env      # set TF_KEY (the access key)
-docker compose up -d
-# open http://localhost:8788
 ```
 
-Deploy to any always-on host — Fly.io, Railway, Render, or a small VPS. Full instructions are in `DEPLOY.md`.
+In Coolify, deploy the root `compose.yml`, set `TF_KEY`, and configure the `server` service Domain as `https://your-domain.example:8788`.
+The `:8788` is the container's internal port; public traffic still uses HTTPS on 443. Full instructions are in `DEPLOY.md`.
 
 ## How a teammate connects an agent (natural language)
 

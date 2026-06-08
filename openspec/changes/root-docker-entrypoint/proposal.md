@@ -19,6 +19,6 @@
 ## 方案概述
 - 根目录新增 `Dockerfile`,先复制 `server/requirements.txt` 安装依赖,再复制运行所需目录。
 - 容器内创建非 root 用户 `tranfu`,并将 `/data` 用于 SQLite 持久化。
-- 根目录新增 `compose.yml`,从当前目录构建,挂载 `tf-data:/data`,暴露 `${TF_PORT:-8788}:8788`。
+- 根目录新增 `compose.yml`,从当前目录构建,挂载 `tf-data:/data`,并用 `expose: 8788` 交给 Coolify / Traefik 反向代理。
 - 根目录新增 `.dockerignore`,减少构建上下文并避免把 `.env`、本地数据库、文档和测试目录送入镜像上下文。
 - 删除旧的 `server/Dockerfile`、`deploy/docker-compose.yml`、`deploy/.env.example`,文档统一为根目录命令。

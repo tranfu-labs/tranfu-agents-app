@@ -24,35 +24,31 @@ openssl rand -hex 24
 
 ## A. 把服务跑起来
 
-### 方式 A1 — Docker(推荐,最省心)
+### 方式 A1 — Coolify(推荐,最省心)
 
-**1) 装 Docker**
-- Mac:装 [Docker Desktop](https://www.docker.com/products/docker-desktop/),打开它。
-- Linux 服务器:`curl -fsSL https://get.docker.com | sh`
+根目录 `compose.yml` 面向 Coolify / Traefik:Web 服务只写 `expose: 8788`,不发布宿主机公网端口。
 
-**2) 拿代码**
+**1) 在 Coolify 创建 Docker Compose 应用**
+- 选择仓库 `tranfu-labs/tranfu-agents-app`。
+- Compose 文件使用根目录 `compose.yml`。
+
+**2) 填环境变量**
+- 设置 `TF_KEY=<TF_KEY>`。
+- 如需可信归因或内容捕获,再按 D 节设置 `TF_REQUIRE_TOKEN` / `TF_READ_AUTH` / `TF_READ_KEY`。
+
+**3) 配 Domain**
+- 给 `server` service 配 Domain:`https://agents.example.com:8788`。
+- 这里的 `:8788` 是容器内部端口,不是公网端口;公网仍走 HTTPS 443。
+
+**4) 部署并确认活着**
 ```bash
-git clone https://github.com/tranfu-labs/tranfu-agents-app.git
-cd tranfu-agents-app
+curl https://agents.example.com/healthz      # 返回 ok 就对了
 ```
-
-**3) 填密钥并启动**
-```bash
-cp .env.example .env
-# 用编辑器打开 .env,把 TF_KEY= 后面改成你第 0 步生成的 <TF_KEY>
-nano .env        # 或 vim / 用任意编辑器
-docker compose up -d
-```
-
-**4) 确认活着**
-```bash
-curl http://localhost:8788/healthz      # 返回 ok 就对了
-```
-浏览器打开 `http://localhost:8788` 应能看到看板(还没有数据是正常的)。
+浏览器打开 `https://agents.example.com` 应能看到看板(还没有数据是正常的)。
 
 - 数据存在 Docker 卷 `tf-data` 里,容器重启不丢。
-- 看日志:`docker compose logs -f server`
-- 停止:`docker compose down`(数据保留);更新见文末"运维"。
+- 看日志:在 Coolify 的 service logs 里看 `server`。
+- 停止/重启/更新:在 Coolify 应用里操作;更新见文末"运维"。
 
 ### 方式 A2 — 不用 Docker(纯 Python)
 
@@ -224,9 +220,8 @@ journalctl -u tranfu -f                # systemd
 
 **更新到最新版**
 ```bash
-cd tranfu-agents-app && git pull
-docker compose up -d --build      # Docker
-# 或 systemd:重装依赖后 sudo systemctl restart tranfu
+# Coolify:重新部署应用
+# systemd:重装依赖后 sudo systemctl restart tranfu
 ```
 
 **备份数据(SQLite)**
@@ -237,7 +232,7 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 ```
 定期(如每天)拷一份到别处即可;恢复就是把文件放回原位重启。
 
-**轮换密钥**:改 `.env` 里的 `TF_KEY` → `docker compose up -d`,并通知团队用新 key 重新 `install.sh`(旧 key 立即失效)。
+**轮换密钥**:改 Coolify 环境变量或 `.env` 里的 `TF_KEY` → 重新部署,并通知团队用新 key 重新 `install.sh`(旧 key 立即失效)。
 
 ---
 
