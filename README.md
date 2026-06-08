@@ -51,8 +51,8 @@ Engineering and operations teams whose members run **multiple, different AI agen
 ## Quick start (self-host in about 1 minute)
 
 ```bash
-cp deploy/.env.example deploy/.env      # set TF_KEY (the access key)
-docker compose -f deploy/docker-compose.yml up -d
+cp .env.example .env      # set TF_KEY (the access key)
+docker compose up -d
 # open http://localhost:8788
 ```
 
@@ -105,6 +105,9 @@ In a local SQLite file inside your own deployment. Optional prompt/output captur
 ```
 tranfu-agents-app/
 ├── README.md            # this file
+├── Dockerfile           # single-container server image
+├── compose.yml          # Docker Compose entrypoint
+├── .env.example         # deployment env template
 ├── DEPLOY.md            # admin deploy guide
 ├── USAGE.md             # team-member usage guide (natural language)
 ├── PROTOCOL.md          # event protocol + privacy
@@ -114,8 +117,7 @@ tranfu-agents-app/
 ├── LICENSE              # MIT
 ├── server/              # FastAPI collector + dashboard host
 ├── dashboard/           # the live board (self-contained HTML)
-├── shims/               # tf_client.sh / .py, wrapper/tf-run, claude-code/, codex/
-└── deploy/              # docker-compose.yml + .env.example
+└── shims/               # tf_client.sh / .py, wrapper/tf-run, claude-code/, codex/
 ```
 
 ## License

@@ -44,7 +44,7 @@
 ### 形态 A — Docker Compose
 ```bash
 cd tranfu-agents-app && git pull
-cd deploy && docker compose up -d --build
+docker compose up -d --build
 docker compose logs -f server      # 看启动无报错
 ```
 

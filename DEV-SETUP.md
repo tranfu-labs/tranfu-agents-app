@@ -20,7 +20,7 @@
 ```bash
 unzip tranfu-agents-app.zip
 cd tranfu-agents-app
-ls    # 应看到 server/ dashboard/ shims/ deploy/ 及若干 .md
+ls    # 应看到 Dockerfile compose.yml server/ dashboard/ shims/ 及若干 .md
 ```
 
 ## 2. 建 GitHub 库并推上去
@@ -43,7 +43,6 @@ gh repo create <org或你>/tranfu-agents-app --private --source=. --remote=origi
 ## 3. 起服务(Docker,推荐)
 
 ```bash
-cd deploy
 cp .env.example .env
 # 编辑 .env,把 TF_KEY= 改成线上现用的密钥
 docker compose up -d --build

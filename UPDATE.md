@@ -22,7 +22,6 @@ git pull
 
 **Docker:**
 ```bash
-cd deploy
 docker compose up -d --build
 ```
 

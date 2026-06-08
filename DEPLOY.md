@@ -38,7 +38,6 @@ cd tranfu-agents-app
 
 **3) 填密钥并启动**
 ```bash
-cd deploy
 cp .env.example .env
 # 用编辑器打开 .env,把 TF_KEY= 后面改成你第 0 步生成的 <TF_KEY>
 nano .env        # 或 vim / 用任意编辑器
@@ -226,7 +225,7 @@ journalctl -u tranfu -f                # systemd
 **更新到最新版**
 ```bash
 cd tranfu-agents-app && git pull
-cd deploy && docker compose up -d --build      # Docker
+docker compose up -d --build      # Docker
 # 或 systemd:重装依赖后 sudo systemctl restart tranfu
 ```
 
@@ -255,7 +254,7 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 | 成员上报没反应 | 成员的 `TF_SERVER` 写错、或没带对 key;让其 `echo $TF_SERVER $TF_KEY` 核对;新装后要新开终端。 |
 | 卡片变灰/不动 | 超过 3 分钟没心跳判为掉线,重新跑任务即可。 |
 | 上报被 Access 挡住 | `/v1/events` 没放行,见 D 节。 |
-| 容器重启数据没了 | 没挂卷。用 `deploy/docker-compose.yml`(已挂 `tf-data`),别手动 `docker run` 不挂卷。 |
+| 容器重启数据没了 | 没挂卷。用根目录 `compose.yml`(已挂 `tf-data`),别手动 `docker run` 不挂卷。 |
 
 ---
 

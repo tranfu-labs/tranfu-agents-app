@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TF_DB=/data/tf.db \
+    PORT=8788
+
+WORKDIR /app
+
+COPY server/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt \
+    && addgroup --system tranfu \
+    && adduser --system --ingroup tranfu --home /app tranfu \
+    && mkdir -p /data \
+    && chown -R tranfu:tranfu /app /data
+
+COPY --chown=tranfu:tranfu server ./server
+COPY --chown=tranfu:tranfu dashboard ./dashboard
+COPY --chown=tranfu:tranfu install.sh ./install.sh
+COPY --chown=tranfu:tranfu shims ./shims
+
+USER tranfu
+
+VOLUME ["/data"]
+EXPOSE 8788
+
+CMD ["sh", "-c", "exec python -m uvicorn server.app:app --host 0.0.0.0 --port ${PORT:-8788}"]
