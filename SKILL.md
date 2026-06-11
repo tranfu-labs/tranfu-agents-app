@@ -37,6 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
 ```
 装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR / TF_RUNTIME / TF_AGENT`——该调度员的 Pod 即建立。
 如果 `<runtime>` 是 `claude-code` 或 `codex`,安装器会自动幂等合并用户级 hooks;已有其它 hooks 会保留。
+重跑安装器是安全的:它会从 `$SERVER/shims` 拉新版 shim,覆盖 `~/.tranfu/tf_*.py`,并刷新
+`~/.tranfu/tf_env.<runtime>.sh`;Claude Code / Codex 更新后需要重启才会加载新 hook/shim。
 
 ## 第 4 步:按本 agent 的形态接好上报
 
@@ -49,7 +51,10 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
   python3 ~/.tranfu/tf_hooks.py --target claude status
   python3 ~/.tranfu/tf_hooks.py --target codex status
   ```
-  卸载 / 回退分别用 `uninstall` / `restore`。不要把密钥写进 hooks JSON;TF_* 从 shell rc 继承。
+  卸载 / 回退分别用 `uninstall` / `restore`。不要把密钥写进 hooks JSON;hooks 会 source
+  `~/.tranfu/tf_env.claude-code.sh` 或 `~/.tranfu/tf_env.codex.sh`。
+  Claude Code 的 Skill 工具调用会默认统计 Skill 名(只记录名称,不含参数/内容);用户若要关闭,
+  在对应 `tf_env.<runtime>.sh` 里加 `export TF_REPORT_SKILLS=0` 并重启 agent。
 - **云端**(manus / mulerun / chatgpt):只能粗粒度,包住派发那一步:
   ```bash
   tf-run --runtime <runtime> --agent <用途> --task "<任务>" --coarse -- <派发脚本>
@@ -65,5 +70,5 @@ TF_RUNTIME=<runtime> TF_AGENT=<用途> tf_emit running --task "测试" --step "h
 Codex 首次运行新增 hook 时可能要求信任,确认一次即可。
 
 ## 隐私
-默认只上报 谁/用途/状态/步骤/活跃时长。若用户要回传 prompt/代码/输出,设 `TF_CAPTURE_CONTENT=1`,
+默认只上报 谁/用途/状态/步骤/活跃时长,以及可安全识别的 Skill 名。若用户要回传 prompt/代码/输出,设 `TF_CAPTURE_CONTENT=1`,
 并提醒:开启后内容对所有有看板权限的人可见。

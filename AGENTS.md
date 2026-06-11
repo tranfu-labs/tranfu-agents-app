@@ -43,6 +43,9 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - **服务端只用标准库 + FastAPI/uvicorn**;数据库是单文件 SQLite(`$TF_DB`,默认 `tf.db`),不引入外部 DB/中间件。
 - **shim(`tf_profile.py`/`tf_report.py`/`tf_hook.py`)只用 Python 标准库,且绝不抛错**——上报失败必须静默,
   不能影响使用者的 agent 运行。
+- Skill 使用统计口径:事件可选 `skill` 字段只记录 Skill 名;服务端写 `skill_uses`(一行=会话×Skill,
+  `(session_id, skill)` 幂等,长期保留),`/api/state.skills` 读时聚合排行。默认上报,本机
+  `TF_REPORT_SKILLS=0` 关闭;不得上报 Skill 参数、prompt、代码或输出。
 - 前端是**单文件**(`dashboard/index.html`):CSS/JS 内联;改动后用 `node --check` 校验抽出的 `<script>`。
   暗/亮双主题用 CSS 变量 + `body.light` 覆盖;品牌红 `--brand`(占位 `#ec1c2b`,待换精确值);logo 为内联红色 symbol。
 - 时间统一 **UTC**(活跃时长按 UTC 日/周;90 天窗口)。
@@ -61,7 +64,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
    改协议行为时同步加/改用例。
 2. 前端:抽出 `<script>` 跑 `node --check`;暗/亮主题与手机窄屏(≤600px)各看一眼。
 3. shim:对 fake 环境跑 `tf_profile.py` / `tf_report.py --print` 验证 payload;`bash -n` 校验 sh。
-4. 文档:涉及端口/链接/字段时,同步 `DEPLOY/UPDATE/QUICKSTART/USAGE/PROTOCOL` 与本文件。
+4. 文档:涉及端口/链接/字段时,同步 `DEPLOY/UPDATE/QUICKSTART/USAGE/PROTOCOL`、`docs/architecture/module-map.md`
+   与本文件;若影响 agent 自助安装,同步 `SKILL.md`。
 
 ## 禁止事项(硬约束)
 - ❌ 不得加入 token/费用统计,或把"成本"概念带回数据模型/协议/UI。
