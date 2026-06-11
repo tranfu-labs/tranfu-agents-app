@@ -1,6 +1,6 @@
 # 变更提案:manage-agent-hooks(本地 agent hooks 生命周期管理)
 
-- 状态:Proposed
+- 状态:Implemented(已实现;tasks 13/13 完成,spec delta 已合入 specs/onboarding 规则 5/6)
 - 关联:specs/onboarding、ADR-0009、install.sh、shims/tf_hook.py、QUICKSTART.md
 
 ## 背景 / 问题
