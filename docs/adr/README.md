@@ -19,3 +19,4 @@
 | 0012 | 读侧鉴权是内容上报的硬前提(服务端强制丢弃敏感字段) | Accepted |
 | 0013 | 活跃时长用服务端时间;blocked 计活跃且单列;心跳 60s / stale 180s | Accepted |
 | 0014 | 存储与 schema:限流 / 90天保留+WAL / profile 全量覆盖 / session 去重 / parent / 版本号 | Accepted |
+| 0015 | Skill 使用按会话去重统计 | Accepted |

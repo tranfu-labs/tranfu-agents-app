@@ -50,6 +50,31 @@ PRE_TOOL = ("PreToolUse", "pre_tool_call")
 POST_TOOL = ("PostToolUse", "post_tool_call")
 
 
+def _name_from(value):
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("skill", "name", "skill_name"):
+            name = _name_from(value.get(key))
+            if name:
+                return name
+    return ""
+
+
+def _skill_name(d, ev, tool):
+    if os.environ.get("TF_REPORT_SKILLS") == "0":
+        return ""
+    if ev not in PRE_TOOL or str(tool).casefold() != "skill":
+        return ""
+    for key in ("tool_input", "toolInput", "input", "arguments"):
+        payload = d.get(key)
+        if isinstance(payload, dict):
+            name = _name_from(payload)
+            if name:
+                return name
+    return ""
+
+
 def resolve(d):
     """Map a hook payload dict -> tf_report.py argv (sans the python3/script
     prefix), or None if the event isn't one we report. Pure & testable."""
@@ -80,6 +105,9 @@ def resolve(d):
         args += ["--parent", str(parent)]
     if prof:
         args += ["--profile"]
+    skill = _skill_name(d, ev, tool)
+    if skill:
+        args += ["--skill", skill]
     return args
 
 

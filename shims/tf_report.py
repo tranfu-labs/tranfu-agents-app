@@ -16,7 +16,8 @@ spooled locally (~/.tranfu/spool.ndjson) and retried — best effort, at-least-o
 — before the next event. Telemetry must NEVER block or break the host agent.
 
 Env: TF_SERVER (required to POST), TF_KEY (team write key), TF_TOKEN (per-operator
-     token), TF_OPERATOR, TF_RUNTIME, TF_AGENT, TF_SESSION, TF_PARENT_SESSION
+     token), TF_OPERATOR, TF_RUNTIME, TF_AGENT, TF_SESSION, TF_PARENT_SESSION,
+     TF_REPORT_SKILLS=0 to suppress event-level skill usage metadata
 """
 import os, sys, json, argparse, urllib.request
 
@@ -120,6 +121,7 @@ def main():
     ap.add_argument("--output", dest="outp", default="")
     ap.add_argument("--session", default="")
     ap.add_argument("--parent", default="")
+    ap.add_argument("--skill", default="")
     ap.add_argument("--profile", action="store_true", help="attach auto-detected profile")
     ap.add_argument("--print", dest="dry", action="store_true", help="print payload, don't POST")
     a = ap.parse_args()
@@ -146,6 +148,8 @@ def main():
         payload["input"] = a.inp
     if a.outp:
         payload["output"] = a.outp
+    if a.skill.strip() and os.environ.get("TF_REPORT_SKILLS") != "0":
+        payload["skill"] = a.skill.strip()
 
     if a.profile:
         try:

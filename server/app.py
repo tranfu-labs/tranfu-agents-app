@@ -53,6 +53,7 @@ SENSITIVE_KEYS = ("input", "output", "instructions", "memory")
 MAX_BODY = 256 * 1024          # reject the whole POST above this -> 413
 MAX_CONTENT = 16 * 1024        # stored input/output, each
 MAX_META = 4 * 1024            # stored meta json
+MAX_SKILL_NAME = 160           # skill usage metadata, bounded like other strings
 WINDOW_DAYS = 90               # retention + read window
 
 app = FastAPI(title="TRANFU//AGENTS")
@@ -104,6 +105,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS skills_seen (
           name TEXT PRIMARY KEY, first_day TEXT
         );
+
+        -- one row = one session used one skill. This is the deduped source for
+        -- usage counts and is not pruned with the 90-day events window.
+        CREATE TABLE IF NOT EXISTS skill_uses (
+          session_id TEXT NOT NULL,
+          skill TEXT NOT NULL,
+          operator TEXT,
+          runtime TEXT,
+          day TEXT,
+          first_seen TEXT,
+          PRIMARY KEY (session_id, skill)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_uses_skill ON skill_uses(skill);
+        CREATE INDEX IF NOT EXISTS idx_skill_uses_day ON skill_uses(day);
 
         -- per-operator token bindings (TATP v0.1 §4). Stores sha256(token) only.
         CREATE TABLE IF NOT EXISTS operators (
@@ -203,6 +218,16 @@ def _skill_names(skills):
     return [n for n in out if n]
 
 
+def _skill_use_name(value):
+    """Normalize the optional event-level skill usage name."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value:
+        return ""
+    return value[:MAX_SKILL_NAME]
+
+
 # ---------------------------------------------------------------- enroll (§4)
 @app.post("/v1/enroll")
 async def enroll(request: Request, x_tf_key: str = Header(default="")):
@@ -237,7 +262,12 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         e = json.loads(raw)
     except Exception:
         raise HTTPException(400, "invalid JSON body")
-    if not all(e.get(k) for k in ("operator", "runtime", "session_id", "status")):
+    if not all(e.get(k) for k in ("operator", "runtime", "status")):
+        raise HTTPException(400, "operator, runtime, session_id, status are required")
+    skill_name = _skill_use_name(e.get("skill"))
+    if not e.get("session_id"):
+        if skill_name:
+            return {"ok": True, "logged": False, "skill_ignored": True}
         raise HTTPException(400, "operator, runtime, session_id, status are required")
     ts = e.get("ts") or now_iso()
     recv = now_iso()                               # server-authoritative time (§6)
@@ -258,6 +288,13 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         rt = (e["runtime"] or "").strip().lower()
         ag = e.get("agent") or rt                      # agent identity label
         verified = 1 if verify_operator(conn, op, x_tf_token) else 0
+
+        # Usage is processed before heartbeat dedup so a repeated tool step can
+        # still record the first sighting of session×skill.
+        if skill_name:
+            conn.execute("""INSERT OR IGNORE INTO skill_uses
+              (session_id,skill,operator,runtime,day,first_seen) VALUES(?,?,?,?,?,?)""",
+              (sid, skill_name, op, rt, recv[:10], recv))
 
         # OPTIONAL profile payload — full-snapshot replace per identity (§6)
         profile = {k: e[k] for k in PROFILE_KEYS if e.get(k) is not None}
@@ -499,6 +536,31 @@ def leverage(conn):
     return {"assets": assets, "skills_week": week}
 
 
+def skill_usage(conn):
+    today = datetime.now(timezone.utc).date()
+    d7 = (today - timedelta(days=6)).isoformat()
+    d30 = (today - timedelta(days=29)).isoformat()
+    rows = conn.execute("""
+      SELECT skill,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        COUNT(*) sessions_total,
+        COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
+        MAX(day) last_day
+      FROM skill_uses
+      GROUP BY skill
+      ORDER BY sessions_30d DESC, sessions_total DESC, skill ASC
+    """, (d7, d30, d30)).fetchall()
+    return [{
+        "name": r["skill"],
+        "sessions_7d": int(r["sessions_7d"] or 0),
+        "sessions_30d": int(r["sessions_30d"] or 0),
+        "sessions_total": int(r["sessions_total"] or 0),
+        "users_30d": int(r["users_30d"] or 0),
+        "last_day": r["last_day"],
+    } for r in rows]
+
+
 # ---------------------------------------------------------------- read: snapshot
 def _snapshot(conn):
     sessions = conn.execute("""
@@ -563,6 +625,7 @@ def _snapshot(conn):
                   "status": r["status"], "current_step": r["current_step"],
                   "task": r["task"], "ts": r["ts"]} for r in feed],
         "leverage": leverage(conn),
+        "skills": skill_usage(conn),
         "totals": {
             "live": len(live), "operators": len(ops), "agents": len(agents),
             "today_active": sum(v["today"] for v in dur.values()),

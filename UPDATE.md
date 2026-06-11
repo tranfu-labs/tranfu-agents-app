@@ -78,6 +78,17 @@ curl https://tranfu-agents-app.tranfu.com/api/state | head -c 200   # JSON
 - [ ] 页面顶部不再显示「未连接服务端」
 - [ ] logo 是新的(红色图形内联)、有 Pods 看板 / Agents 列表 两个标签
 
+## 6. Skill 使用排行升级注意
+
+本版本新增 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,
+Claude Code 的 Skill 工具调用才会开始上报 `skill` 字段,所以排行数据会按人逐步出现。
+
+查不到 Skill 数据时按这个顺序排查:
+1. 队友是否重跑了当前看板域名的 `install.sh`,并重启了 Claude Code / Codex。
+2. 本机是否设置了 `TF_REPORT_SKILLS=0`。
+3. 是否真的触发了 Claude Code 的 `Skill` 工具调用;普通工具调用不会计入 Skill 排行。
+4. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,operator,day from skill_uses limit 5;'`。
+
 ---
 
 完整部署/运维(备份、轮换密钥、访问控制等)见仓库 `DEPLOY.md`。

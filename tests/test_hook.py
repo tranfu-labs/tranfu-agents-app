@@ -21,6 +21,29 @@ def test_claude_pretooluse_tool_name():
     assert "--status" in a and a[a.index("--status") + 1] == "running"
     assert a[a.index("--step") + 1] == "tool: Bash"
     assert a[a.index("--session") + 1] == "s1"
+    assert "--skill" not in a
+
+
+def test_claude_skill_tool_adds_skill_arg():
+    # Expected Claude Code PreToolUse payload shape for Skill tool calls:
+    # tool_name is "Skill" and the selected skill name is inside tool_input.
+    a = _args({"hook_event_name": "PreToolUse", "tool_name": "Skill",
+               "tool_input": {"skill_name": "openai-docs"}, "session_id": "s1"})
+    assert a[a.index("--step") + 1] == "tool: Skill"
+    assert a[a.index("--skill") + 1] == "openai-docs"
+
+
+def test_skill_tool_missing_name_is_ignored():
+    a = _args({"hook_event_name": "PreToolUse", "tool_name": "Skill",
+               "tool_input": {"prompt": "use a skill"}, "session_id": "s1"})
+    assert "--skill" not in a
+
+
+def test_skill_reporting_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("TF_REPORT_SKILLS", "0")
+    a = _args({"hook_event_name": "PreToolUse", "tool_name": "Skill",
+               "tool_input": {"name": "openai-docs"}, "session_id": "s1"})
+    assert "--skill" not in a
 
 
 def test_claude_sessionstart_has_profile():
