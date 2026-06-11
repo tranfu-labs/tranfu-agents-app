@@ -19,3 +19,9 @@
 | 0012 | 读侧鉴权是内容上报的硬前提(服务端强制丢弃敏感字段) | Accepted |
 | 0013 | 活跃时长用服务端时间;blocked 计活跃且单列;心跳 60s / stale 180s | Accepted |
 | 0014 | 存储与 schema:限流 / 90天保留+WAL / profile 全量覆盖 / session 去重 / parent / 版本号 | Accepted |
+| 0015 | 身份归一化在服务端:operator 大小写无关、runtime 小写 + 幂等迁移 | Accepted |
+| 0016 | 身份/配置按 runtime 隔离成独立文件,杜绝同机多 agent 串号 | Accepted |
+| 0017 | 云端 runtime 不自报;可观测性边界 = 可控的调度链路 | Accepted |
+| 0018 | 遥测失败必须可观测,绝不静默冒充成功;部署≠合并 | Accepted |
+
+> 复盘见 [../RETRO.md](../RETRO.md)。
