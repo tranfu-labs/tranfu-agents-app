@@ -1,104 +1,25 @@
 ---
 name: tranfu-agents-app
-description: Install and connect this agent to the team's TRANFU//AGENTS live dashboard, so the team can see what everyone's agents are doing (who, which agent, current step, status, active time). Trigger when the user says things like "安装 TRANFU//AGENTS", "install tranfu telemetry", "接入团队 agent 看板", "我是 bob,用 open claw 处理文案" (a who/what self-introduction aimed at joining the board), or links to github.com/tranfu-labs/tranfu-agents-app asking to install this. Works for Claude Code, Codex, Open Claw, Hermes, and any CLI agent; cloud agents (Manus, MuleRun) are supported at start/end granularity.
+description: Install and connect this agent to the team's TRANFU//AGENTS live dashboard, so the team can see what everyone's agents are doing (who, which agent, current step, status, active time). Trigger when the user says things like "安装 TRANFU//AGENTS", "install tranfu telemetry", "接入团队 agent 看板", "我是 bob,这个用来写代码"/"我是 bob,用 open claw 处理文案" (a who/what self-introduction aimed at joining the board — the user need NOT mention which runtime), or links to github.com/tranfu-labs/tranfu-agents-app asking to install this. Works for Claude Code, Codex, Open Claw, Hermes, and any CLI agent; cloud agents (Manus, MuleRun) are supported at start/end granularity.
 ---
 
 # TRANFU//AGENTS — 入职(给 agent 读)
 
-把用户接入团队看板 = 给他**办入职**:在 TRANFU//AGENTS 里,他将成为一个 **Pod 的调度员**(一人一 Pod),他用的 agent 就是这个 Pod 的**编队**。用户通常用**自然语言**说明身份与用途,例如:
+把用户接入团队看板 = 给他**办入职**:他成为一个 **Pod 的调度员**(一人一 Pod),
+他用的每个 agent 是这个 Pod 的**编队**。用户用**自然语言**说明身份与用途,例如:
 
-> 「安装 TRANFU//AGENTS,我是 bob,用 open claw 处理文案内容。」
+> 「帮我接入 TRANFU//AGENTS,我是 bob,这个用来写代码。」
 
-## 第 1 步:从这句话里解析三件事
+**完整、权威的安装步骤在 [INSTALL.md](INSTALL.md) —— 打开它,从上到下一次执行完,不要让用户粘命令。**
 
-| 解析项 | 来源 | 例子 |
-|---|---|---|
-| `operator`(人 = 该 Pod 的调度员) | "我是 X" | bob |
-| `runtime`(用的工具) | "用 Y" → 归一化 | open claw→`open-claw`、codex→`codex`、claude code→`claude-code`、hermes→`hermes`、manus→`manus`、mulerun→`mulerun` |
-| `agent`(用途标签) | "处理 Z / 用来做 Z" → 取一个短标签 | 文案→`copy`、写代码→`code`、研究→`research` |
+要点(细节全在 INSTALL.md):
 
-**一人一 Pod**:`operator` 就是这个 Pod 的调度员,**不需要问"加入哪个 Pod"**——同名即同一个 Pod,自动归并。
-**一个调度员多个 agent**:用户会对**每个 agent 各说一句**。每次只登记**当前这个** agent 进他的编队;
-`operator` 相同、`runtime`+`agent` 各不相同即可(例:bob/`copy`/open-claw 与 bob/`code`/codex)。
+- **解析三件事**:`operator`(用户说「我是 X」)、`agent`(用途短标签,如 code/copy/research)、`runtime`。
+  **runtime 不用问用户——你就是当前 runtime**(Claude Code→`claude-code`、Codex→`codex`、OpenClaw→`openclaw`、Hermes→`hermes`);拿不准就**不传** `--runtime`,安装器会用进程内信号兜底。
+- **(重)装前先读本机已有身份**:`python3 ~/.tranfu/tf-doctor --identity --json`(无网络);装过就把已登记的调度员/编队列给用户确认**沿用/改/新增**,而不是从头再问。用户只说「装一下」时,主动引导补全缺的字段。
+- **server / key**:先从用户消息取 → 再看本机已有(`has_key:true` 即免问,不传 `--key` 安装器也会保留)→ 都没有才**只问一次**。
+- **执行**:跑 INSTALL.md 第 1 步的 `curl … | install.sh …`(你自己拼好,用户看不到 flag)→ 安装器预检+全量装 shim+接 hooks+当场注册 → 跑 `python3 ~/.tranfu/tf-doctor --runtime <你> --json` 自检 → 把结果回话确认。
+- **护栏**:一次跑完、不拆成手敲命令、不问 runtime、env 只写 `~/.tranfu`、key 不进 hooks/Hermes config、**绝不 sudo**、不动用户已有 hooks/skills。
 
-## 第 2 步:拿到接入地址 + 接入密钥
-
-需要两样:**接入地址**(server)和**接入密钥**(key)。来源优先级:
-1. **先从用户这条消息里解析**——若出现 `server=...` / `key=...`(或"地址 …""密钥 …"),直接取用,不要再问。
-2. 若消息里没有,**只问这一次**;装好后会写入本机配置 `~/.tranfu`,以后同一台机器不再问。
-
-(注:key 是防止他人乱塞数据的写入凭证,不是任何 LLM 用量。它只能往看板写遥测,泄露的影响面很小、可随时由管理员轮换。)
-
-## 第 3 步:安装上报工具(办入职)
-
-```bash
-curl -fsSL <接入地址>/install.sh \
-  | bash -s -- --server <接入地址> --key <接入密钥> --operator <operator> --runtime <runtime> --agent <用途>
-```
-装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR / TF_RUNTIME / TF_AGENT`——该调度员的 Pod 即建立。
-如果 `<runtime>` 是 `claude-code` 或 `codex`,安装器会自动幂等合并用户级 hooks;已有其它 hooks 会保留。
-如果 `<runtime>` 是 `hermes`,安装器会安装 `tf-hermes-hook.sh` 并打印需要合并到 `~/.hermes/config.yaml` 的 hooks 配置。
-如果 `<runtime>` 是 `open-claw` / `openclaw`,安装器会安装 OpenClaw 原生插件并尝试写入
-`plugins.entries.tranfu-skill-reporter`,用于装备态 Skill 统计;仍需用 `tf-run` 或派发脚本上报状态。
-重跑安装器是安全的:它会按 `$SERVER/shims/manifest` 全量拉新版 shim,校验 sha256 后覆盖
-`~/.tranfu/` 里的目标文件,并刷新 `~/.tranfu/tf_env.<runtime>.sh`;只有全量安装成功才写入
-`~/.tranfu/manifest.json`。之后 Claude Code / Codex / Hermes 会在会话开始时后台自动更新 shim;
-OpenClaw 插件文件可被刷新,但仍需重启 OpenClaw 才加载新版 JS。若用户要关闭自动更新,在对应
-env 文件里写 `export TF_AUTO_UPDATE=0`。
-
-## 第 4 步:按本 agent 的形态接好上报
-
-- **本地命令行**(open-claw / hermes / 任意 CLI;Codex 也可这样临时包装):用包装器运行,带上 `--agent`(用途):
-  ```bash
-  tf-run --runtime <runtime> --agent <用途> --task "<在做什么>" -- <原本的启动命令>
-  ```
-- **Claude Code / Codex**:优先用安装器自动 hooks。手动维护:
-  ```bash
-  python3 ~/.tranfu/tf_hooks.py --target claude status
-  python3 ~/.tranfu/tf_hooks.py --target codex status
-  ```
-  卸载 / 回退分别用 `uninstall` / `restore`。不要把密钥写进 hooks JSON;hooks 会 source
-  `~/.tranfu/tf_env.claude-code.sh` 或 `~/.tranfu/tf_env.codex.sh`。
-- **Hermes**:若用户要实时步骤与 `skill_view` 的 Skill 使用统计,把下面配置合并进 `~/.hermes/config.yaml`,
-  然后重启 Hermes gateway:
-  ```yaml
-  hooks:
-    on_session_start:
-      - command: "~/.tranfu/tf-hermes-hook.sh"
-    pre_llm_call:
-      - command: "~/.tranfu/tf-hermes-hook.sh"
-    pre_tool_call:
-      - command: "~/.tranfu/tf-hermes-hook.sh"
-    post_llm_call:
-      - command: "~/.tranfu/tf-hermes-hook.sh"
-    on_session_end:
-      - command: "~/.tranfu/tf-hermes-hook.sh"
-  hooks_auto_accept: true
-  ```
-  不要把密钥写进 Hermes config;wrapper 会 source `~/.tranfu/tf_env.hermes.sh`。
-  退出时从 `~/.hermes/config.yaml` 删除指向 `~/.tranfu/tf-hermes-hook.sh` 的 hooks 条目。
-- **SKILLS 统计页**:Claude Code 的 `Skill`、Hermes 的 `skill_view`、Codex 的本地 rollout 扫描都会默认统计
-  Skill 名;OpenClaw 插件只统计 prompt 注入过的 Skill 名并标为 `equipped` 装备态(只记录名称,不含参数/内容)。
-  总览页只排 `used`,每日图按 7/30/90 天 UTC 时间窗铺满并显示当天明细;装备态只在单 Skill 详情里显示,
-  不与使用态相加。
-  用户若要关闭,在对应 `tf_env.<runtime>.sh` 里加
-  `export TF_REPORT_SKILLS=0` 并重启 agent。
-- **云端**(manus / mulerun / chatgpt):只能粗粒度,包住派发那一步:
-  ```bash
-  tf-run --runtime <runtime> --agent <用途> --task "<任务>" --coarse -- <派发脚本>
-  ```
-
-## 第 5 步:确认
-
-```bash
-source ~/.tranfu/tf_client.sh
-TF_RUNTIME=<runtime> TF_AGENT=<用途> tf_emit running --task "测试" --step "hello"
-```
-告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。如任务使用了 Skill,SKILLS 页稍后会出现 used-only 统计和连续日级时间轴;
-OpenClaw 装备态只在单 Skill 详情里显示。Claude Code / Codex / Hermes 装 hooks 后需要重启对应 agent;
-Codex 首次运行新增 hook 时可能要求信任,确认一次即可。
-如果看板显示「旧 shim」,说明这台机器还没完成新版安装或自动更新失败,让用户重跑安装命令即可。
-
-## 隐私
-默认只上报 谁/用途/状态/步骤/活跃时长,以及可安全识别的 Skill 名。若用户要回传 prompt/代码/输出,设 `TF_CAPTURE_CONTENT=1`,
-并提醒:开启后内容对所有有看板权限的人可见。
+隐私:默认只上报 谁/用途/状态/步骤/活跃时长 + 可安全识别的 Skill 名(不含参数/内容);
+用户要回传 prompt/代码/输出设 `TF_CAPTURE_CONTENT=1`(开启后看板可见者皆可见)。

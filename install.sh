@@ -43,10 +43,51 @@ while [ $# -gt 0 ]; do case "$1" in
   --install-openclaw-plugin) OPENCLAW_PLUGIN="install"; shift;;
   --no-openclaw-plugin) OPENCLAW_PLUGIN="skip"; shift;;
   *) shift;; esac; done
-[ -z "$SERVER" ] && { echo "need --server"; exit 1; }
+_die() { echo "✗ $1" >&2; exit 1; }
 
-mkdir -p ~/.tranfu
+# 预检:任何一项不满足就明确报错并停,绝不做半截安装(对标 tranfu-skills/INSTALL.md 的 pre-checks)。
+[ -z "$SERVER" ] && _die "缺 --server <接入地址>"
+case "$SERVER" in
+  http://*|https://*) ;;
+  *) _die "--server 需是完整地址(http:// 或 https:// 开头),当前: $SERVER";;
+esac
+command -v python3 >/dev/null 2>&1 || _die "需要 python3(安装上报工具与注册都依赖它);装好后重跑,不要用 sudo。"
+command -v curl    >/dev/null 2>&1 || _die "需要 curl;装好后重跑。"
+
+mkdir -p ~/.tranfu 2>/dev/null || _die "无法创建 ~/.tranfu(检查 HOME 权限);不要用 sudo。"
+[ -w "${HOME}/.tranfu" ] || _die "~/.tranfu 不可写(检查归属/权限);不要用 sudo。"
+
 BASE="${SERVER%/}/shims"
+
+# 看板域名 + shim 清单可达性:够不到就停,把「连不上」暴露在这里而不是半装之后。
+curl -fsSL --max-time 8 -o /dev/null "$BASE/manifest" \
+  || _die "连不上看板($BASE/manifest):多半是服务端没部署好/域名没通,或需连公司 VPN。确认 ${SERVER} 能打开后重跑。"
+
+# 重装时若未显式传 --key,沿用本机已存的 key:tf-doctor --identity 故意不回显明文,
+# 由这里负责保留,让「重装不必再问 key」成立。优先本 runtime 的 env 文件,再退共享文件。
+if [ -z "$KEY" ]; then
+  _RT_SLUG=$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
+  for ef in "${HOME}/.tranfu/tf_env.${_RT_SLUG}.sh" "${HOME}/.tranfu/tf_env.sh"; do
+    [ -f "$ef" ] || continue
+    k=$(sed -n 's/^export TF_KEY="\(.*\)"$/\1/p' "$ef" | head -1)
+    [ -n "$k" ] && { KEY="$k"; echo "(沿用本机已存的 key)"; break; }
+  done
+fi
+
+# runtime 自动识别:agent 通常已传 --runtime(它知道自己是谁)。没传时,用「进程内」
+# 环境信号兜底——这些标志的是「现在正在跑哪个 agent」,而非「机器上装了哪个」(配置目录
+# 在多 runtime 机器上会歧义,故不采信)。识别不出就保持空,按 cli 注册、不接 hooks(与原行为一致)。
+_detect_runtime() {
+  if [ -n "${CLAUDECODE:-}" ] || [ -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]; then echo "claude-code"; return; fi
+  if [ -n "${CODEX_SANDBOX:-}" ] || [ -n "${CODEX_HOME:-}" ]; then echo "codex"; return; fi
+  if [ -n "${OPENCLAW_AGENT_ID:-}" ] || [ -n "${OPENCLAW_HOME:-}" ]; then echo "openclaw"; return; fi
+  if [ -n "${HERMES_SESSION:-}" ] || [ -n "${HERMES_HOME:-}" ]; then echo "hermes"; return; fi
+  echo ""
+}
+if [ -z "$RUNTIME" ]; then
+  RUNTIME="$(_detect_runtime)"
+  [ -n "$RUNTIME" ] && echo "自动识别 runtime:$RUNTIME(用户无需指定)"
+fi
 
 _install_from_manifest() {
   TF_INSTALL_BASE="$BASE" TF_INSTALL_HOME="${HOME}/.tranfu" python3 - <<'PY'
@@ -89,6 +130,28 @@ for item in files:
     tmp.write_bytes(data)
     os.replace(str(tmp), str(dst))
     os.chmod(str(dst), 0o755 if item.get("executable") else 0o644)
+
+# legacy 清理:删掉 ~/.tranfu 顶层属于我们命名空间(tf_*/tf-*)、但已不在新清单里的
+# 孤儿 shim(服务端重命名/移除旧文件后会残留)。只动顶层常规文件,保护身份/状态文件,不碰子目录。
+keep = set()
+for item in files:
+    p = safe_target(item["target"])
+    if p.parent.resolve() == root.resolve():
+        keep.add(p.name)
+for child in root.iterdir():
+    if not child.is_file():
+        continue
+    name = child.name
+    if name in keep or name in ("manifest.json", "spool.ndjson"):
+        continue
+    if name.startswith("tf_env") or name.startswith(".") or name.endswith(".tmp"):
+        continue
+    if name.startswith("tf_") or name.startswith("tf-"):
+        try:
+            child.unlink()
+        except Exception:
+            pass
+
 tmp = root / "manifest.json.tmp"
 tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 os.replace(str(tmp), str(root / "manifest.json"))
@@ -96,12 +159,12 @@ PY
 }
 
 if ! _install_from_manifest; then
-  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh; do
+  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
     curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
   done
   rm -f ~/.tranfu/manifest.json
 fi
-chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf-hermes-hook.sh
+chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf-hermes-hook.sh ~/.tranfu/tf-doctor
 
 _install_openclaw_plugin() {
   mkdir -p "${HOME}/.tranfu/openclaw"
@@ -257,3 +320,11 @@ if [ "$OPENCLAW_PLUGIN" = "install" ]; then
   echo ""
   _install_openclaw_plugin
 fi
+
+# 接入自检:hooks 都装完后跑一遍,给人即时确认(取代过去手动发 tf_emit 测试)。
+# 自检会发一条合法心跳,看板应据此出现这张卡。doctor 非零退出不影响安装结果。
+echo ""
+echo "接入自检 (tf-doctor):"
+TF_SERVER="$SERVER" TF_KEY="$KEY" TF_OPERATOR="$OPERATOR" \
+TF_RUNTIME="${RUNTIME:-cli}" TF_AGENT="$AGENT" \
+python3 ~/.tranfu/tf-doctor --runtime "${RUNTIME:-cli}" || true

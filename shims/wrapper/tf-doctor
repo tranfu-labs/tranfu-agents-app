@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""TRANFU//AGENTS — 接入自检 (tf-doctor). 仅用标准库。
+
+一条命令体检本机接入状态，取代过去手动发 `tf_emit` 测试。检查项:
+  1. python3 / node  —— 运行环境
+  2. PATH 是否含 ~/.tranfu —— 新 shell 才生效
+  3. 身份文件 —— tf_env.sh / tf_env.<runtime>.sh 是否齐、含 server/operator/key
+  4. shim 新旧 —— 本机 manifest.json 版本 vs 服务端 /shims/manifest
+  5. hooks —— 按 runtime 检查 claude/codex/hermes/openclaw 是否接好
+  6. 看板连通 + key —— 发一条最小心跳看 HTTP 状态码 (200 通 / 401 key 不对 / 连不上)
+     这一步本身就是一条合法心跳，等于顺便做了一次接入验证。
+
+人读默认逐行打 ✓/!/✗ 并给结论与下一步;`--json` 给 agent 解析。
+任何检查内部出错都不抛异常,只标 warn/fail。退出码:有 fail → 1,否则 0。
+"""
+import json
+import os
+import subprocess
+import shutil
+import sys
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+HOME = Path(os.path.expanduser("~"))
+ROOT = HOME / ".tranfu"
+TIMEOUT = 5
+
+PASS, WARN, FAIL = "pass", "warn", "fail"
+_MARK = {PASS: "✓", WARN: "!", FAIL: "✗"}
+
+
+def _slug(s):
+    return "".join(c if (c.isalnum() or c in "._-") else "-" for c in (s or "").lower())
+
+
+def _parse_env_file(path):
+    """读 `export KEY="val"` 行,返回 dict(只用于补齐进程环境缺的值)。"""
+    out = {}
+    try:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line.startswith("export ") or "=" not in line:
+                continue
+            k, v = line[len("export "):].split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return out
+
+
+def _load_identity(runtime):
+    """进程环境优先;缺的从 tf_env.sh / tf_env.<rt>.sh 补,使自检在未 source 的新 shell 里也能跑。"""
+    env = dict(_parse_env_file(ROOT / "tf_env.sh"))
+    rt = runtime or os.environ.get("TF_RUNTIME") or env.get("TF_RUNTIME") or ""
+    if rt:
+        env.update(_parse_env_file(ROOT / f"tf_env.{_slug(rt)}.sh"))
+    for k in ("TF_SERVER", "TF_KEY", "TF_OPERATOR", "TF_RUNTIME", "TF_AGENT"):
+        if os.environ.get(k):
+            env[k] = os.environ[k]
+    if rt:
+        env["TF_RUNTIME"] = rt
+    return env
+
+
+def list_identities():
+    """枚举本机 ~/.tranfu 里已登记的身份,供 AI 在(重)装前读取并让用户确认沿用。
+
+    不联网。返回 shared(共享 server/key/operator) + 每个 runtime 的 tf_env.<rt>.sh 解析结果。
+    key 只暴露「有没有」,不回显明文。
+    """
+    shared = _parse_env_file(ROOT / "tf_env.sh")
+    out = {
+        "home": str(ROOT),
+        "installed": (ROOT / "manifest.json").exists() or bool(shared),
+        "shared": {
+            "operator": shared.get("TF_OPERATOR", ""),
+            "server": shared.get("TF_SERVER", ""),
+            "has_key": bool(shared.get("TF_KEY")),
+        },
+        "identities": [],
+    }
+    try:
+        env_files = sorted(p for p in ROOT.glob("tf_env.*.sh") if p.name != "tf_env.sh")
+    except Exception:
+        env_files = []
+    for p in env_files:
+        e = _parse_env_file(p)
+        out["identities"].append({
+            "runtime": e.get("TF_RUNTIME") or p.name[len("tf_env."):-len(".sh")],
+            "operator": e.get("TF_OPERATOR", "") or shared.get("TF_OPERATOR", ""),
+            "agent": e.get("TF_AGENT", ""),
+            "role": e.get("TF_ROLE", ""),
+            "models": e.get("TF_MODELS", ""),
+            "server": e.get("TF_SERVER", "") or shared.get("TF_SERVER", ""),
+            "has_key": bool(e.get("TF_KEY") or shared.get("TF_KEY")),
+            "env_file": str(p),
+        })
+    return out
+
+
+def check_runtime_bins(rt):
+    out = [{"name": "python3", "status": PASS,
+            "detail": sys.version.split()[0]}]
+    if rt in ("open-claw", "openclaw", "claw-code"):
+        node = shutil.which("node")
+        out.append({"name": "node", "status": PASS if node else WARN,
+                    "detail": node or "未找到 node(OpenClaw 插件需要,装 Node 后重启 OpenClaw)"})
+    return out
+
+
+def check_path():
+    on_path = str(ROOT) in os.environ.get("PATH", "").split(os.pathsep)
+    return {"name": "PATH 含 ~/.tranfu", "status": PASS if on_path else WARN,
+            "detail": "已在 PATH" if on_path else "未在当前 shell 的 PATH(开新终端或 source 你的 rc 即可)"}
+
+
+def check_identity(env):
+    missing = [k for k in ("TF_SERVER", "TF_OPERATOR") if not env.get(k)]
+    if missing:
+        return {"name": "身份文件", "status": FAIL,
+                "detail": "缺 " + ", ".join(missing) + "(重跑安装命令)"}
+    key = "有 key" if env.get("TF_KEY") else "无 key(只读看板可不填;要写入需 key)"
+    return {"name": "身份文件", "status": PASS,
+            "detail": f"operator={env.get('TF_OPERATOR')} runtime={env.get('TF_RUNTIME') or '?'} agent={env.get('TF_AGENT') or '-'} · {key}"}
+
+
+def check_shim_version(server):
+    try:
+        local = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8")).get("version")
+    except Exception:
+        local = None
+    if not local:
+        return {"name": "shim 版本", "status": FAIL,
+                "detail": "本机无 manifest.json,未完成全量安装(重跑安装命令)"}
+    if not server:
+        return {"name": "shim 版本", "status": WARN, "detail": "无 TF_SERVER,无法与服务端比对"}
+    try:
+        with urllib.request.urlopen(server.rstrip("/") + "/shims/manifest", timeout=TIMEOUT) as r:
+            remote = json.loads(r.read().decode("utf-8")).get("version")
+    except Exception as e:
+        return {"name": "shim 版本", "status": WARN, "detail": f"无法读服务端 manifest({e.__class__.__name__})"}
+    if remote and remote != local:
+        return {"name": "shim 版本", "status": WARN,
+                "detail": "本机 shim 偏旧,等会话开始时自动更新,或重跑安装命令立即刷新"}
+    return {"name": "shim 版本", "status": PASS, "detail": "最新 " + str(local)[:12]}
+
+
+def check_hooks(rt):
+    rt = rt or ""
+    if rt in ("claude-code", "claude"):
+        return _hooks_status("claude")
+    if rt == "codex":
+        return _hooks_status("codex")
+    if rt == "hermes":
+        cfg = HOME / ".hermes" / "config.yaml"
+        ok = False
+        try:
+            ok = "tf-hermes-hook" in cfg.read_text(encoding="utf-8")
+        except Exception:
+            ok = False
+        return {"name": "hooks(hermes)", "status": PASS if ok else WARN,
+                "detail": "已配 shell hooks" if ok else
+                "~/.hermes/config.yaml 未配 tf-hermes-hook(可用 tf-run 临时包装,或按 INSTALL.md 合并 hooks)"}
+    if rt in ("open-claw", "openclaw", "claw-code"):
+        if shutil.which("openclaw"):
+            return {"name": "hooks(openclaw)", "status": PASS,
+                    "detail": "openclaw 已就绪;装备态 Skill 统计需重启 OpenClaw 加载插件"}
+        return {"name": "hooks(openclaw)", "status": WARN,
+                "detail": "未找到 openclaw CLI;插件文件已就位,装好 CLI 后启用即可"}
+    return {"name": "上报方式", "status": PASS, "detail": f"runtime={rt or 'cli'},用 tf-run 包装上报"}
+
+
+def _hooks_status(target):
+    try:
+        p = subprocess.run(
+            ["python3", str(ROOT / "tf_hooks.py"), "--target", target, "status", "--json"],
+            capture_output=True, text=True, timeout=8)
+        data = json.loads(p.stdout)
+        installed = bool(data.get("installed"))
+        return {"name": f"hooks({target})", "status": PASS if installed else WARN,
+                "detail": "已安装" if installed else "未安装(重启后生效,或重跑安装命令)"}
+    except Exception:
+        return {"name": f"hooks({target})", "status": WARN,
+                "detail": "无法读取 hooks 状态(可手动: python3 ~/.tranfu/tf_hooks.py --target %s status)" % target}
+
+
+def check_board(env):
+    server = (env.get("TF_SERVER") or "").rstrip("/")
+    if not server:
+        return {"name": "看板连通", "status": FAIL, "detail": "无 TF_SERVER"}
+    payload = {
+        "v": "0.1",
+        "operator": env.get("TF_OPERATOR") or "unknown",
+        "runtime": env.get("TF_RUNTIME") or "cli",
+        "session_id": (env.get("TF_RUNTIME") or "cli") + "-doctor",
+        "status": "running",
+        "task": "接入自检",
+        "current_step": "tf-doctor",
+    }
+    if env.get("TF_AGENT"):
+        payload["agent"] = env["TF_AGENT"]
+    headers = {"content-type": "application/json", "X-TF-Key": env.get("TF_KEY", "")}
+    req = urllib.request.Request(server + "/v1/events",
+                                 data=json.dumps(payload).encode(),
+                                 headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            if 200 <= r.status < 300:
+                return {"name": "看板连通", "status": PASS, "detail": "心跳已写入(看板应出现这张卡)"}
+            return {"name": "看板连通", "status": WARN, "detail": f"服务端返回 HTTP {r.status}"}
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return {"name": "看板连通", "status": FAIL, "detail": f"HTTP {e.code} —— key 不对,用管理员私发的最新 key 重装一次"}
+        return {"name": "看板连通", "status": WARN, "detail": f"服务端返回 HTTP {e.code}"}
+    except Exception as e:
+        return {"name": "看板连通", "status": FAIL,
+                "detail": f"连不上看板({e.__class__.__name__}) —— 确认 {server} 能打开,或连公司 VPN"}
+
+
+def run(runtime):
+    env = _load_identity(runtime)
+    rt = env.get("TF_RUNTIME") or runtime or ""
+    server = env.get("TF_SERVER") or ""
+    checks = []
+    checks += check_runtime_bins(rt)
+    checks.append(check_path())
+    checks.append(check_identity(env))
+    checks.append(check_shim_version(server))
+    checks.append(check_hooks(rt))
+    checks.append(check_board(env))
+    ok = not any(c["status"] == FAIL for c in checks)
+    summary = (f"✅ 已接入。去看板你的 Pod 看「{env.get('TF_AGENT') or rt or '该 agent'} [{rt or 'cli'}] 运行中」。"
+               if ok else "❌ 接入未就绪,见上面标 ✗ 的项。")
+    return {"ok": ok, "runtime": rt, "checks": checks, "summary": summary}
+
+
+def main():
+    runtime = ""
+    as_json = False
+    identity = False
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--json":
+            as_json = True
+        elif a == "--identity":
+            identity = True
+        elif a == "--runtime" and i + 1 < len(argv):
+            runtime = argv[i + 1]
+            i += 1
+        elif a.startswith("--runtime="):
+            runtime = a.split("=", 1)[1]
+        i += 1
+
+    # 无网络:读出本机已登记身份,供 AI 在(重)装前让用户确认沿用/修改/新增。
+    if identity:
+        info = list_identities()
+        if as_json:
+            print(json.dumps(info, ensure_ascii=False))
+        elif not info["identities"] and not info["shared"]["operator"]:
+            print("本机 ~/.tranfu 未登记任何身份(全新安装)。")
+        else:
+            s = info["shared"]
+            print(f"本机已登记(调度员={s['operator'] or '?'} · server={s['server'] or '?'} · {'有 key' if s['has_key'] else '无 key'}):")
+            for it in info["identities"]:
+                print(f"  · {it['agent'] or '-'} [{it['runtime']}]"
+                      + (f" — {it['role']}" if it['role'] else ""))
+        sys.exit(0)
+
+    result = run(runtime)
+    if as_json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print("TRANFU//AGENTS 接入自检")
+        for c in result["checks"]:
+            print(f"  {_MARK.get(c['status'], '?')} {c['name']}: {c['detail']}")
+        print("")
+        print(result["summary"])
+    sys.exit(0 if result["ok"] else 1)
+
+
+if __name__ == "__main__":
+    main()

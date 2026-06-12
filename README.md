@@ -72,8 +72,9 @@ The agent reads `SKILL.md` and self-installs. For a second agent, they say anoth
 
 - `DEPLOY.md` — deploy the server (for the administrator).
 - `USAGE.md` — install and use (for team members, natural-language flow).
+- `INSTALL.md` — the one-step install runbook an agent reads and executes (auto-detects its own runtime).
 - `PROTOCOL.md` — the event protocol and privacy posture.
-- `SKILL.md` — agent-readable self-install skill.
+- `SKILL.md` — agent-readable self-install skill (slim; points to `INSTALL.md`).
 - `llms.txt` — a structured overview for AI engines.
 
 ## FAQ
