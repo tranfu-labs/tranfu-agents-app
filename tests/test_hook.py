@@ -1,4 +1,6 @@
 """tf_hook.resolve 契约测试：Claude/Codex 与 Hermes 事件都映射到正确的上报参数。"""
+import io
+import json
 import os
 import sys
 
@@ -72,3 +74,58 @@ def test_hermes_subagent_parent_from_extra():
     a = _args({"hook_event_name": "pre_tool_call", "tool_name": "x",
                "session_id": "child", "extra": {"parent_session_id": "root"}})
     assert a[a.index("--parent") + 1] == "root"
+
+
+def test_hermes_skill_view_adds_skill_arg():
+    a = _args({"hook_event_name": "pre_tool_call", "tool_name": "skill_view",
+               "tool_input": {"name": "lark-base"}, "session_id": "s1"})
+    assert a[a.index("--step") + 1] == "tool: skill_view"
+    assert a[a.index("--skill") + 1] == "lark-base"
+
+
+def test_hermes_skill_view_reference_read_keeps_skill_arg():
+    a = _args({"hook_event_name": "pre_tool_call", "tool_name": "skill_view",
+               "tool_input": {"name": "lark-base", "path": "refs/card.md"},
+               "session_id": "s1"})
+    assert a[a.index("--skill") + 1] == "lark-base"
+
+
+def test_hermes_skills_list_is_not_counted():
+    a = _args({"hook_event_name": "pre_tool_call", "tool_name": "skills_list",
+               "tool_input": {}, "session_id": "s1"})
+    assert a[a.index("--step") + 1] == "tool: skills_list"
+    assert "--skill" not in a
+
+
+def test_hermes_skill_manage_is_not_counted():
+    a = _args({"hook_event_name": "pre_tool_call", "tool_name": "skill_manage",
+               "tool_input": {"action": "create", "name": "new-skill"},
+               "session_id": "s1"})
+    assert "--skill" not in a
+
+
+def test_hermes_post_tool_skill_view_is_not_counted():
+    a = _args({"hook_event_name": "post_tool_call", "tool_name": "skill_view",
+               "tool_input": {"name": "lark-base"}, "session_id": "s1"})
+    assert a[a.index("--step") + 1] == "tool done: skill_view"
+    assert "--skill" not in a
+
+
+def test_hermes_skill_reporting_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("TF_REPORT_SKILLS", "0")
+    a = _args({"hook_event_name": "pre_tool_call", "tool_name": "skill_view",
+               "tool_input": {"name": "lark-base"}, "session_id": "s1"})
+    assert "--skill" not in a
+
+
+def test_main_reports_hermes_skill_view_argv(monkeypatch):
+    reported = []
+    payload = {"hook_event_name": "pre_tool_call", "tool_name": "skill_view",
+               "tool_input": {"name": "lark-base"}, "session_id": "s1"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+
+    tf_hook.main()
+
+    assert reported
+    assert reported[0][reported[0].index("--skill") + 1] == "lark-base"

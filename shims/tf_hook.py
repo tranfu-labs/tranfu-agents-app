@@ -48,6 +48,7 @@ MAP = {
 }
 PRE_TOOL = ("PreToolUse", "pre_tool_call")
 POST_TOOL = ("PostToolUse", "post_tool_call")
+SKILL_TOOLS = {"skill", "skill_view"}
 
 
 def _name_from(value):
@@ -64,7 +65,7 @@ def _name_from(value):
 def _skill_name(d, ev, tool):
     if os.environ.get("TF_REPORT_SKILLS") == "0":
         return ""
-    if ev not in PRE_TOOL or str(tool).casefold() != "skill":
+    if ev not in PRE_TOOL or str(tool).casefold() not in SKILL_TOOLS:
         return ""
     for key in ("tool_input", "toolInput", "input", "arguments"):
         payload = d.get(key)

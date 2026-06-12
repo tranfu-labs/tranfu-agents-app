@@ -168,9 +168,11 @@ X-TF-Key: <团队写入密钥>
 安全识别到的 `skill` 名 —— 但**不发** `input`/`output`。
 内容捕获是 opt-in 的（shim 侧 `TF_CAPTURE_CONTENT=1`），因为你明确想要这个反馈闭环。
 `skill` 只记录名称，不记录参数、prompt、代码或输出；如团队不希望统计 skill 使用，可在本机设置
-`TF_REPORT_SKILLS=0` 关闭。Codex 不把 skill 触发暴露为 `Skill` 工具调用，因此在 Codex 下 shim 会在
-轮次/会话结束时**本地读取该会话的 rollout 文件**，仅提取"读取了某个已装 `SKILL.md`"这一信号并上报
-skill 名；会话内容不离开本机，`TF_REPORT_SKILLS=0` 同样关闭这条路径（见 ADR-0016）。
+`TF_REPORT_SKILLS=0` 关闭。Claude Code 从 `Skill` 工具调用参数取 skill 名；Hermes 从
+`skill_view` 工具调用参数取 skill 名。Codex 不把 skill 触发暴露为 `Skill` 工具调用，因此在 Codex 下
+shim 会在轮次/会话结束时**本地读取该会话的 rollout 文件**，仅提取"读取了某个已装 `SKILL.md`"
+这一信号并上报 skill 名；会话内容不离开本机，`TF_REPORT_SKILLS=0` 同样关闭这些路径
+（见 ADR-0016 / ADR-0017）。
 
 > 本协议**不含任何 token / 费用字段**，这是刻意的取舍（见 ADR-0002）。本工具是"谁在干什么"的协作可观测，
 > 不是计费系统。

@@ -9,10 +9,12 @@
    `TF_RUNTIME/TF_AGENT/TF_ROLE/TF_ABOUT/TF_TIPS` 写入 shell rc;并把 `~/.tranfu` 加入 PATH。
 3. **装完即注册**:安装末尾发送一条 `started --profile` 事件,使看板立刻出现卡且详情有内容。
 4. 服务端 `/shims/{path}` 仅提供 `shims/` 目录内文件,且拒绝目录穿越;`/install.sh` 提供仓库 `install.sh`。
-5. 三条接入路径并存:`tf-run`(任意 CLI)、Claude Code / Codex 钩子(`tf_hook.py` + `tf_hooks.py`,见 ADR-0009/0010)、MCP reporter(桌面/黑盒)。
+5. 接入路径并存:`tf-run`(任意 CLI)、Claude Code / Codex 钩子(`tf_hook.py` + `tf_hooks.py`,见 ADR-0009/0010)、
+   Hermes shell hooks(`tf-hermes-hook.sh` + `tf_hook.py`)、MCP reporter(桌面/黑盒)。
 6. **hooks 安装必须幂等且可回退**:`--runtime claude-code` 默认维护 `~/.claude/settings.json`;
    `--runtime codex` 默认维护 `~/.codex/hooks.json`;重复安装不重复追加,卸载只移除 TRANFU hook,写入前生成
-   `*.tranfu.bak.*` 备份,且不得把 `TF_KEY` 写进 hooks JSON。
+   `*.tranfu.bak.*` 备份,且不得把 `TF_KEY` 写进 hooks JSON。Hermes 使用 `~/.hermes/config.yaml` 的 shell hooks,
+   安装器提供配置片段,hook wrapper 从 `~/.tranfu/tf_env.hermes.sh` 读取身份与密钥。
 7. **同一 agent 始终用同一套 `operator/runtime/agent`**;漏掉 `--agent` 会退化为按 runtime 显示(产生独立卡)。
 
 ## 可验证行为

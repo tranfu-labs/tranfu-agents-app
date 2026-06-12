@@ -37,8 +37,9 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
 ```
 装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR / TF_RUNTIME / TF_AGENT`——该调度员的 Pod 即建立。
 如果 `<runtime>` 是 `claude-code` 或 `codex`,安装器会自动幂等合并用户级 hooks;已有其它 hooks 会保留。
+如果 `<runtime>` 是 `hermes`,安装器会安装 `tf-hermes-hook.sh` 并打印需要合并到 `~/.hermes/config.yaml` 的 hooks 配置。
 重跑安装器是安全的:它会从 `$SERVER/shims` 拉新版 shim,覆盖 `~/.tranfu/tf_*.py`,并刷新
-`~/.tranfu/tf_env.<runtime>.sh`;Claude Code / Codex 更新后需要重启才会加载新 hook/shim。
+`~/.tranfu/tf_env.<runtime>.sh`;Claude Code / Codex / Hermes 更新后需要重启才会加载新 hook/shim。
 
 ## 第 4 步:按本 agent 的形态接好上报
 
@@ -53,8 +54,27 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
   ```
   卸载 / 回退分别用 `uninstall` / `restore`。不要把密钥写进 hooks JSON;hooks 会 source
   `~/.tranfu/tf_env.claude-code.sh` 或 `~/.tranfu/tf_env.codex.sh`。
-  Claude Code 的 Skill 工具调用会默认统计 Skill 名(只记录名称,不含参数/内容);用户若要关闭,
-  在对应 `tf_env.<runtime>.sh` 里加 `export TF_REPORT_SKILLS=0` 并重启 agent。
+- **Hermes**:若用户要实时步骤与 `skill_view` 的 Skill 使用统计,把下面配置合并进 `~/.hermes/config.yaml`,
+  然后重启 Hermes gateway:
+  ```yaml
+  hooks:
+    on_session_start:
+      - command: "~/.tranfu/tf-hermes-hook.sh"
+    pre_llm_call:
+      - command: "~/.tranfu/tf-hermes-hook.sh"
+    pre_tool_call:
+      - command: "~/.tranfu/tf-hermes-hook.sh"
+    post_llm_call:
+      - command: "~/.tranfu/tf-hermes-hook.sh"
+    on_session_end:
+      - command: "~/.tranfu/tf-hermes-hook.sh"
+  hooks_auto_accept: true
+  ```
+  不要把密钥写进 Hermes config;wrapper 会 source `~/.tranfu/tf_env.hermes.sh`。
+  退出时从 `~/.hermes/config.yaml` 删除指向 `~/.tranfu/tf-hermes-hook.sh` 的 hooks 条目。
+- **Skill 使用统计**:Claude Code 的 `Skill`、Hermes 的 `skill_view`、Codex 的本地 rollout 扫描都会默认统计
+  Skill 名(只记录名称,不含参数/内容);用户若要关闭,在对应 `tf_env.<runtime>.sh` 里加
+  `export TF_REPORT_SKILLS=0` 并重启 agent。
 - **云端**(manus / mulerun / chatgpt):只能粗粒度,包住派发那一步:
   ```bash
   tf-run --runtime <runtime> --agent <用途> --task "<任务>" --coarse -- <派发脚本>
@@ -66,7 +86,7 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
 source ~/.tranfu/tf_client.sh
 TF_RUNTIME=<runtime> TF_AGENT=<用途> tf_emit running --task "测试" --step "hello"
 ```
-告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。Claude Code / Codex 装 hooks 后需要重启对应 agent;
+告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。Claude Code / Codex / Hermes 装 hooks 后需要重启对应 agent;
 Codex 首次运行新增 hook 时可能要求信任,确认一次即可。
 
 ## 隐私

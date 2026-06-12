@@ -34,7 +34,7 @@ Engineering and operations teams whose members run **multiple, different AI agen
 | Claude Code | local CLI / desktop | status + current step + active time via hooks |
 | Codex | local CLI / desktop | status + current step + active time via hooks or wrapper |
 | Open Claw | local CLI | status + active time |
-| Hermes | local CLI | status + active time |
+| Hermes | local CLI | status + current step + active time via shell hooks, or wrapper fallback |
 | Manus | cloud | start / end (coarse) |
 | MuleRun | cloud | start / end (coarse) |
 | ChatGPT | web | start / end (coarse) |
@@ -43,7 +43,8 @@ Engineering and operations teams whose members run **multiple, different AI agen
 
 ```
    Claude Code / Codex hooks ───┐
-   Open Claw / Hermes ─────────tf-run wrapper──▶ server ──▶ dashboard (live)
+   Hermes shell hooks ──────────┤
+   Open Claw / CLI wrapper ────tf-run wrapper──▶ server ──▶ dashboard (live)
    Manus / MuleRun / ChatGPT ─tf-run --coarse─┘     │        status · active time
                                                      └─ SQLite store
 ```

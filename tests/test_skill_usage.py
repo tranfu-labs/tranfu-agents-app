@@ -111,7 +111,8 @@ def test_tf_report_print_includes_optional_skill():
 
 def test_tf_report_skill_env_switch_suppresses_field():
     env = os.environ.copy()
-    env.update({"TF_OPERATOR": "alice", "TF_RUNTIME": "codex", "TF_REPORT_SKILLS": "0"})
+    env.update({"TF_OPERATOR": "alice", "TF_RUNTIME": "codex", "TF_AGENT": "code",
+                "TF_REPORT_SKILLS": "0"})
     env.pop("TF_SERVER", None)
     r = subprocess.run(
         [sys.executable, "shims/tf_report.py", "--status", "running",
