@@ -30,7 +30,8 @@ agent 机器                         中心服务器(单容器)                 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
   `/api/skills` 与 `/api/skill/{name}` 渲染 SKILLS 总览 / Skill 详情;SKILLS 图表按服务端 UTC `today`
-  铺满 7/30/90 天或详情页 30 天日级时间轴;暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
+  铺满 7/30/90 天或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
+  暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skill/:name` 及其它非 API 深链提供;数据来自
   `/api/state`、`/api/skills`、`/api/skill/{name}`(同源相对路径)。

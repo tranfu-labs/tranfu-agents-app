@@ -71,7 +71,7 @@ export function SkillDetailView({ data, loading, error, t }: { data: SkillDetail
             {t('trend')}
           </span>
         </h2>
-        <DetailTrend detail={data} />
+        <DetailTrend detail={data} t={t} />
       </section>
       <div className="dist" style={{ marginTop: 16 }}>
         <section className="frame">

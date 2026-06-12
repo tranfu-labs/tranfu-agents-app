@@ -1,17 +1,74 @@
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import type { SkillDailyRow, SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
 type TipItem = { name: string; value: number; color: string }
-type Tip = { day: string; today?: boolean; items: TipItem[]; total?: number }
+type TipAnchor = { left: number; right: number; chartTop: number }
+type Tip = { day: string; today?: boolean; items: TipItem[]; total?: number; anchor: TipAnchor }
 
-function ChartTip({ tip }: { tip: Tip | null }) {
+const PLOT_TOP = 24
+const TIP_GAP = 10
+const VIEWPORT_PAD = 12
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max))
+}
+
+function anchorFromBar(event: ReactMouseEvent<SVGRectElement>): TipAnchor {
+  const bar = event.currentTarget.getBoundingClientRect()
+  const svg = event.currentTarget.ownerSVGElement
+  const svgRect = svg?.getBoundingClientRect()
+  const viewHeight = svg?.viewBox.baseVal.height || svgRect?.height || 1
+  const yScale = svgRect ? svgRect.height / viewHeight : 1
+  return {
+    left: bar.left,
+    right: bar.right,
+    chartTop: svgRect ? svgRect.top + PLOT_TOP * yScale : bar.top,
+  }
+}
+
+function ChartTip({ tip, t }: { tip: Tip | null; t: (key: string) => string }) {
+  const tipRef = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (!tip) return undefined
+
+    const place = () => {
+      const el = tipRef.current
+      if (!el) return
+      const width = el.offsetWidth
+      const height = el.offsetHeight
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      let left = tip.anchor.right + TIP_GAP
+      if (left + width + VIEWPORT_PAD > viewportWidth) {
+        left = tip.anchor.left - width - TIP_GAP
+      }
+      left = clamp(left, VIEWPORT_PAD, viewportWidth - width - VIEWPORT_PAD)
+      const top = clamp(tip.anchor.chartTop, VIEWPORT_PAD, viewportHeight - height - VIEWPORT_PAD)
+      el.style.left = `${left}px`
+      el.style.top = `${top}px`
+      el.style.visibility = 'visible'
+    }
+
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [tip])
+
   if (!tip) return null
+  const style: CSSProperties = {
+    display: 'block',
+    left: 0,
+    top: 0,
+    visibility: 'hidden',
+  }
   return (
-    <div className="chart-tip" style={{ display: 'block', left: 24, top: 92 }}>
+    <div ref={tipRef} className="chart-tip" style={style}>
       <div className="tip-head">
         <span>{tip.day}</span>
-        {tip.today ? <span className="tip-live">today</span> : null}
+        {tip.today ? <span className="tip-live">{t('inProgress')}</span> : null}
       </div>
       {tip.items.filter((x) => x.value > 0).length ? (
         tip.items
@@ -24,11 +81,11 @@ function ChartTip({ tip }: { tip: Tip | null }) {
             </div>
           ))
       ) : (
-        <div className="tip-empty">No usage</div>
+        <div className="tip-empty">{t('noChartData')}</div>
       )}
       {tip.total !== undefined ? (
         <div className="tip-total">
-          <span>Total</span>
+          <span>{t('chartTotal')}</span>
           <b>{tip.total}</b>
         </div>
       ) : null}
@@ -39,6 +96,9 @@ function ChartTip({ tip }: { tip: Tip | null }) {
 export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDailyRow[]; overview: SkillsOverview | null; days: number; t: (key: string) => string }) {
   const [hoverSkill, setHoverSkill] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
+  const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
+    setTip({ ...next, anchor: anchorFromBar(event) })
+  }
   const model = useMemo(() => {
     const axis = daySeries(apiToday(overview), days)
     const daySet = new Set(axis)
@@ -82,7 +142,15 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
   const patternId = `skillStripe-${days}-${model.axis.length}`
 
   return (
-    <div className="chart-box" onMouseLeave={() => setTip(null)}>
+    <div
+      className="chart-box"
+      onMouseLeave={() => setTip(null)}
+      onPointerDown={(event) => {
+        const target = event.target
+        if (!(target instanceof SVGElement) || !target.classList.contains('bar-hit')) setTip(null)
+      }}
+      onScroll={() => setTip(null)}
+    >
       <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }} role="img" aria-label={t('dailyUsed')}>
         <defs>
           <pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -119,7 +187,7 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
                 return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={dim ? 0.45 : 1} />
               })}
               {day === today && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
-              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={() => setTip({ day, today: day === today, items, total })} onClick={() => setTip({ day, today: day === today, items, total })} />
+              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: day === today, items, total })} onClick={(event) => showTip(event, { day, today: day === today, items, total })} />
             </g>
           )
         })}
@@ -133,7 +201,7 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
           </button>
         ))}
       </div>
-      <ChartTip tip={tip} />
+      <ChartTip tip={tip} t={t} />
     </div>
   )
 }
@@ -161,8 +229,11 @@ export function RuntimeBars({ counts }: { counts?: Record<string, number> }) {
   )
 }
 
-export function DetailTrend({ detail }: { detail: SkillDetail }) {
+export function DetailTrend({ detail, t }: { detail: SkillDetail; t: (key: string) => string }) {
   const [tip, setTip] = useState<Tip | null>(null)
+  const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
+    setTip({ ...next, anchor: anchorFromBar(event) })
+  }
   const days = daySeries(detail.today || apiToday(detail), 30)
   const byDay: Record<string, { used: number; equipped: number }> = {}
   ;(detail.daily || []).forEach((row) => {
@@ -185,7 +256,15 @@ export function DetailTrend({ detail }: { detail: SkillDetail }) {
   })
 
   return (
-    <div className="chart-box" onMouseLeave={() => setTip(null)}>
+    <div
+      className="chart-box"
+      onMouseLeave={() => setTip(null)}
+      onPointerDown={(event) => {
+        const target = event.target
+        if (!(target instanceof SVGElement) || !target.classList.contains('bar-hit')) setTip(null)
+      }}
+      onScroll={() => setTip(null)}
+    >
       <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }}>
         <defs>
           <pattern id="detailStripe" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -208,7 +287,7 @@ export function DetailTrend({ detail }: { detail: SkillDetail }) {
               <rect className="bar-seg" x={x} y={base - usedHeight} width={bw} height={usedHeight} fill="var(--info)" opacity=".9" />
               {row.day === end && usedHeight ? <rect x={x} y={base - usedHeight} width={bw} height={usedHeight} fill="url(#detailStripe)" stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
               <circle cx={mid} cy={base - equippedHeight} r={row.day === end ? 3.5 : 2.5} fill="var(--wait)" stroke={row.day === end ? 'var(--text)' : 'none'} strokeOpacity=".5" pointerEvents="none" />
-              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={() => setTip({ day: row.day, today: row.day === end, items })} onClick={() => setTip({ day: row.day, today: row.day === end, items })} />
+              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day: row.day, today: row.day === end, items })} onClick={(event) => showTip(event, { day: row.day, today: row.day === end, items })} />
             </g>
           )
         })}
@@ -225,7 +304,7 @@ export function DetailTrend({ detail }: { detail: SkillDetail }) {
           equipped
         </button>
       </div>
-      <ChartTip tip={tip} />
+      <ChartTip tip={tip} t={t} />
     </div>
   )
 }
