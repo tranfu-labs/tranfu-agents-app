@@ -5,6 +5,8 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+frontend/node_modules/
+frontend/dist/
 .DS_Store
 
 *.db
@@ -18,8 +20,6 @@ openspec/
 tests/
 *.md
 LICENSE
-llms.txt
-robots.txt
 compose.yml
 .dockerignore
 .gitignore

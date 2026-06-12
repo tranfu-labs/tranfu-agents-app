@@ -1,13 +1,14 @@
 # 规格:board(看板与计算域)
 
-事实来源:`server/app.py`(`/api/state`、`metrics`、`leverage`、`reuse_map`、`_snapshot`)与 `dashboard/index.html`。
+事实来源:`server/app.py`(`/api/state`、`metrics`、`leverage`、`reuse_map`、`_snapshot`)与 `frontend/` React 看板。
 
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。
 - `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 仅影响 daily,默认 30)。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
-- `GET /` → 看板页;`GET /healthz` → `ok`。
+- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skill/{name}` → React 看板 SPA;
+  `GET /assets/*` → Vite 指纹化静态资源;`GET /healthz` → `ok`。
 
 ## 规则(MUST)
 1. **卡片按身份合并**:每个 `(operator, agent‖runtime)` 只输出**一张**卡,保留 `last_seen` 最新的 session(见 ADR-0006)。
@@ -34,8 +35,12 @@
     从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
 
 ## 前端规则(MUST)
-- 轮询 `/api/state`(约 2s),取不到时退回内置演示数据并显示"未连接服务端"。
+- 轮询 `/api/state`(约 3s),取不到时退回内置演示数据并显示"未连接服务端"。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情。
+- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;
+  Skill 详情 `/skill/:name`;刷新、前进后退、复制链接必须保持当前视图。
+- SKILLS 总览筛选绑定到 URL search params:`win`(7/30/90)、`rt`、`src`、`q`、`sort`、`dir`;
+  筛选变化使用 replace,不污染浏览器历史;详情跳转使用 push。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 UTC 日窗口逐日铺满:
   右端取服务端 `today`,左端为 `today-(N-1)`,N ∈ {7,30,90};每一天占一个槽位,有 used 数据才长堆叠柱,
@@ -50,6 +55,7 @@
 - 卡片/详情显示本机上报的 `shim_version` 短码;落后于服务端 `shim.version` 时标记过期。
 - 暗/亮双主题;手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
 - 不得使用浏览器本地存储;不得写死后端端口(同源相对路径)。
+- 前端源码在 `frontend/`;生产由 Docker/CI 构建 `frontend/dist`,运行容器不依赖 node,仓库不提交 dist。
 
 ## 可验证行为
 - 同一 agent 跑多次/多 session → 看板仅一张卡,随最新状态刷新。

@@ -117,8 +117,8 @@ tranfu-agents-app/
 ├── llms.txt             # overview for AI engines (GEO)
 ├── robots.txt           # AI-crawler-friendly (place at site root)
 ├── LICENSE              # MIT
-├── server/              # FastAPI collector + dashboard host
-├── dashboard/           # the live board (self-contained HTML)
+├── server/              # FastAPI collector + React dashboard host
+├── frontend/            # Vite + React + TypeScript dashboard source
 └── shims/               # tf_client.sh / .py, wrapper/tf-run, claude-code/, codex/
 ```
 

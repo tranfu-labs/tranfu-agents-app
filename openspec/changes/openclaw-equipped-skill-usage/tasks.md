@@ -12,7 +12,7 @@
       非法/缺省→`used`)写入。`skill_usage()` 改 `GROUP BY skill, mode` 并返回 `mode`;**used 排行数值与现状一致**。
 - [x] 2. `PROTOCOL.md`:§4 事件加可选 `skill_mode`;§5 注明 OpenClaw 下 skill 名取自注入块(只报名);§6 落库规则加 mode 维度。
       `openspec/specs/ingest/spec.md`:套用本变更 `specs/ingest/spec.md` delta。
-- [x] 3. `dashboard/index.html`:排行项渲染 `equipped` 标识;同名 used/equipped 两条不合并;`node --check` 校验抽出的 `<script>`。
+- [x] 3. `frontend/`:排行项渲染 `equipped` 标识;同名 used/equipped 两条不合并;`npm --prefix frontend run build` 校验通过。
 - [x] 4. 服务端测(`tests/test_skill_usage.py` 加用例):`equipped` 落 `mode='equipped'`;同 session 重发幂等;
       同 session 的 used+equipped 两行共存;非法/缺省 `skill_mode`→`used`;`/api/state.skills` 分条不相加;
       回归:旧客户端(不带 `skill_mode`)仍落 `used`、排行不变。

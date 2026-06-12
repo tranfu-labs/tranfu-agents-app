@@ -4,7 +4,8 @@
 > 团队成员怎么接入自己的 agent → 见 `QUICKSTART.md`(5 分钟)。
 
 你要部署的东西**只有一个常开进程**:一个小服务(`server`),它同时干两件事——
-**① 接收各 agent 上报的事件;② 直接把看板网页发给浏览器**。看板是静态页,由这个服务一起提供,**不用单独部署**。数据存在本地一个 SQLite 文件里,**不依赖任何外部数据库/中间件**。512MB 内存的小机器就够。
+**① 接收各 agent 上报的事件;② 直接把构建好的看板 SPA 发给浏览器**。看板由 Docker 构建阶段生成静态资源,
+运行时仍由这个服务一起提供,**不用单独部署前端服务**。数据存在本地一个 SQLite 文件里,**不依赖任何外部数据库/中间件**。512MB 内存的小机器就够。
 
 整个部署分三步:**A. 把服务跑起来 → B. 给它一个带 HTTPS 的网址 → C. 验证 + 发给团队**。
 
@@ -58,6 +59,8 @@ curl https://agents.example.com/healthz      # 返回 ok 就对了
 ```bash
 git clone https://github.com/tranfu-labs/tranfu-agents-app.git
 cd tranfu-agents-app
+npm ci --prefix frontend
+npm --prefix frontend run build
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r server/requirements.txt
 TF_KEY=<TF_KEY> TF_DB=/var/lib/tranfu/tf.db \

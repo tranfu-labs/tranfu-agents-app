@@ -1,0 +1,51 @@
+import type { Lang, Status } from './types'
+
+export const I18N = {
+  zh: {
+    board: 'Pods 看板', agents: 'Agents 列表', skillsNav: 'SKILLS', demo: '演示数据 · 未连接',
+    ro_skill: '新增 Skill', ro_assets: '资产总数', ro_live: '在线',
+    pods: 'Mission Pods', running: '运行', of: '共', dispatcher: '调度员', squad: '编队', live: '在线', feed: '活动流', silent: '静默中…', noPods: '尚无 Pod 上报', noPodsH: '成员入职后在此出现',
+    skillsRank: 'Skills 排行', skillName: 'Skill', skill7: '7 天', skill30: '30 天', skillTotal: '累计', skillUsers30: '人数', skillLast: '最近', skillEquipped: '装备', noSkills: '暂无 Skill 使用数据', noSkillsH: '新版 shim 上报后在此出现',
+    th_agent: 'Agent', th_disp: '调度员', th_rt: '运行时', th_model: '模型', th_status: '状态', th_today: '今日活跃', th_skill: 'Skill', th_mcp: 'MCP', th_shim: 'Shim', th_q: '成功率',
+    back: '返回列表', about: '这个 Agent 擅长什么', note: '调度员上手提示', configins: '配置与指令', recent: '代表性产出', trend7: '近 7 天活跃', trend30: '近 30 天活跃', trend180: '近 180 天活跃', trend12: '近 12 周活跃', less: '少', more: '多', quality: '质量与效率', skills: 'Skill 资产', mcp: '已接 MCP',
+    models: '模型', keycfg: '关键配置', insgist: '系统指令', today: '今日', week: '本周',
+    q_runs: '运行次数', q_succ: '成功率', q_auto: '自动完成率', q_avg: '平均时长', q_err: '报错', q_reuse: '被复用',
+    local: '本域', cross: '跨域', pit: '避坑经验', none: '暂无',
+    copy: '复制能力与资产', copied: '已复制能力清单到剪贴板', copyHint: '复制该 agent 的可复刻清单(运行时/模型/配置/Skill/MCP)。',
+    capability: '能力与擅长', src_cfg: '系统配置', from_cfg: '源 · 系统配置', from_mem: '源 · 记忆文件',
+    access: '触达面与权限', a_shell: 'Shell 权限', a_auto: '自动批准', a_net: '网络', a_mcp: '外部服务(MCP)',
+    memory: '记忆沉淀', m_updated: '更新于', m_conv: '约定', m_learn: '已学到', no_mem: '未接入记忆文件', no_mem_h: '该 agent(多为云端黑盒)未连接 memory 文件,仅有运行数据。',
+    gb_reach: '触达', gb_mem: '记忆', gb_risk: '权限风险', risk_ok: '常规', risk_warn: '需关注', shim: 'shim', shimOld: '旧 shim', cfg_shim: 'Shim 版本', cfg_ver: '类型 / 版本', cfg_role: '角色', cfg_loc: '安装位置', cfg_term: '终端', cfg_im: '集成 IM', tools: '工具集成', skills_inst: '技能(已装 Skill)', noAgent: '未找到该 agent。',
+    skillsStats: 'SKILLS 统计', dailyUsed: '每日使用', skillSearch: '搜索 skill 名', runtimeFilter: 'runtime', sourceFilter: '来源', windowFilter: '时间窗', all: '全部', allTime: '全部', other: '其它', chartTotal: '合计', inProgress: '今日进行中', noChartData: '当日无使用', mainRank: '使用排行', companyFunnel: '公司库采纳漏斗', catalogCollected: 'catalog 收录', installed: '已安装', used30: '30 天有人使用', idleSkills: '已安装未使用', installedSnapshot: '已安装 = 各 agent 最新 profile 快照,不是历史累计', catalogUnavailable: '公司库目录不可达', catalogStale: '目录缓存已过期', source_own: 'own', source_meta: 'meta', source_external: 'external', source_non_catalog: '非公司库', trend: '趋势', runtimeDist: 'runtime 分布', operatorDist: 'operator 分布', first: '首见', equippedSessions: '装备态会话', equippedNote: '仅 OpenClaw:带了 ≠ 用了,不计入使用数', recentRecords: '最近记录', mode: '模式', session: 'session', skillNotFound: '未找到该 skill。', loading: '加载中…', loadError: '加载失败',
+  },
+  en: {
+    board: 'Pods', agents: 'Agents', skillsNav: 'SKILLS', demo: 'Demo · offline',
+    ro_skill: 'New skills/wk', ro_assets: 'Assets', ro_live: 'Live',
+    pods: 'Mission Pods', running: 'running', of: 'of', dispatcher: 'dispatcher', squad: 'squad', live: 'live', feed: 'Activity', silent: 'quiet…', noPods: 'No pods yet', noPodsH: 'appears after onboarding',
+    skillsRank: 'Skills ranking', skillName: 'Skill', skill7: '7d', skill30: '30d', skillTotal: 'Total', skillUsers30: 'Users', skillLast: 'Last', skillEquipped: 'equipped', noSkills: 'No skill usage yet', noSkillsH: 'appears after updated shims report',
+    th_agent: 'Agent', th_disp: 'Dispatcher', th_rt: 'Runtime', th_model: 'Models', th_status: 'Status', th_today: 'Active today', th_skill: 'Skill', th_mcp: 'MCP', th_shim: 'Shim', th_q: 'Success',
+    back: 'Back to list', about: 'What this agent is good at', note: "Dispatcher's tips", configins: 'Config & instructions', recent: 'Representative work', trend7: 'Active · last 7 days', trend30: 'Active · last 30 days', trend180: 'Active · last 180 days', trend12: 'Active · last 12 weeks', less: 'Less', more: 'More', quality: 'Quality & efficiency', skills: 'Skill assets', mcp: 'MCP servers',
+    models: 'Models', keycfg: 'Key config', insgist: 'System instructions', today: 'Today', week: 'This week',
+    q_runs: 'Runs', q_succ: 'Success', q_auto: 'Auto-completion', q_avg: 'Avg duration', q_err: 'Errors', q_reuse: 'Reused by',
+    local: 'local', cross: 'cross', pit: 'Pitfalls learned', none: 'none',
+    copy: 'Copy capability & assets', copied: 'Manifest copied to clipboard', copyHint: 'Copies a replicable manifest (runtime/models/config/skills/MCP).',
+    capability: 'Capability', src_cfg: 'System config', from_cfg: 'from config', from_mem: 'from memory',
+    access: 'Access & permissions', a_shell: 'Shell', a_auto: 'Auto-approve', a_net: 'Network', a_mcp: 'External services (MCP)',
+    memory: 'Memory', m_updated: 'updated', m_conv: 'convention', m_learn: 'learned', no_mem: 'no memory file', no_mem_h: 'This agent (often a cloud black-box) has no memory file connected; runtime data only.',
+    gb_reach: 'Reach', gb_mem: 'Memory', gb_risk: 'Permission risk', risk_ok: 'normal', risk_warn: 'review', shim: 'shim', shimOld: 'old shim', cfg_shim: 'Shim version', cfg_ver: 'Type / version', cfg_role: 'Role', cfg_loc: 'Location', cfg_term: 'Terminal', cfg_im: 'IM', tools: 'Integrations', skills_inst: 'Skills installed', noAgent: 'Agent not found.',
+    skillsStats: 'SKILLS stats', dailyUsed: 'Daily usage', skillSearch: 'Search skill', runtimeFilter: 'runtime', sourceFilter: 'source', windowFilter: 'window', all: 'All', allTime: 'All time', other: 'Other', chartTotal: 'Total', inProgress: 'today in progress', noChartData: 'No usage this day', mainRank: 'Usage ranking', companyFunnel: 'Company catalog funnel', catalogCollected: 'catalog', installed: 'installed', used30: 'used in 30d', idleSkills: 'installed, unused', installedSnapshot: 'Installed = latest profile snapshot per agent, not historical total', catalogUnavailable: 'catalog unreachable', catalogStale: 'catalog cache is stale', source_own: 'own', source_meta: 'meta', source_external: 'external', source_non_catalog: 'non-catalog', trend: 'Trend', runtimeDist: 'Runtime distribution', operatorDist: 'Operator distribution', first: 'First seen', equippedSessions: 'Equipped sessions', equippedNote: 'OpenClaw only: equipped does not mean used, and is not counted above', recentRecords: 'Recent records', mode: 'Mode', session: 'session', skillNotFound: 'Skill not found.', loading: 'Loading…', loadError: 'Load failed',
+  },
+} as const
+
+export const ST = {
+  zh: { running: '运行中', started: '启动', waiting: '等待', blocked: '受阻', error: '错误', done: '完成', idle: '空闲' },
+  en: { running: 'running', started: 'started', waiting: 'waiting', blocked: 'blocked', error: 'error', done: 'done', idle: 'idle' },
+} as const
+
+export function makeT(lang: Lang) {
+  return (key: string) => I18N[lang][key as keyof typeof I18N.zh] || key
+}
+
+export function statusName(lang: Lang, status: Status) {
+  return (ST[lang] as Record<string, string>)[status] || status
+}

@@ -20,7 +20,7 @@
 ```bash
 unzip tranfu-agents-app.zip
 cd tranfu-agents-app
-ls    # 应看到 Dockerfile compose.yml server/ dashboard/ shims/ 及若干 .md
+ls    # 应看到 Dockerfile compose.yml server/ frontend/ shims/ 及若干 .md
 ```
 
 ## 2. 建 GitHub 库并推上去
@@ -114,5 +114,5 @@ curl -fsSL https://tranfu-agents-app.tranfu.com/install.sh | bash -s -- \
 - [ ] 公网 `…/healthz` 返回 ok、`…/api/state` 返回 JSON
 - [ ] 测试事件能在看板上看到
 - [ ] 页面不再显示「未连接服务端」
-- [ ] logo 是新的(红色图形内联),有 Pods 看板 / Agents 列表 两个标签
+- [ ] logo 是新的(红色图形内联),有 Pods 看板 / Agents 列表 / SKILLS 三个标签
 - [ ] 部署机 remote 已指向新库

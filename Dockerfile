@@ -1,3 +1,13 @@
+FROM node:20-slim AS frontend-build
+
+WORKDIR /frontend
+
+COPY frontend/package*.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY frontend ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,9 +26,10 @@ RUN pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.tx
     && chown -R tranfu:tranfu /app /data
 
 COPY --chown=tranfu:tranfu server ./server
-COPY --chown=tranfu:tranfu dashboard ./dashboard
+COPY --from=frontend-build --chown=tranfu:tranfu /frontend/dist ./frontend/dist
 COPY --chown=tranfu:tranfu install.sh ./install.sh
 COPY --chown=tranfu:tranfu shims ./shims
+COPY --chown=tranfu:tranfu llms.txt robots.txt ./
 
 USER tranfu
 

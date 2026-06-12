@@ -9,12 +9,12 @@ shim / MCP 上报 ──POST /v1/events──▶ skill_uses 表(一行 = session
             └ skills_overview() → daily/table/funnel  └ skill_detail_payload() → daily(used/equipped)
               ＋本变更:响应加 today                     ＋本变更:响应加 today
                                           │
-                          dashboard/index.html(单文件前端,零依赖内联 SVG)
-            stackedChart()「每日使用」主图          detailTrend() 详情趋势图
+                          frontend/(React SPA,内联 SVG 组件)
+            StackedSkillChart「每日使用」主图      DetailTrend 详情趋势图
               ＋本变更:横轴铺满窗口 / 悬停浮窗 / 今日进行中
 ```
-本变更只动**读侧**(board 域):`server/app.py` 两个读接口各加 1 行,前端 `dashboard/index.html`
-两个绘图函数 + 一个新浮窗组件 + 窗口选择器。
+本变更只动**读侧**(board 域):`server/app.py` 两个读接口各加 1 行,前端 `frontend/`
+两个图表组件 + 一个新浮窗组件 + 窗口选择器。
 
 ## 锁定口径(访谈逐项拍板,实现时不得擅改)
 - **铺满只填真实 0**:绝不造数据(不走演示用的 `gen30` 之类伪序列);空白天如实留白。
@@ -65,7 +65,7 @@ days=7,只有今天有量 ↓
 2. `skill_detail_payload()`:响应新增 `today`。`daily`(used / equipped 分列)聚合**不变**。
 - 铺满是前端职责,后端不预先补零行(避免把"几十 skill × 90 天"的空行塞进响应)。
 
-### `dashboard/index.html`(主改区)
+### `frontend/`(主改区)
 - **窗口选择器**:options 由 `[7,30,90,0]` 改为 `[7,30,90]`,默认仍 30;`skillFilters.days` 不再取 0。
 - **`stackedChart()`(主图)**:
   - 横轴来源从「`Object.keys(byDay)`(有数据的天)」改为「以 `today` 为右端、回推 `days-1` 天

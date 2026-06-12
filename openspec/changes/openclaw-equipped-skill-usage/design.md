@@ -92,11 +92,11 @@ OpenClaw 把合格 skill 编译成 <skill> XML 块,注入 system prompt
 - `skill_usage(conn)`:`GROUP BY skill, mode`,每条带 `mode` 字段返回。排序口径不变(按近 30 天会话数)。
   **used 的排行数值与现状逐字节一致**(旧行全是 used,新增 used 走老路径);equipped 作为带标条目并列,不与 used 相加。
 
-### 前端 `dashboard/index.html`
+### 前端 `frontend/`
 
 - 排行项读 `mode`;`equipped` 加一个小标识(如「装备」角标),`used` 不变。
 - 同一 skill 名若同时有 used 与 equipped(不同 runtime)→ 两条独立条目,各自带标,**不合并求和**。
-- 抽 `<script>` 跑 `node --check` 校验。
+- 跑 `npm --prefix frontend run build` 校验。
 
 ### 安装 / 文档 / 纠错
 
@@ -143,6 +143,6 @@ OpenClaw 把合格 skill 编译成 <skill> XML 块,注入 system prompt
    `skill_mode=equipped` → `skill_uses` 落 `mode='equipped'`;同 session 重发同 skill equipped → 幂等;
    同 session 另发同 skill 的 used → 两行共存(主键含 mode);非法 `skill_mode` → 落 `used`;
    缺省 `skill_mode` → `used`(回归:旧客户端行为不变);`/api/state.skills` 里 equipped/used 分条不相加。
-4. **前端**:排行渲染 equipped 标识;同名 used/equipped 两条不合并;`node --check` 过。
+4. **前端**:排行渲染 equipped 标识;同名 used/equipped 两条不合并;`npm --prefix frontend run build` 过。
 5. **端到端手验**:真机 OpenClaw 跑一个会触发某 skill 注入的任务 → 远端排行出现该 skill 的 **equipped 条目**且不混进 used;
    本地日志汇总行可见 llm_input 次数/提取名/POST 结果。

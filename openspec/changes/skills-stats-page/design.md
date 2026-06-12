@@ -85,9 +85,9 @@
 4. **安装态数据源**:复用 profiles 表的 skills 字段(各 agent 最新配置快照),
    与 catalog 按名字匹配。
 
-### `dashboard/index.html`
-- 导航:顶部加第三个 SKILLS 标签;视图状态扩展出 skills 与 skill-detail 两个值。
-- skills 总览视图:进入时拉 `/api/skills`,之后约 10 秒刷新(不进 2 秒主轮询);
+### `frontend/`
+- 导航:顶部加第三个 SKILLS 标签;路由扩展出 `/skills` 与 `/skill/:name`。
+- skills 总览视图:进入时拉 `/api/skills`,之后约 10 秒刷新(不进主轮询);
   筛选条、SVG 手绘堆叠柱状图(零依赖,不引入图表库)、可排序主表、漏斗三层条 + 展开名单;
   空库显示空态,接口失败显示错误态,不报错不留洞。
 - skill-detail 视图:拉 `/api/skill/{name}`;used 柱 + equipped 折线同图但不堆叠;

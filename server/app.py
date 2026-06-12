@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
@@ -36,16 +37,19 @@ REQUIRE_TOKEN = os.environ.get("TF_REQUIRE_TOKEN", "0") == "1"
 # stored ONLY when read access is protected: either the app read-key is set, or
 # the operator asserts an edge gate (Cloudflare Access / Caddy) via TF_READ_AUTH=1.
 READ_AUTH_OK = bool(os.environ.get("TF_READ_KEY")) or os.environ.get("TF_READ_AUTH", "0") == "1"
-DASH_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboard", "index.html")
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+FRONTEND_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
+FRONTEND_INDEX = os.path.join(FRONTEND_DIST, "index.html")
 SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
 INSTALL_PATH = os.path.join(REPO_ROOT, "install.sh")
+LLMS_PATH = os.path.join(REPO_ROOT, "llms.txt")
+ROBOTS_PATH = os.path.join(REPO_ROOT, "robots.txt")
 _MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
           ".js": "text/javascript", ".mjs": "text/javascript",
           ".json": "application/json", ".md": "text/markdown"}
 _EXECUTABLE_SHIMS = {
     "tf_client.sh", "tf_hooks.py", "tf_claude_hooks.py",
-    "wrapper/tf-run", "wrapper/tf-hermes-hook.sh",
+    "wrapper/tf-run", "wrapper/tf-hermes-hook.sh", "wrapper/tf-doctor",
 }
 
 # profile keys the shim MAY include on an event (all optional, opt-in)
@@ -64,6 +68,7 @@ WINDOW_DAYS = 90               # retention + read window
 SKILL_MODES = {"used", "equipped"}
 
 app = FastAPI(title="TRANFU//AGENTS")
+app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets"), check_dir=False), name="assets")
 _lock = threading.Lock()
 _catalog_lock = threading.Lock()
 
@@ -1147,22 +1152,40 @@ def healthz():
 
 @app.get("/")
 def dashboard():
+    return _spa_index()
+
+
+def _spa_index():
     try:
-        with open(os.path.abspath(DASH_PATH), encoding="utf-8") as f:
+        with open(os.path.abspath(FRONTEND_INDEX), encoding="utf-8") as f:
             return HTMLResponse(f.read())
     except FileNotFoundError:
-        return HTMLResponse("<h1>dashboard/index.html not found</h1>", status_code=404)
+        return HTMLResponse("<h1>frontend/dist/index.html not found</h1>", status_code=404)
+
+
+def _plain_file(path, media_type="text/plain"):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return PlainTextResponse(f.read(), media_type=media_type)
+    except FileNotFoundError:
+        return PlainTextResponse(f"{os.path.basename(path)} not found", status_code=404)
 
 
 @app.get("/install.sh")
 def install_sh():
     """Serve the installer from the dashboard domain, so teammates can install
     even when the GitHub repo is private:  curl -fsSL $SERVER/install.sh | bash -s -- ..."""
-    try:
-        with open(INSTALL_PATH, encoding="utf-8") as f:
-            return PlainTextResponse(f.read(), media_type="text/x-shellscript")
-    except FileNotFoundError:
-        return PlainTextResponse("install.sh not found", status_code=404)
+    return _plain_file(INSTALL_PATH, "text/x-shellscript")
+
+
+@app.get("/llms.txt")
+def llms_txt():
+    return _plain_file(LLMS_PATH, "text/plain")
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    return _plain_file(ROBOTS_PATH, "text/plain")
 
 
 @app.get("/shims/manifest")
@@ -1180,6 +1203,20 @@ def shim_file(path: str):
     media = _MEDIA.get(os.path.splitext(target)[1], "text/plain")
     with open(target, encoding="utf-8") as f:
         return PlainTextResponse(f.read(), media_type=media)
+
+
+_SPA_BLOCKED_PREFIXES = {"api", "v1", "shims", "assets"}
+_SPA_BLOCKED_PATHS = {"install.sh", "healthz", "llms.txt", "robots.txt"}
+
+
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str):
+    """Serve React BrowserRouter deep links without swallowing API/system routes."""
+    first = full_path.split("/", 1)[0]
+    leaf = full_path.rsplit("/", 1)[-1]
+    if first in _SPA_BLOCKED_PREFIXES or full_path in _SPA_BLOCKED_PATHS or "." in leaf:
+        raise HTTPException(status_code=404)
+    return _spa_index()
 
 
 init_db()

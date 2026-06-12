@@ -40,6 +40,22 @@ def test_shims_directory_traversal_rejected(client):
     assert client.get("/shims/../server/app.py").status_code == 404
 
 
+def test_spa_deep_links_do_not_swallow_system_routes(client):
+    for path in ["/", "/agents", "/agent/alice%3A%3Acode", "/skills?win=30&rt=codex", "/skill/%E5%93%81%E7%89%8C"]:
+        r = client.get(path)
+        assert r.status_code == 200
+        assert "TRANFU//AGENTS" in r.text
+
+    assert client.get("/missing-client-route").status_code == 200
+    assert client.get("/api/nope").status_code == 404
+    assert client.get("/v1/nope").status_code == 404
+    assert client.get("/assets/nope.js").status_code == 404
+    assert client.get("/install.sh").status_code == 200
+    assert client.get("/healthz").text == "ok"
+    assert client.get("/llms.txt").status_code == 200
+    assert client.get("/robots.txt").status_code == 200
+
+
 # ---- §4 身份与令牌 (ADR-0011) ---------------------------------------------
 def test_enroll_then_verified(client):
     tok = client.post("/v1/enroll", json={"operator": "alice"}).json()["token"]

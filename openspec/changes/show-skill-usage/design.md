@@ -5,7 +5,7 @@
   每项产出 `name`、`sessions_7d`、`sessions_30d`、`sessions_total`、`users_30d`(去重 operator)、
   `last_day`(最近使用日期)。排序:`sessions_30d` 降序,平手按 `sessions_total`。
   时间窗口按 UTC 日切,与既有活跃统计口径一致。
-- `dashboard/index.html` —— 新增 SKILLS 排行区块:
+- `frontend/` —— 新增 SKILLS 排行区块:
   表格列 = skill 名 / 7 天 / 30 天 / 累计 / 30 天使用人数 / 最近使用。
   暗亮双主题(CSS 变量 + `body.light`)与手机窄屏(≤600px)遵循现有样式;
   `skills` 为空时显示占位文案,不留空洞、不报错。

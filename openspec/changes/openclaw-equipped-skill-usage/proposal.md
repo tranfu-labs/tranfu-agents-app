@@ -61,7 +61,7 @@ skill 使用排行已接通三条采集链路,共同点是都能拿到一次「a
 - `server/app.py`:`skill_uses` 加 `mode TEXT NOT NULL DEFAULT 'used'`,主键 `(session_id, skill)` →
   `(session_id, skill, mode)`;ingest 读取事件 `skill_mode`(缺省 `used`)写入;`skill_usage()` 聚合带 mode。
   现有行迁移默认 `used`,旧排行数值不变。
-- `dashboard/index.html`:排行项渲染 `equipped` 标识;同名 used/equipped 为两条,不合并。
+- `frontend/`:排行项渲染 `equipped` 标识;同名 used/equipped 为两条,不合并。
 - `PROTOCOL.md`:§4 事件加可选 `skill_mode`;§5 注明 OpenClaw 下 skill 名取自注入块(只报名);§6 落库规则加 mode 维度。
 - `openspec/specs/ingest/spec.md`:skill 落库规则加 `mode`(见本变更 `specs/ingest/spec.md` delta)。
 - `install.sh`:分发 `shims/openclaw/` 并把插件注册进 OpenClaw 配置(`plugins.entries.<id>`)——新装载方式,与 Python shim 不同。

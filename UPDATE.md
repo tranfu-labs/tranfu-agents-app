@@ -27,6 +27,8 @@ docker compose up -d --build
 
 **systemd(裸 Python):**
 ```bash
+npm ci --prefix frontend
+npm --prefix frontend run build
 sudo systemctl restart tranfu
 ```
 

@@ -9,19 +9,19 @@
       测试(TestClient):两接口响应含 `today` = UTC 当日;`daily`/`table`/`funnel` 数值与改动前一致(回归);
       `days=0` 不再是合法入参(按现有 400 口径或前端不再传——以 spec 为准)。
 
-- [x] 2. `dashboard/index.html`:窗口选择器去掉「全部」(options `[7,30,90]`,默认 30)。
+- [x] 2. `frontend/`:窗口选择器去掉「全部」(options `[7,30,90]`,默认 30)。
 
-- [x] 3. `dashboard/index.html`:`stackedChart()` 横轴按 `[today-(N-1) .. today]` 逐日铺满,
+- [x] 3. `frontend/`:`StackedSkillChart` 横轴按 `[today-(N-1) .. today]` 逐日铺满,
       空天留白;今日柱"进行中"样式。
       自测:只有今天有量时,7d 出 7 槽、今天 1 柱(进行中)、其余 6 空;切 30d 出 30 槽。
 
-- [x] 4. `dashboard/index.html`:明细浮窗组件(日期 / 当天各 skill 降序 / 合计 / 今日标注),
+- [x] 4. `frontend/`:明细浮窗组件(日期 / 当天各 skill 降序 / 合计 / 今日标注),
       整列悬停高亮并与图例 hover 解耦,替换原生 `<title>`;移动端点击触发;边界翻转。
 
-- [x] 5. `dashboard/index.html`:`detailTrend()` 固定最近 30 天逐日铺满 + 同款浮窗(used/equipped)+
+- [x] 5. `frontend/`:`DetailTrend` 固定最近 30 天逐日铺满 + 同款浮窗(used/equipped)+
       今日进行中。
 
-- [x] 6. 抽出 `<script>` 跑 `node --check`;暗 / 亮主题与 ≤600px 窄屏各走查一遍。
+- [x] 6. 跑 `npm --prefix frontend run build`;暗 / 亮主题与 ≤600px 窄屏各走查一遍。
 
 - [x] 7. 端到端手验(本地起服务 `TF_KEY=devkey python -m uvicorn server.app:app --port 8788`,
       浏览器开 127.0.0.1:8788 → SKILLS):

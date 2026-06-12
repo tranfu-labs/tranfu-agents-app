@@ -23,3 +23,4 @@
 | 0016 | Codex skill 使用从会话文件(rollout)补采 | Accepted |
 | 0017 | Hermes skill 使用从 `skill_view` 工具调用采集 | Accepted |
 | 0018 | OpenClaw skill 采集——装备态 `equipped`(与「使用」分语义) | Proposed |
+| 0019 | React 看板构建,同时保持单运行容器 | Accepted |
