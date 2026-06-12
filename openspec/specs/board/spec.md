@@ -16,10 +16,10 @@
 5. `totals.live` 仅计 `status ∈ {running, started, waiting}`。
 6. `feed` 为真实状态转变(非心跳),倒序。
 7. leverage = `{assets: 不同技能数, skills_week: 近 7 天首次出现的技能数}`。
-8. `skills` 为 Skill 使用排行数组,每项含 `name`、`sessions_7d`、`sessions_30d`、
+8. `skills` 为 Skill 使用/装备排行数组,每项含 `name`、`mode`(`used`/`equipped`)、`sessions_7d`、`sessions_30d`、
    `sessions_total`、`users_30d`、`last_day`;按 `sessions_30d` 降序,平手按 `sessions_total`。
-9. Skill 计数口径:一个会话用过某 skill 算一次(来源即 `skill_uses` 的会话×skill 粒度,读侧不再去重);
-   时间窗口按 UTC 日切,与活跃统计口径一致。
+9. Skill 计数口径:一个会话用过/装备某 skill 的某个 mode 算一次(来源即 `skill_uses` 的会话×skill×mode 粒度,
+   读侧不再去重);时间窗口按 UTC 日切,与活跃统计口径一致。`used` 与 `equipped` 必须分条呈现,不得相加。
 
 ## 前端规则(MUST)
 - 轮询 `/api/state`(约 2s),取不到时退回内置演示数据并显示"未连接服务端"。
@@ -32,6 +32,7 @@
 ## 可验证行为
 - 同一 agent 跑多次/多 session → 看板仅一张卡,随最新状态刷新。
 - 某 agent 3 分钟无心跳 → 卡片转 `idle`(灰)。
-- 造数据:skill A 在 31 天前 1 个会话、5 天前 2 个会话(2 个不同 operator)使用 →
-  `sessions_7d=2`、`sessions_30d=2`、`sessions_total=3`、`users_30d=2`。
+- 造数据:skill A 的 `used` 在 31 天前 1 个会话、5 天前 2 个会话(2 个不同 operator)使用 →
+  `mode=used` 条目 `sessions_7d=2`、`sessions_30d=2`、`sessions_total=3`、`users_30d=2`。
+- 同一 skill A 同时有 `used` 与 `equipped` → `skills` 出现两条同名不同 mode 条目,计数互不相加。
 - 空库 → `skills: []`,看板显示空态。

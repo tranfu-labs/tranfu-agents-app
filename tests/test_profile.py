@@ -78,7 +78,7 @@ def test_openclaw_skills_from_own_dirs(tmp_path, monkeypatch):
 
 
 def test_openclaw_model_from_codex_home(tmp_path, monkeypatch):
-    """OpenClaw 底层是 Codex runtime,模型来自 per-agent codex-home 的 config.toml。"""
+    """OpenClaw 后端配置存在时,模型来自 per-agent codex-home 的 config.toml。"""
     monkeypatch.setattr(tf_profile, "HOME", tmp_path)
     ch = tmp_path / ".openclaw" / "agents" / "lobster1" / "agent" / "codex-home"
     ch.mkdir(parents=True)

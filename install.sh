@@ -22,6 +22,7 @@ set -e
 SERVER=""; KEY=""; OPERATOR="$USER"; RUNTIME=""; AGENT=""; ROLE=""; ABOUT=""; TIPS=""; MODELS=""
 CLAUDE_HOOKS=""; CLAUDE_SETTINGS=""
 CODEX_HOOKS=""; CODEX_SETTINGS=""
+OPENCLAW_PLUGIN=""
 while [ $# -gt 0 ]; do case "$1" in
   --server) SERVER="$2"; shift 2;; --key) KEY="$2"; shift 2;;
   --operator) OPERATOR="$2"; shift 2;; --runtime) RUNTIME="$2"; shift 2;;
@@ -36,6 +37,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --no-codex-hooks) CODEX_HOOKS="skip"; shift;;
   --codex-hooks) CODEX_HOOKS="$2"; shift 2;;
   --codex-settings) CODEX_SETTINGS="$2"; shift 2;;
+  --install-openclaw-plugin) OPENCLAW_PLUGIN="install"; shift;;
+  --no-openclaw-plugin) OPENCLAW_PLUGIN="skip"; shift;;
   *) shift;; esac; done
 [ -z "$SERVER" ] && { echo "need --server"; exit 1; }
 
@@ -45,6 +48,28 @@ for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_roll
   curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
 done
 chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf-hermes-hook.sh
+
+_install_openclaw_plugin() {
+  mkdir -p "${HOME}/.tranfu/openclaw"
+  for f in package.json openclaw.plugin.json index.js skill-extract.mjs logger.mjs reporter.mjs README.md; do
+    curl -fsSL "$BASE/openclaw/$f" -o "${HOME}/.tranfu/openclaw/$f"
+  done
+  if command -v openclaw >/dev/null 2>&1; then
+    openclaw plugins install -l "${HOME}/.tranfu/openclaw" >/dev/null 2>&1 || true
+    openclaw plugins enable tranfu-skill-reporter >/dev/null 2>&1 || true
+    openclaw config set plugins.entries.tranfu-skill-reporter.enabled true >/dev/null 2>&1 || true
+    openclaw config set plugins.entries.tranfu-skill-reporter.hooks.allowConversationAccess true >/dev/null 2>&1 || true
+    openclaw config set plugins.entries.tranfu-skill-reporter.config.server "$SERVER" >/dev/null 2>&1 || true
+    [ -n "$KEY" ] && openclaw config set plugins.entries.tranfu-skill-reporter.config.key "$KEY" >/dev/null 2>&1 || true
+    openclaw config set plugins.entries.tranfu-skill-reporter.config.operator "$OPERATOR" >/dev/null 2>&1 || true
+    [ -n "$AGENT" ] && openclaw config set plugins.entries.tranfu-skill-reporter.config.agent "$AGENT" >/dev/null 2>&1 || true
+    openclaw config set plugins.entries.tranfu-skill-reporter.config.runtime "${RUNTIME:-open-claw}" >/dev/null 2>&1 || true
+    echo "OpenClaw plugin: installed/updated. Restart OpenClaw for equipped Skill reporting."
+  else
+    echo "OpenClaw plugin files copied to ~/.tranfu/openclaw, but openclaw CLI was not found."
+    echo "Enable it later with: openclaw plugins install -l ~/.tranfu/openclaw && openclaw plugins enable tranfu-skill-reporter"
+  fi
+}
 
 # Identity/env files under ~/.tranfu (overwritten each run — re-installing never
 # duplicates). Hooks source these directly because they run in a non-interactive
@@ -136,6 +161,11 @@ fi
 if [ -z "$CODEX_HOOKS" ] && [ "$RUNTIME" = "codex" ]; then
   CODEX_HOOKS="install"
 fi
+case "$RUNTIME" in
+  openclaw|open-claw|claw-code)
+    [ -z "$OPENCLAW_PLUGIN" ] && OPENCLAW_PLUGIN="install"
+    ;;
+esac
 if [ -n "$CLAUDE_HOOKS" ] && [ "$CLAUDE_HOOKS" != "skip" ]; then
   case "$CLAUDE_HOOKS" in
     status|install|uninstall|restore) ;;
@@ -167,4 +197,8 @@ if [ -n "$CODEX_HOOKS" ] && [ "$CODEX_HOOKS" != "skip" ]; then
       || echo "  ! could not update Codex hooks — run: python3 ~/.tranfu/tf_hooks.py --target codex $CODEX_HOOKS"
   fi
   [ "$CODEX_HOOKS" = "install" ] && echo "Restart Codex for hooks to take effect. If Codex asks to trust the new hook, approve it once." || true
+fi
+if [ "$OPENCLAW_PLUGIN" = "install" ]; then
+  echo ""
+  _install_openclaw_plugin
 fi

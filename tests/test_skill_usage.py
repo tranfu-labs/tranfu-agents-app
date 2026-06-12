@@ -19,7 +19,7 @@ def _skill_count(app_mod):
 def _skill_rows(app_mod):
     with app_mod.db() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT session_id,skill,operator,runtime,day FROM skill_uses ORDER BY session_id,skill")]
+            "SELECT session_id,skill,mode,operator,runtime,day FROM skill_uses ORDER BY session_id,skill,mode")]
 
 
 def _set_skill_day(app_mod, session_id, skill, days_ago):
@@ -34,7 +34,7 @@ def test_skill_use_dedupes_per_session(client, app_mod):
     assert ev(client, session_id="s1", skill="openai-docs").status_code == 200
     assert ev(client, session_id="s1", skill="openai-docs").status_code == 200
     assert _skill_rows(app_mod) == [{
-        "session_id": "s1", "skill": "openai-docs", "operator": "alice",
+        "session_id": "s1", "skill": "openai-docs", "mode": "used", "operator": "alice",
         "runtime": "codex", "day": datetime.now(timezone.utc).date().isoformat(),
     }]
 
@@ -48,8 +48,8 @@ def test_skill_use_counts_different_sessions(client, app_mod):
 def test_same_session_can_count_different_skills(client, app_mod):
     ev(client, session_id="s1", skill="openai-docs", current_step="tool: Skill")
     ev(client, session_id="s1", skill="skill-creator", current_step="tool: Skill")
-    assert {(r["session_id"], r["skill"]) for r in _skill_rows(app_mod)} == {
-        ("s1", "openai-docs"), ("s1", "skill-creator")
+    assert {(r["session_id"], r["skill"], r["mode"]) for r in _skill_rows(app_mod)} == {
+        ("s1", "openai-docs", "used"), ("s1", "skill-creator", "used")
     }
 
 
@@ -75,6 +75,30 @@ def test_skill_processed_before_heartbeat_short_circuit(client, app_mod):
     assert _skill_count(app_mod) == 1
 
 
+def test_skill_mode_equipped_dedupes_per_session(client, app_mod):
+    ev(client, session_id="s1", skill="openai-docs", skill_mode="equipped")
+    ev(client, session_id="s1", skill="openai-docs", skill_mode="equipped")
+    rows = _skill_rows(app_mod)
+    assert len(rows) == 1
+    assert rows[0]["mode"] == "equipped"
+
+
+def test_same_session_can_count_used_and_equipped_for_same_skill(client, app_mod):
+    ev(client, session_id="s1", skill="openai-docs", skill_mode="equipped")
+    ev(client, session_id="s1", skill="openai-docs", skill_mode="used")
+    assert {(r["skill"], r["mode"]) for r in _skill_rows(app_mod)} == {
+        ("openai-docs", "equipped"), ("openai-docs", "used")
+    }
+
+
+def test_invalid_and_missing_skill_mode_fall_back_to_used(client, app_mod):
+    ev(client, session_id="s1", skill="alpha", skill_mode="nonsense")
+    ev(client, session_id="s2", skill="beta")
+    assert {(r["skill"], r["mode"]) for r in _skill_rows(app_mod)} == {
+        ("alpha", "used"), ("beta", "used")
+    }
+
+
 def test_empty_snapshot_has_skills_array(client):
     assert client.get("/api/state").json()["skills"] == []
 
@@ -92,10 +116,48 @@ def test_skill_usage_snapshot_windows_and_sort(client, app_mod):
     skills = client.get("/api/state").json()["skills"]
     assert [s["name"] for s in skills[:2]] == ["alpha", "beta"]
     alpha = skills[0]
+    assert alpha["mode"] == "used"
     assert alpha["sessions_7d"] == 2
     assert alpha["sessions_30d"] == 2
     assert alpha["sessions_total"] == 3
     assert alpha["users_30d"] == 2
+
+
+def test_skill_usage_snapshot_keeps_used_and_equipped_separate(client, app_mod):
+    ev(client, operator="alice", session_id="u1", skill="alpha", skill_mode="used")
+    ev(client, operator="bob", session_id="u2", skill="alpha", skill_mode="used")
+    ev(client, operator="chen", session_id="e1", skill="alpha", skill_mode="equipped")
+
+    skills = client.get("/api/state").json()["skills"]
+    by_mode = {(s["name"], s["mode"]): s for s in skills}
+    assert by_mode[("alpha", "used")]["sessions_total"] == 2
+    assert by_mode[("alpha", "equipped")]["sessions_total"] == 1
+
+
+def test_init_db_migrates_old_skill_uses_primary_key(app_mod):
+    with app_mod.db() as conn:
+        conn.execute("DROP TABLE skill_uses")
+        conn.execute("""CREATE TABLE skill_uses (
+          session_id TEXT NOT NULL,
+          skill TEXT NOT NULL,
+          operator TEXT,
+          runtime TEXT,
+          day TEXT,
+          first_seen TEXT,
+          PRIMARY KEY (session_id, skill)
+        )""")
+        conn.execute("""INSERT INTO skill_uses(session_id,skill,operator,runtime,day,first_seen)
+          VALUES('s1','alpha','alice','codex','2026-01-01','2026-01-01T00:00:00+00:00')""")
+        conn.commit()
+
+    app_mod.init_db()
+
+    with app_mod.db() as conn:
+        info = conn.execute("PRAGMA table_info(skill_uses)").fetchall()
+        pk = [r["name"] for r in sorted((r for r in info if r["pk"]), key=lambda r: r["pk"])]
+        row = dict(conn.execute("SELECT session_id,skill,mode FROM skill_uses").fetchone())
+    assert pk == ["session_id", "skill", "mode"]
+    assert row == {"session_id": "s1", "skill": "alpha", "mode": "used"}
 
 
 def test_tf_report_print_includes_optional_skill():
@@ -107,6 +169,19 @@ def test_tf_report_print_includes_optional_skill():
          "--session", "s1", "--skill", "openai-docs", "--print"],
         cwd=ROOT, env=env, text=True, capture_output=True, check=True)
     assert json.loads(r.stdout)["skill"] == "openai-docs"
+
+
+def test_tf_report_print_includes_optional_skill_mode():
+    env = os.environ.copy()
+    env.update({"TF_OPERATOR": "alice", "TF_RUNTIME": "open-claw", "TF_AGENT": "copy"})
+    env.pop("TF_SERVER", None)
+    r = subprocess.run(
+        [sys.executable, "shims/tf_report.py", "--status", "done",
+         "--session", "s1", "--skill", "openai-docs", "--skill-mode", "equipped", "--print"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=True)
+    payload = json.loads(r.stdout)
+    assert payload["skill"] == "openai-docs"
+    assert payload["skill_mode"] == "equipped"
 
 
 def test_tf_report_skill_env_switch_suppresses_field():

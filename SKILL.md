@@ -32,14 +32,16 @@ description: Install and connect this agent to the team's TRANFU//AGENTS live da
 ## 第 3 步:安装上报工具(办入职)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/install.sh \
+curl -fsSL <接入地址>/install.sh \
   | bash -s -- --server <接入地址> --key <接入密钥> --operator <operator> --runtime <runtime> --agent <用途>
 ```
 装完会把工具放到 `~/.tranfu` 并写入 `TF_SERVER / TF_KEY / TF_OPERATOR / TF_RUNTIME / TF_AGENT`——该调度员的 Pod 即建立。
 如果 `<runtime>` 是 `claude-code` 或 `codex`,安装器会自动幂等合并用户级 hooks;已有其它 hooks 会保留。
 如果 `<runtime>` 是 `hermes`,安装器会安装 `tf-hermes-hook.sh` 并打印需要合并到 `~/.hermes/config.yaml` 的 hooks 配置。
+如果 `<runtime>` 是 `open-claw` / `openclaw`,安装器会安装 OpenClaw 原生插件并尝试写入
+`plugins.entries.tranfu-skill-reporter`,用于装备态 Skill 统计;仍需用 `tf-run` 或派发脚本上报状态。
 重跑安装器是安全的:它会从 `$SERVER/shims` 拉新版 shim,覆盖 `~/.tranfu/tf_*.py`,并刷新
-`~/.tranfu/tf_env.<runtime>.sh`;Claude Code / Codex / Hermes 更新后需要重启才会加载新 hook/shim。
+`~/.tranfu/tf_env.<runtime>.sh`;Claude Code / Codex / Hermes / OpenClaw 更新后需要重启才会加载新 hook/shim/plugin。
 
 ## 第 4 步:按本 agent 的形态接好上报
 
@@ -73,7 +75,8 @@ curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/
   不要把密钥写进 Hermes config;wrapper 会 source `~/.tranfu/tf_env.hermes.sh`。
   退出时从 `~/.hermes/config.yaml` 删除指向 `~/.tranfu/tf-hermes-hook.sh` 的 hooks 条目。
 - **Skill 使用统计**:Claude Code 的 `Skill`、Hermes 的 `skill_view`、Codex 的本地 rollout 扫描都会默认统计
-  Skill 名(只记录名称,不含参数/内容);用户若要关闭,在对应 `tf_env.<runtime>.sh` 里加
+  Skill 名;OpenClaw 插件只统计 prompt 注入过的 Skill 名并标为 `equipped` 装备态(只记录名称,不含参数/内容)。
+  用户若要关闭,在对应 `tf_env.<runtime>.sh` 里加
   `export TF_REPORT_SKILLS=0` 并重启 agent。
 - **云端**(manus / mulerun / chatgpt):只能粗粒度,包住派发那一步:
   ```bash

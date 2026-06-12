@@ -106,7 +106,8 @@ export TF_ROLE="品牌文案执行体"     # 这个 agent 的角色/定位
 
 - 默认只上报:**谁、用途、状态、当前步骤、活跃时长**;**不**上报你的 prompt、代码、输出、记忆。
 - Skill 使用排行默认只统计 skill 名,不记录参数或内容:Claude Code 取自 `Skill` 工具调用,
-  Hermes 取自 `skill_view` 工具调用,Codex 取自本机会话文件里的已装 `SKILL.md` 读取信号。
+  Hermes 取自 `skill_view` 工具调用,Codex 取自本机会话文件里的已装 `SKILL.md` 读取信号;
+  OpenClaw 取自 prompt 注入块并标为 `equipped` 装备态,不与使用态相加。
   不想参与统计可在本机设置 `export TF_REPORT_SKILLS=0` 后重启对应 agent。
 - 想把内容也回传做团队复盘:告诉 agent「打开内容回传」。
   ⚠️ 打开后这些内容会显示给所有有看板权限的人,慎用(看板应放在内网/VPN/SSO 之后)。

@@ -1,0 +1,44 @@
+{
+  "id": "tranfu-skill-reporter",
+  "name": "TRANFU Skill Reporter",
+  "description": "Reports OpenClaw prompt-equipped skill names to TRANFU//AGENTS without sending prompt content.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "server": {
+        "type": "string",
+        "description": "TRANFU//AGENTS server URL."
+      },
+      "key": {
+        "type": "string",
+        "description": "TRANFU//AGENTS write key."
+      },
+      "token": {
+        "type": "string",
+        "description": "Optional per-operator token."
+      },
+      "operator": {
+        "type": "string",
+        "description": "Operator/person shown on the dashboard."
+      },
+      "agent": {
+        "type": "string",
+        "description": "Optional agent/lane label."
+      },
+      "runtime": {
+        "type": "string",
+        "default": "open-claw",
+        "description": "Runtime label sent to TRANFU//AGENTS."
+      },
+      "reportSkills": {
+        "type": "boolean",
+        "default": true,
+        "description": "Set false to suppress equipped skill reporting."
+      }
+    }
+  }
+}

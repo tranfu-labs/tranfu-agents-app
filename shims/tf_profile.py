@@ -33,9 +33,10 @@ HOME = Path.home()
 RT_LABEL = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop",
             "codex": "Codex", "open-claw": "OpenClaw", "openclaw": "OpenClaw",
             "hermes": "Hermes", "manus": "Manus", "mulerun": "MuleRun", "chatgpt": "ChatGPT"}
-# OpenClaw registers as "openclaw" (no hyphen); "open-claw" kept as alias. Its CLI
-# is `openclaw` (not `claw`), and it runs on a Codex runtime under the hood, so its
-# model/MCP live in a codex config.toml (see detect_config / detect_mcp).
+# OpenClaw registers as "openclaw" (no hyphen); "open-claw" is kept as the
+# dashboard/runtime alias. Its CLI is `openclaw` (not `claw`). OpenClaw skill
+# usage is collected by the OpenClaw plugin from injected system-prompt metadata,
+# not by scanning Codex rollout events.
 VER_CMD = {"claude-code": ["claude", "--version"], "codex": ["codex", "--version"],
            "open-claw": ["openclaw", "--version"], "openclaw": ["openclaw", "--version"]}
 
@@ -111,8 +112,9 @@ def detect_mcp(runtime, cwd):
             ms = d.get("mcpServers") or d.get("mcp_servers")
             if isinstance(ms, dict):
                 servers.update(ms.keys())
-    # codex toml — also OpenClaw, which runs each agent on a Codex runtime stored
-    # under ~/.openclaw/agents/<agentId>/agent/codex-home/ (dynamic id -> glob).
+    # Codex toml. Some OpenClaw agent backends also expose Codex-compatible
+    # config under ~/.openclaw/agents/<agentId>/agent/codex-home/ (dynamic id ->
+    # glob); this is profile/config detection only, not skill-usage scanning.
     toml_candidates = [HOME / ".codex" / "config.toml"]
     toml_candidates += sorted(HOME.glob(".openclaw/agents/*/agent/codex-home/config.toml"))
     for tp in toml_candidates:
@@ -227,15 +229,15 @@ def detect_ims():
 def detect_config(cwd, runtime=None):
     rt = (runtime or "").lower()
     cfg = {}
-    # Codex — and OpenClaw, which runs each agent on a Codex runtime — keep their
-    # model in a codex config.toml, NOT Claude's settings.json. Read the runtime's
-    # OWN config so the card never borrows a co-resident Claude model. No `model`
-    # key (e.g. logged-in default) -> report nothing, not a wrong borrowed model.
+    # Codex keeps model config in TOML. Some OpenClaw agent backends expose a
+    # Codex-compatible config path too. Read the runtime's OWN config so the card
+    # never borrows a co-resident Claude model. No `model` key (e.g. logged-in
+    # default) -> report nothing, not a wrong borrowed model.
     toml_paths = None
     if rt == "codex":
         toml_paths = [Path(cwd) / ".codex" / "config.toml", HOME / ".codex" / "config.toml"]
     elif rt in ("openclaw", "open-claw"):
-        # per-agent Codex runtime under ~/.openclaw/agents/<id>/agent/codex-home/
+        # OpenClaw backend config, when present, lives under dynamic agent ids.
         toml_paths = sorted(HOME.glob(".openclaw/agents/*/agent/codex-home/config.toml"))
     if toml_paths is not None:
         for p in toml_paths:

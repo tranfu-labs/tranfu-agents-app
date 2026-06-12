@@ -83,19 +83,28 @@ curl https://tranfu-agents-app.tranfu.com/api/state | head -c 200   # JSON
 本版本新增 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,
 Skill 调用才会开始上报 `skill` 字段,所以排行数据会按人逐步出现。Claude Code 走 `Skill` 工具调用;
 Hermes 走 `skill_view` 工具调用;Codex 不暴露该工具调用,改由 shim 在轮次/会话结束时解析本机
-rollout 文件提取(见 ADR-0016/0017)。这几条路都需要新版本地 shim(`tf_rollout_scan.py` 是 Codex
-采集依赖文件,务必确认 install.sh 已拉到)。
+rollout 文件提取(见 ADR-0016/0017)。OpenClaw 没有使用边界,新版本通过原生插件从 prompt 注入块提取
+并以 `mode=equipped` 记录装备态(见 ADR-0018),不与 `used` 使用态相加。OpenClaw 插件在 `session_end`
+只排队后台 POST,不会等待网络而阻塞 agent。这几条路都需要新版本地 shim/plugin
+(`tf_rollout_scan.py` 是 Codex 采集依赖文件,`~/.tranfu/openclaw/` 是 OpenClaw 插件目录,务必确认 install.sh 已拉到)。
+
+升级顺序要先更新服务端并完成 `skill_uses.mode` 迁移,再让队友重跑 `install.sh` 注册 OpenClaw 插件;顺序反过来时,
+旧服务端会把 OpenClaw 装备态按旧口径记成 `used`。
 
 查不到 Skill 数据时按这个顺序排查:
-1. 队友是否重跑了当前看板域名的 `install.sh`,并重启了 Claude Code / Codex / Hermes gateway。
-2. 本机 `~/.tranfu/` 是否有 `tf_rollout_scan.py`(Codex 采集依赖它);没有=install.sh 是旧版,服务端 shims 未更新。
+1. 队友是否重跑了当前看板域名的 `install.sh`,并重启了 Claude Code / Codex / Hermes gateway / OpenClaw。
+2. 本机 `~/.tranfu/` 是否有 `tf_rollout_scan.py`(Codex 采集依赖它),以及 `~/.tranfu/openclaw/`(OpenClaw 插件);
+   没有=install.sh 是旧版,服务端 shims 未更新。
 3. 本机是否设置了 `TF_REPORT_SKILLS=0`。
-4. 是否真的**用了**某 skill:Claude Code 要触发 `Skill` 工具调用;Hermes 要触发 `skill_view(name)`;
-   Codex 要真读 `.codex|.claude/skills/<名>/SKILL.md`(只在对话里提名字、不读文件不计入)。
+4. 是否真的**用了/装备了**某 skill:Claude Code 要触发 `Skill` 工具调用;Hermes 要触发 `skill_view(name)`;
+   Codex 要真读 `.codex|.claude/skills/<名>/SKILL.md`(只在对话里提名字、不读文件不计入);
+   OpenClaw 要让该 skill 进入本会话 prompt 注入块(排行里显示 `equipped`)。
 5. (Hermes)确认 `~/.hermes/config.yaml` 的 `pre_tool_call` 已指向 `~/.tranfu/tf-hermes-hook.sh`,
    且启动 Hermes 的环境能读到 `TF_SERVER/TF_KEY/TF_OPERATOR/TF_RUNTIME`。
 6. (Codex)直接验解析:`python3 ~/.tranfu/tf_rollout_scan.py --session <会话id> --print`,看是否列出 skill 名。
-7. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,operator,day from skill_uses limit 5;'`。
+7. (OpenClaw)看本地日志:`tail -n 50 ~/.tranfu/logs/openclaw-skill.log`,确认有 `session_end` 汇总、`skillCount`、
+   `postOk/postFail`;若有 `format_drift` WARN,说明注入块格式需要重新锚定。
+8. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,mode,operator,day from skill_uses limit 5;'`。
 
 ---
 

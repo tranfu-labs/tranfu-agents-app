@@ -41,6 +41,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
 INSTALL_PATH = os.path.join(REPO_ROOT, "install.sh")
 _MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
+          ".js": "text/javascript", ".mjs": "text/javascript",
           ".json": "application/json", ".md": "text/markdown"}
 
 # profile keys the shim MAY include on an event (all optional, opt-in)
@@ -55,6 +56,7 @@ MAX_CONTENT = 16 * 1024        # stored input/output, each
 MAX_META = 4 * 1024            # stored meta json
 MAX_SKILL_NAME = 160           # skill usage metadata, bounded like other strings
 WINDOW_DAYS = 90               # retention + read window
+SKILL_MODES = {"used", "equipped"}
 
 app = FastAPI(title="TRANFU//AGENTS")
 _lock = threading.Lock()
@@ -106,20 +108,18 @@ def init_db():
           name TEXT PRIMARY KEY, first_day TEXT
         );
 
-        -- one row = one session used one skill. This is the deduped source for
-        -- usage counts and is not pruned with the 90-day events window.
+        -- one row = one session × skill × semantic mode. "used" is the normal
+        -- tool-boundary signal; "equipped" is OpenClaw prompt-injection presence.
         CREATE TABLE IF NOT EXISTS skill_uses (
           session_id TEXT NOT NULL,
           skill TEXT NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'used',
           operator TEXT,
           runtime TEXT,
           day TEXT,
           first_seen TEXT,
-          PRIMARY KEY (session_id, skill)
+          PRIMARY KEY (session_id, skill, mode)
         );
-        CREATE INDEX IF NOT EXISTS idx_skill_uses_skill ON skill_uses(skill);
-        CREATE INDEX IF NOT EXISTS idx_skill_uses_day ON skill_uses(day);
-
         -- per-operator token bindings (TATP v0.1 §4). Stores sha256(token) only.
         CREATE TABLE IF NOT EXISTS operators (
           operator TEXT PRIMARY KEY, token_hash TEXT, created TEXT
@@ -137,6 +137,7 @@ def init_db():
                           ("parent_session_id", "TEXT"), ("verified", "INTEGER DEFAULT 0")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
+        _ensure_skill_uses_schema(conn)
 
         # --- identity normalization migration (idempotent) ---
         # Merge case/space variants of operator (NEZHA/nezha) and lowercase
@@ -167,6 +168,37 @@ def init_db():
                 conn.execute("INSERT INTO profiles(operator,ak,runtime,json,updated) VALUES(?,?,?,?,?)",
                              (opd, ak, rt, v["json"], v["updated"]))
         conn.commit()
+
+
+def _ensure_skill_uses_schema(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(skill_uses)")}
+    if "mode" not in cols:
+        conn.execute("ALTER TABLE skill_uses ADD COLUMN mode TEXT NOT NULL DEFAULT 'used'")
+    info = conn.execute("PRAGMA table_info(skill_uses)").fetchall()
+    pk = [r["name"] for r in sorted((r for r in info if r["pk"]), key=lambda r: r["pk"])]
+    if pk != ["session_id", "skill", "mode"]:
+        conn.execute("ALTER TABLE skill_uses RENAME TO skill_uses_old")
+        conn.execute("""
+        CREATE TABLE skill_uses (
+          session_id TEXT NOT NULL,
+          skill TEXT NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'used',
+          operator TEXT,
+          runtime TEXT,
+          day TEXT,
+          first_seen TEXT,
+          PRIMARY KEY (session_id, skill, mode)
+        )""")
+        old_cols = {r["name"] for r in conn.execute("PRAGMA table_info(skill_uses_old)")}
+        mode_expr = "CASE WHEN mode IN ('used','equipped') THEN mode ELSE 'used' END" if "mode" in old_cols else "'used'"
+        conn.execute(f"""INSERT OR IGNORE INTO skill_uses
+          (session_id,skill,mode,operator,runtime,day,first_seen)
+          SELECT session_id,skill,{mode_expr},operator,runtime,day,first_seen
+          FROM skill_uses_old""")
+        conn.execute("DROP TABLE skill_uses_old")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill ON skill_uses(skill)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill_mode ON skill_uses(skill, mode)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_day ON skill_uses(day)")
 
 
 def now_iso():
@@ -228,6 +260,14 @@ def _skill_use_name(value):
     return value[:MAX_SKILL_NAME]
 
 
+def _skill_mode(value):
+    """Normalize event-level skill semantic mode; invalid values are legacy used."""
+    if not isinstance(value, str):
+        return "used"
+    value = value.strip().lower()
+    return value if value in SKILL_MODES else "used"
+
+
 # ---------------------------------------------------------------- enroll (§4)
 @app.post("/v1/enroll")
 async def enroll(request: Request, x_tf_key: str = Header(default="")):
@@ -265,6 +305,7 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
     if not all(e.get(k) for k in ("operator", "runtime", "status")):
         raise HTTPException(400, "operator, runtime, session_id, status are required")
     skill_name = _skill_use_name(e.get("skill"))
+    skill_mode = _skill_mode(e.get("skill_mode"))
     if not e.get("session_id"):
         if skill_name:
             return {"ok": True, "logged": False, "skill_ignored": True}
@@ -293,8 +334,8 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         # still record the first sighting of session×skill.
         if skill_name:
             conn.execute("""INSERT OR IGNORE INTO skill_uses
-              (session_id,skill,operator,runtime,day,first_seen) VALUES(?,?,?,?,?,?)""",
-              (sid, skill_name, op, rt, recv[:10], recv))
+              (session_id,skill,mode,operator,runtime,day,first_seen) VALUES(?,?,?,?,?,?,?)""",
+              (sid, skill_name, skill_mode, op, rt, recv[:10], recv))
 
         # OPTIONAL profile payload — full-snapshot replace per identity (§6)
         profile = {k: e[k] for k in PROFILE_KEYS if e.get(k) is not None}
@@ -541,18 +582,19 @@ def skill_usage(conn):
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     rows = conn.execute("""
-      SELECT skill,
+      SELECT skill, mode,
         SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
         SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
         COUNT(*) sessions_total,
         COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
         MAX(day) last_day
       FROM skill_uses
-      GROUP BY skill
-      ORDER BY sessions_30d DESC, sessions_total DESC, skill ASC
+      GROUP BY skill, mode
+      ORDER BY sessions_30d DESC, sessions_total DESC, skill ASC, mode ASC
     """, (d7, d30, d30)).fetchall()
     return [{
         "name": r["skill"],
+        "mode": r["mode"] or "used",
         "sessions_7d": int(r["sessions_7d"] or 0),
         "sessions_30d": int(r["sessions_30d"] or 0),
         "sessions_total": int(r["sessions_total"] or 0),

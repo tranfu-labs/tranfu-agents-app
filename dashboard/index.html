@@ -134,7 +134,9 @@
   .skills-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .skills-wrap tbody tr{cursor:default}
   .skills-wrap td.num,.skills-wrap th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .skill-line{display:flex;align-items:center;gap:6px;min-width:0}
   .skill-name{font-weight:600;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mode-badge{font-family:var(--mono);font-size:9px;line-height:1;color:var(--info);border:1px solid var(--info);border-radius:4px;padding:2px 4px;text-transform:uppercase;flex:none}
 
   table{width:100%;border-collapse:collapse;font-size:13px}
   thead th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -265,7 +267,7 @@ const I18N={
  zh:{board:"Pods 看板",agents:"Agents 列表",demo:"演示数据 · 未连接",
   ro_skill:"新增 Skill",ro_assets:"资产总数",ro_live:"在线",
   pods:"Mission Pods",running:"运行",of:"共",dispatcher:"调度员",squad:"编队",live:"在线",feed:"活动流",silent:"静默中…",noPods:"尚无 Pod 上报",noPodsH:"成员入职后在此出现",
-  skillsRank:"Skills 排行",skillName:"Skill",skill7:"7 天",skill30:"30 天",skillTotal:"累计",skillUsers30:"人数",skillLast:"最近",noSkills:"暂无 Skill 使用数据",noSkillsH:"新版 shim 上报后在此出现",
+  skillsRank:"Skills 排行",skillName:"Skill",skill7:"7 天",skill30:"30 天",skillTotal:"累计",skillUsers30:"人数",skillLast:"最近",skillEquipped:"装备",noSkills:"暂无 Skill 使用数据",noSkillsH:"新版 shim 上报后在此出现",
   th_agent:"Agent",th_disp:"调度员",th_rt:"运行时",th_model:"模型",th_status:"状态",th_today:"今日活跃",th_skill:"Skill",th_mcp:"MCP",th_q:"成功率",
   back:"返回列表",about:"这个 Agent 擅长什么",note:"调度员上手提示",configins:"配置与指令",recent:"代表性产出",trend7:"近 7 天活跃",trend30:"近 30 天活跃",trend180:"近 180 天活跃",trend12:"近 12 周活跃",less:"少",more:"多",quality:"质量与效率",skills:"Skill 资产",mcp:"已接 MCP",
   models:"模型",keycfg:"关键配置",insgist:"系统指令",today:"今日",week:"本周",
@@ -279,7 +281,7 @@ const I18N={
  en:{board:"Pods",agents:"Agents",demo:"Demo · offline",
   ro_skill:"New skills/wk",ro_assets:"Assets",ro_live:"Live",
   pods:"Mission Pods",running:"running",of:"of",dispatcher:"dispatcher",squad:"squad",live:"live",feed:"Activity",silent:"quiet…",noPods:"No pods yet",noPodsH:"appears after onboarding",
-  skillsRank:"Skills ranking",skillName:"Skill",skill7:"7d",skill30:"30d",skillTotal:"Total",skillUsers30:"Users",skillLast:"Last used",noSkills:"No skill usage yet",noSkillsH:"appears after updated shims report",
+  skillsRank:"Skills ranking",skillName:"Skill",skill7:"7d",skill30:"30d",skillTotal:"Total",skillUsers30:"Users",skillLast:"Last",skillEquipped:"equipped",noSkills:"No skill usage yet",noSkillsH:"appears after updated shims report",
   th_agent:"Agent",th_disp:"Dispatcher",th_rt:"Runtime",th_model:"Models",th_status:"Status",th_today:"Active today",th_skill:"Skill",th_mcp:"MCP",th_q:"Success",
   back:"Back to list",about:"What this agent is good at",note:"Dispatcher's tips",configins:"Config & instructions",recent:"Representative work",trend7:"Active · last 7 days",trend30:"Active · last 30 days",trend180:"Active · last 180 days",trend12:"Active · last 12 weeks",less:"Less",more:"More",quality:"Quality & efficiency",skills:"Skill assets",mcp:"MCP servers",
   models:"Models",keycfg:"Key config",insgist:"System instructions",today:"Today",week:"This week",
@@ -361,11 +363,12 @@ function cardHTML(s){const tag=s.agent||RT[s.runtime]||s.runtime,coarse=s.fideli
     <div class="chips">${models}${(s.mcp||[]).length?`<span class="chip">MCP ${s.mcp.length}</span>`:""}${nsk?`<span class="chip">Skill ${nsk}</span>`:""}</div>
     <div class="metrics"><span>${stName(s.status)}</span><span>${t("today")} <b>${dur(s.today_active)}</b></span>${sparkMini(s.active_series||[0,0,0,0,0,0,0])}</div></div>`;}
 function feedHTML(d){return d.feed.map(f=>`<div class="feed-item"><span class="ft">${ago(f.ts)}</span><div class="fmain"><div class="l1">${esc(f.operator)}${f.agent?(" · "+esc(f.agent)):""} <span class="stx">${stName(f.status)}</span></div><div class="sub">${esc(RT[f.runtime]||f.runtime)} — ${esc(f.current_step||f.task||"")}</div></div></div>`).join("")||`<div class="empty"><div class="t">${t("silent")}</div></div>`;}
-function skillsHTML(d){const rows=(d.skills||[]).map(s=>`<tr>
-  <td><div class="skill-name">${esc(s.name)}</div></td>
+function skillsHTML(d){const rows=(d.skills||[]).map(s=>{const equipped=(s.mode||"used")==="equipped";
+  return `<tr>
+  <td><div class="skill-line"><div class="skill-name">${esc(s.name)}</div>${equipped?`<span class="mode-badge">${t("skillEquipped")}</span>`:""}</div></td>
   <td class="num">${s.sessions_7d||0}</td><td class="num">${s.sessions_30d||0}</td>
   <td class="num">${s.sessions_total||0}</td><td class="num">${s.users_30d||0}</td>
-  <td class="q">${esc(s.last_day||"—")}</td></tr>`).join("");
+  <td class="q">${esc(s.last_day||"—")}</td></tr>`;}).join("");
   return rows?`<div class="skills-wrap"><table><thead><tr><th>${t("skillName")}</th><th class="num">${t("skill7")}</th><th class="num">${t("skill30")}</th><th class="num">${t("skillTotal")}</th><th class="num">${t("skillUsers30")}</th><th>${t("skillLast")}</th></tr></thead><tbody>${rows}</tbody></table></div>`
     :`<div class="empty"><div class="t">${t("noSkills")}</div><div class="h">${t("noSkillsH")}</div></div>`;}
 
@@ -463,9 +466,9 @@ let toastT;function showToast(msg){const el=document.getElementById("toast");el.
 const now=new Date(),iso=s=>new Date(now.getTime()-s*1000).toISOString();
 const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_active:42600},leverage:{skills_week:7,assets:48},
  skills:[
-  {name:"组件命名规范",sessions_7d:8,sessions_30d:19,sessions_total:36,users_30d:3,last_day:now.toISOString().slice(0,10)},
-  {name:"pytest 脚手架",sessions_7d:5,sessions_30d:14,sessions_total:22,users_30d:2,last_day:now.toISOString().slice(0,10)},
-  {name:"品牌语气库",sessions_7d:3,sessions_30d:9,sessions_total:31,users_30d:1,last_day:now.toISOString().slice(0,10)}
+  {name:"组件命名规范",mode:"used",sessions_7d:8,sessions_30d:19,sessions_total:36,users_30d:3,last_day:now.toISOString().slice(0,10)},
+  {name:"pytest 脚手架",mode:"used",sessions_7d:5,sessions_30d:14,sessions_total:22,users_30d:2,last_day:now.toISOString().slice(0,10)},
+  {name:"品牌语气库",mode:"equipped",sessions_7d:3,sessions_30d:9,sessions_total:31,users_30d:1,last_day:now.toISOString().slice(0,10)}
  ],
  sessions:[
   {operator:"nezha",agent:"build",runtime:"claude-code",status:"running",task:"画原型",current_step:"梳理界面结构",ts:iso(9),fidelity:"full",

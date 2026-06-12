@@ -160,7 +160,7 @@ curl -s -XPOST https://agents.tranfu.com/v1/events \
 
 **3) 把接入方式发给团队**(每人按自己情况改 `--operator/--runtime`):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tranfu-labs/tranfu-agents-app/main/install.sh | bash -s -- \
+curl -fsSL https://agents.tranfu.com/install.sh | bash -s -- \
   --server https://agents.tranfu.com --key <TF_KEY> --operator 名字 --runtime claude-code
 ```
 更详细的成员接入(三条路径 + 自动探测 + `TF_ROLE`)在 `QUICKSTART.md`。

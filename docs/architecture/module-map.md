@@ -37,20 +37,24 @@ agent 机器                         中心服务器(单容器)              浏
 ### M3 — 采集 shim (`shims/`)
 - **职责**:在使用者机器上把状态/档案上报给 M1。
   - `tf_profile.py` 自动探测 profile(版本/终端/位置/IM/MCP/技能/集成);
-  - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名);
+  - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;
+    OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
   - `tf_hook.py` Claude Code / Codex / Hermes 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
     Claude Code 识别 `Skill`,Hermes 识别 `skill_view`;
     Codex 在轮次/会话结束时拉起 `tf_rollout_scan.py`);
   - `tf_rollout_scan.py` Codex 专属:解析本机 rollout 会话文件,提取"读了已装 SKILL.md"的 Skill 名上报(ADR-0016);
+  - `openclaw/` OpenClaw 原生 JS 插件:在进程内 `llm_input` 只解析 prompt 注入块里的 Skill 名,
+    `session_end` 以 `skill_mode=equipped` 排队后台上报装备态,hook 不等待网络;只出站到 M1,不依赖 Python shim,
+    不得记录 prompt 正文;
   - `tf_hooks.py` Claude Code / Codex hooks JSON 幂等安装、卸载、恢复管理器;
   - `mcp/server.py` MCP reporter(桌面/黑盒,首次上报附 profile);
   - `tf_client.py` python 客户端。
 - **入口**:使用者运行(tf-run / 钩子 / MCP 工具),或 `install.sh` 安装后由各 agent 触发。
 - **上游**:使用者本机环境(探测来源)。
 - **下游**:M1 的 `/v1/events`。
-- **禁止依赖**:第三方库(只用标准库);抛错/阻塞宿主 agent;默认上报敏感内容。
-  Skill 使用统计只允许上报 Skill 名,不得上报参数、prompt、代码或输出。
+- **禁止依赖**:Python shim 不得依赖第三方库;所有 shim/plugin 不得抛错/阻塞宿主 agent;不得默认上报敏感内容。
+  Skill 使用统计只允许上报 Skill 名与 `skill_mode`,不得上报参数、prompt、代码或输出。
 
 ### M4 — 安装与分发 (`install.sh` + M1 的 `/install.sh`、`/shims/{path}`)
 - **职责**:一键把 shim 装到 `~/.tranfu`、写 shell rc(身份/密钥)、装完自动注册一次。

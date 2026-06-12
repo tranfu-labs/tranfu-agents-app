@@ -122,6 +122,7 @@ def main():
     ap.add_argument("--session", default="")
     ap.add_argument("--parent", default="")
     ap.add_argument("--skill", default="")
+    ap.add_argument("--skill-mode", choices=("used", "equipped"), default="used")
     ap.add_argument("--profile", action="store_true", help="attach auto-detected profile")
     ap.add_argument("--print", dest="dry", action="store_true", help="print payload, don't POST")
     a = ap.parse_args()
@@ -150,6 +151,8 @@ def main():
         payload["output"] = a.outp
     if a.skill.strip() and os.environ.get("TF_REPORT_SKILLS") != "0":
         payload["skill"] = a.skill.strip()
+        if a.skill_mode != "used":
+            payload["skill_mode"] = a.skill_mode
 
     if a.profile:
         try:

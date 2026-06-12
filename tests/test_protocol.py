@@ -16,6 +16,17 @@ def test_minimal_event_logged(client):
     assert r.status_code == 200 and r.json()["logged"] is True
 
 
+def test_serves_install_and_nested_shims(client):
+    assert client.get("/install.sh").status_code == 200
+    r = client.get("/shims/openclaw/openclaw.plugin.json")
+    assert r.status_code == 200
+    assert "tranfu-skill-reporter" in r.text
+
+
+def test_shims_directory_traversal_rejected(client):
+    assert client.get("/shims/../server/app.py").status_code == 404
+
+
 # ---- §4 身份与令牌 (ADR-0011) ---------------------------------------------
 def test_enroll_then_verified(client):
     tok = client.post("/v1/enroll", json={"operator": "alice"}).json()["token"]
