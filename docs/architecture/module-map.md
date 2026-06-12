@@ -39,7 +39,9 @@ agent 机器                         中心服务器(单容器)              浏
   - `tf_profile.py` 自动探测 profile(版本/终端/位置/IM/MCP/技能/集成);
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名);
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
-  - `tf_hook.py` Claude Code / Codex 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report);
+  - `tf_hook.py` Claude Code / Codex 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
+    Codex 在轮次/会话结束时拉起 `tf_rollout_scan.py`);
+  - `tf_rollout_scan.py` Codex 专属:解析本机 rollout 会话文件,提取"读了已装 SKILL.md"的 Skill 名上报(ADR-0016);
   - `tf_hooks.py` Claude Code / Codex hooks JSON 幂等安装、卸载、恢复管理器;
   - `mcp/server.py` MCP reporter(桌面/黑盒,首次上报附 profile);
   - `tf_client.py` python 客户端。

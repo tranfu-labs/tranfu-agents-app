@@ -41,7 +41,7 @@ while [ $# -gt 0 ]; do case "$1" in
 
 mkdir -p ~/.tranfu
 BASE="${SERVER%/}/shims"
-for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh; do
+for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh; do
   curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
 done
 chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf-hermes-hook.sh

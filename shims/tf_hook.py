@@ -75,12 +75,22 @@ def _skill_name(d, ev, tool):
     return ""
 
 
+def _event_name(d):
+    return d.get("hook_event_name") or d.get("event") or d.get("type") or ""
+
+
+def _session_id(d):
+    session_obj = d.get("session") if isinstance(d.get("session"), dict) else {}
+    return (d.get("session_id") or d.get("conversation_id") or d.get("thread_id")
+            or session_obj.get("id") or "")
+
+
 def resolve(d):
     """Map a hook payload dict -> tf_report.py argv (sans the python3/script
     prefix), or None if the event isn't one we report. Pure & testable."""
     if not isinstance(d, dict):
         return None
-    ev = d.get("hook_event_name") or d.get("event") or d.get("type") or ""
+    ev = _event_name(d)
     if ev not in MAP:
         return None
     status, step, prof = MAP[ev]
@@ -93,8 +103,7 @@ def resolve(d):
         step = f"tool done: {tool}"
     session_obj = d.get("session") if isinstance(d.get("session"), dict) else {}
     extra = d.get("extra") if isinstance(d.get("extra"), dict) else {}
-    sid = (d.get("session_id") or d.get("conversation_id") or d.get("thread_id")
-           or session_obj.get("id") or "")
+    sid = _session_id(d)
     # subagent -> parent run, so the agent tree can be reconstructed (TATP §1)
     parent = (d.get("parent_session_id") or d.get("parent_id")
               or extra.get("parent_session_id") or session_obj.get("parent_id") or "")
@@ -111,6 +120,43 @@ def resolve(d):
     return args
 
 
+def _run_report(rargs):
+    args = ["python3", os.path.join(HERE, "tf_report.py")] + rargs
+    try:
+        subprocess.run(args, timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass  # telemetry must never break the session
+
+
+# Codex turn/session-end events that trigger a rollout scan. Codex never exposes
+# skills as a `Skill` tool call (so resolve()/PreToolUse can't see them); instead
+# we read its on-disk transcript once per turn end and report the skills it used.
+CODEX_SCAN_EVENTS = ("Stop", "SessionEnd")
+
+
+def scan_codex_skills(d):
+    """Fallback skill-usage collection for Codex: at turn/session end, parse the
+    session's rollout transcript for installed-SKILL.md reads and report each.
+    Best-effort and self-contained — any failure means 'no data', never an error."""
+    if os.environ.get("TF_REPORT_SKILLS") == "0":
+        return
+    if os.environ.get("TF_RUNTIME") != "codex":
+        return
+    if _event_name(d) not in CODEX_SCAN_EVENTS:
+        return
+    sid = _session_id(d)
+    if not sid:
+        return
+    try:
+        import tf_rollout_scan
+        names = tf_rollout_scan.scan_session(sid)
+    except Exception:
+        return
+    for nm in names:
+        _run_report(["--status", "done", "--step", f"skill: {nm}",
+                     "--session", str(sid), "--skill", nm])
+
+
 def main():
     try:
         raw = sys.stdin.read()
@@ -118,11 +164,10 @@ def main():
     except Exception:
         d = {}
     rargs = resolve(d)
-    if rargs is None:
-        return
-    args = ["python3", os.path.join(HERE, "tf_report.py")] + rargs
+    if rargs is not None:
+        _run_report(rargs)
     try:
-        subprocess.run(args, timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        scan_codex_skills(d)
     except Exception:
         pass  # telemetry must never break the session
 

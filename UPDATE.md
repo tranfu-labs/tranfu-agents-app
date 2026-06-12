@@ -81,13 +81,18 @@ curl https://tranfu-agents-app.tranfu.com/api/state | head -c 200   # JSON
 ## 6. Skill 使用排行升级注意
 
 本版本新增 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,
-Claude Code 的 Skill 工具调用才会开始上报 `skill` 字段,所以排行数据会按人逐步出现。
+Skill 调用才会开始上报 `skill` 字段,所以排行数据会按人逐步出现。Claude Code 走 `Skill` 工具调用;
+Codex 不暴露该工具调用,改由 shim 在轮次/会话结束时解析本机 rollout 文件提取(见 ADR-0016),
+两条路都需要新版本地 shim(`tf_rollout_scan.py` 是本版新增文件,务必确认 install.sh 已拉到)。
 
 查不到 Skill 数据时按这个顺序排查:
 1. 队友是否重跑了当前看板域名的 `install.sh`,并重启了 Claude Code / Codex。
-2. 本机是否设置了 `TF_REPORT_SKILLS=0`。
-3. 是否真的触发了 Claude Code 的 `Skill` 工具调用;普通工具调用不会计入 Skill 排行。
-4. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,operator,day from skill_uses limit 5;'`。
+2. 本机 `~/.tranfu/` 是否有 `tf_rollout_scan.py`(Codex 采集依赖它);没有=install.sh 是旧版,服务端 shims 未更新。
+3. 本机是否设置了 `TF_REPORT_SKILLS=0`。
+4. 是否真的**用了**某 skill:Claude Code 要触发 `Skill` 工具调用;Codex 要真读 `.codex|.claude/skills/<名>/SKILL.md`
+   (只在对话里提名字、不读文件不计入)。
+5. (Codex)直接验解析:`python3 ~/.tranfu/tf_rollout_scan.py --session <会话id> --print`,看是否列出 skill 名。
+6. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,operator,day from skill_uses limit 5;'`。
 
 ---
 
