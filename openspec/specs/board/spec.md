@@ -4,8 +4,8 @@
 
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。
-- `GET /api/skills?days={7|30|90|0}` → `{ daily[], table[], funnel, catalog }`(SKILLS 总览;`days` 仅影响 daily,默认 30)。
-- `GET /api/skill/{name}` → 单 skill 详情(指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
+- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 仅影响 daily,默认 30)。
+- `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
 - `GET /` → 看板页;`GET /healthz` → `ok`。
 
@@ -37,9 +37,15 @@
 - 轮询 `/api/state`(约 2s),取不到时退回内置演示数据并显示"未连接服务端"。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
-- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图按 UTC 日,
-  前端取窗口内使用量前 8 的 skill 分色,其余合并为"其它"段;时间窗筛选只作用于柱状图,
-  主表固定 7 天/30 天/累计三列,漏斗第 3 层固定 30 天。
+- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 UTC 日窗口逐日铺满:
+  右端取服务端 `today`,左端为 `today-(N-1)`,N ∈ {7,30,90};每一天占一个槽位,有 used 数据才长堆叠柱,
+  无数据留空槽。前端取窗口内使用量前 8 的 skill 分色,其余合并为"其它"段;时间窗筛选只作用于柱状图,
+  主表固定 7 天/30 天/累计三列,漏斗第 3 层固定 30 天;窗口选择器不含"全部"档。
+- SKILLS 柱状图悬停某日列时,该列高亮、其余列降透明,并显示跟随光标的明细浮窗(日期、当天各 skill 降序明细、
+  Top8 外并"其它"、合计);今日列作为最后一格,以进行中视觉区分并在浮窗标注。移动端点击列显示浮窗,
+  点击别处关闭。整窗全空或筛选后全空时显示空态,不渲染一排空轴。
+- Skill 详情趋势图固定最近 30 个 UTC 日逐日铺满(右端同服务端 `today`),used 柱与 equipped 折线分列展示,
+  不相加;空天留白,今日列进行中,悬停浮窗显示 used/equipped。
 - 详情数据优先取 session 的服务端字段(`cf/skills/mcp/integrations/about/...`);演示映射仅用于独立预览。
 - 卡片/详情显示本机上报的 `shim_version` 短码;落后于服务端 `shim.version` 时标记过期。
 - 暗/亮双主题;手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
@@ -57,6 +63,9 @@
   `/api/skill/{name}` 两种模式并列展示且任何字段不相加。
 - 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
 - catalog 拉取失败 → `/api/skills` 返回 200,funnel 带过期标记与旧名单。
-- `days=7` → daily 仅含最近 7 个 UTC 日;`days` 变化不影响 table 与 funnel。
+- `days=7` → daily 仅含最近 7 个 UTC 日;`days` 变化不影响 table 与 funnel;`days=0` 返回 400。
+- `/api/skills` 与 `/api/skill/{name}` 均返回 UTC `today`;前端以它作为时间轴右端,不得用浏览器本地日期推算。
+- 只有今天有 used → 主图 7/30/90 日槽位完整铺开,仅最后一槽有今日进行中柱;中间缺数据的日期保留空槽。
+- 进入任一 skill 详情 → 趋势图铺满最近 30 个 UTC 日,used/equipped 分列展示且不相加。
 - 主表默认按 30 天会话数降序,平手按累计。
 - 看板页面不再渲染 skills 区块,原有卡片与轮询行为不变。

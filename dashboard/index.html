@@ -145,6 +145,19 @@
   .field input{min-width:220px}.field select{min-width:108px}
   .chart-box{padding:16px;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .chart-box svg{display:block;min-width:640px;width:100%;height:auto}
+  .skill-chart.hovering .day-col{opacity:.32}
+  .skill-chart.hovering .day-col.hovered{opacity:1}
+  .skill-chart .day-col{transition:opacity .12s ease}
+  .skill-chart .bar-hit{cursor:crosshair;pointer-events:all}
+  .chart-tip{position:fixed;z-index:80;display:none;min-width:190px;max-width:min(320px,calc(100vw - 24px));padding:10px 11px;border:1px solid var(--line2);border-radius:8px;background:color-mix(in srgb,var(--elev) 94%,transparent);box-shadow:var(--shadow);backdrop-filter:blur(10px);pointer-events:none;font-size:12px}
+  .chart-tip .tip-head{display:flex;align-items:center;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:7px}
+  .chart-tip .tip-live{color:var(--wait);font-family:var(--sans);font-size:11px;white-space:nowrap}
+  .chart-tip .tip-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:7px;align-items:center;padding:3px 0}
+  .chart-tip .tip-dot{width:8px;height:8px;border-radius:2px;background:var(--c)}
+  .chart-tip .tip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+  .chart-tip .tip-val{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+  .chart-tip .tip-total{display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:6px;padding-top:7px;font-family:var(--mono)}
+  .chart-tip .tip-empty{color:var(--muted);padding:4px 0}
   .legend2{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0;color:var(--muted);font-size:11px}
   .legend2 button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:var(--muted)}
   .legend2 button.on,.legend2 button:hover{border-color:var(--line2);color:var(--text)}
@@ -315,7 +328,7 @@ const I18N={
   access:"触达面与权限",a_shell:"Shell 权限",a_auto:"自动批准",a_net:"网络",a_mcp:"外部服务(MCP)",
   memory:"记忆沉淀",m_updated:"更新于",m_conv:"约定",m_learn:"已学到",no_mem:"未接入记忆文件",no_mem_h:"该 agent(多为云端黑盒)未连接 memory 文件,仅有运行数据。",
   gb_reach:"触达",gb_mem:"记忆",gb_risk:"权限风险",risk_ok:"常规",risk_warn:"需关注",shim:"shim",shimOld:"旧 shim",cfg_shim:"Shim 版本",cfg_ver:"类型 / 版本",cfg_role:"角色",cfg_loc:"安装位置",cfg_term:"终端",cfg_im:"集成 IM",tools:"工具集成",skills_inst:"技能(已装 Skill)",noAgent:"未找到该 agent。",
-  skillsStats:"SKILLS 统计",dailyUsed:"每日使用",skillSearch:"搜索 skill 名",runtimeFilter:"runtime",sourceFilter:"来源",windowFilter:"时间窗",all:"全部",allTime:"全部",other:"其它",mainRank:"使用排行",companyFunnel:"公司库采纳漏斗",catalogCollected:"catalog 收录",installed:"已安装",used30:"30 天有人使用",idleSkills:"已安装未使用",installedSnapshot:"已安装 = 各 agent 最新 profile 快照,不是历史累计",catalogUnavailable:"公司库目录不可达",catalogStale:"目录缓存已过期",source_own:"own",source_meta:"meta",source_external:"external",source_non_catalog:"非公司库",trend:"趋势",runtimeDist:"runtime 分布",operatorDist:"operator 分布",first:"首见",equippedSessions:"装备态会话",equippedNote:"仅 OpenClaw:带了 ≠ 用了,不计入使用数",recentRecords:"最近记录",mode:"模式",session:"session",skillNotFound:"未找到该 skill。",loading:"加载中…",loadError:"加载失败"},
+  skillsStats:"SKILLS 统计",dailyUsed:"每日使用",skillSearch:"搜索 skill 名",runtimeFilter:"runtime",sourceFilter:"来源",windowFilter:"时间窗",all:"全部",allTime:"全部",other:"其它",chartTotal:"合计",inProgress:"今日进行中",noChartData:"当日无使用",mainRank:"使用排行",companyFunnel:"公司库采纳漏斗",catalogCollected:"catalog 收录",installed:"已安装",used30:"30 天有人使用",idleSkills:"已安装未使用",installedSnapshot:"已安装 = 各 agent 最新 profile 快照,不是历史累计",catalogUnavailable:"公司库目录不可达",catalogStale:"目录缓存已过期",source_own:"own",source_meta:"meta",source_external:"external",source_non_catalog:"非公司库",trend:"趋势",runtimeDist:"runtime 分布",operatorDist:"operator 分布",first:"首见",equippedSessions:"装备态会话",equippedNote:"仅 OpenClaw:带了 ≠ 用了,不计入使用数",recentRecords:"最近记录",mode:"模式",session:"session",skillNotFound:"未找到该 skill。",loading:"加载中…",loadError:"加载失败"},
  en:{board:"Pods",agents:"Agents",skillsNav:"SKILLS",demo:"Demo · offline",
   ro_skill:"New skills/wk",ro_assets:"Assets",ro_live:"Live",
   pods:"Mission Pods",running:"running",of:"of",dispatcher:"dispatcher",squad:"squad",live:"live",feed:"Activity",silent:"quiet…",noPods:"No pods yet",noPodsH:"appears after onboarding",
@@ -330,7 +343,7 @@ const I18N={
   access:"Access & permissions",a_shell:"Shell",a_auto:"Auto-approve",a_net:"Network",a_mcp:"External services (MCP)",
   memory:"Memory",m_updated:"updated",m_conv:"convention",m_learn:"learned",no_mem:"no memory file",no_mem_h:"This agent (often a cloud black-box) has no memory file connected; runtime data only.",
   gb_reach:"Reach",gb_mem:"Memory",gb_risk:"Permission risk",risk_ok:"normal",risk_warn:"review",shim:"shim",shimOld:"old shim",cfg_shim:"Shim version",cfg_ver:"Type / version",cfg_role:"Role",cfg_loc:"Location",cfg_term:"Terminal",cfg_im:"IM",tools:"Integrations",skills_inst:"Skills installed",noAgent:"Agent not found.",
-  skillsStats:"SKILLS stats",dailyUsed:"Daily usage",skillSearch:"Search skill",runtimeFilter:"runtime",sourceFilter:"source",windowFilter:"window",all:"All",allTime:"All time",other:"Other",mainRank:"Usage ranking",companyFunnel:"Company catalog funnel",catalogCollected:"catalog",installed:"installed",used30:"used in 30d",idleSkills:"installed, unused",installedSnapshot:"Installed = latest profile snapshot per agent, not historical total",catalogUnavailable:"catalog unreachable",catalogStale:"catalog cache is stale",source_own:"own",source_meta:"meta",source_external:"external",source_non_catalog:"non-catalog",trend:"Trend",runtimeDist:"Runtime distribution",operatorDist:"Operator distribution",first:"First seen",equippedSessions:"Equipped sessions",equippedNote:"OpenClaw only: equipped does not mean used, and is not counted above",recentRecords:"Recent records",mode:"Mode",session:"session",skillNotFound:"Skill not found.",loading:"Loading…",loadError:"Load failed"}
+  skillsStats:"SKILLS stats",dailyUsed:"Daily usage",skillSearch:"Search skill",runtimeFilter:"runtime",sourceFilter:"source",windowFilter:"window",all:"All",allTime:"All time",other:"Other",chartTotal:"Total",inProgress:"today in progress",noChartData:"No usage this day",mainRank:"Usage ranking",companyFunnel:"Company catalog funnel",catalogCollected:"catalog",installed:"installed",used30:"used in 30d",idleSkills:"installed, unused",installedSnapshot:"Installed = latest profile snapshot per agent, not historical total",catalogUnavailable:"catalog unreachable",catalogStale:"catalog cache is stale",source_own:"own",source_meta:"meta",source_external:"external",source_non_catalog:"non-catalog",trend:"Trend",runtimeDist:"Runtime distribution",operatorDist:"Operator distribution",first:"First seen",equippedSessions:"Equipped sessions",equippedNote:"OpenClaw only: equipped does not mean used, and is not counted above",recentRecords:"Recent records",mode:"Mode",session:"session",skillNotFound:"Skill not found.",loading:"Loading…",loadError:"Load failed"}
 };
 const ST={zh:{running:"运行中",started:"启动",waiting:"等待",blocked:"受阻",error:"错误",done:"完成",idle:"空闲"},
           en:{running:"running",started:"started",waiting:"waiting",blocked:"blocked",error:"error",done:"done",idle:"idle"}};
@@ -378,7 +391,7 @@ function paintChrome(){document.getElementById("tab-board").textContent=t("board
   document.getElementById("tab-board").classList.toggle("on",view==="board");document.getElementById("tab-agents").classList.toggle("on",view==="agents"||view==="detail");document.getElementById("tab-skills").classList.toggle("on",view==="skills"||view==="skill-detail");
   document.getElementById("demo-badge").textContent=t("demo");}
 
-function renderAll(){if(!DATA)return;renderReadouts(DATA);if(view==="board")renderBoard(DATA);else if(view==="agents")renderAgents(DATA);else if(view==="skills")renderSkillsView();else if(view==="skill-detail")renderSkillDetail();else renderDetail(DATA);}
+function renderAll(){if(!DATA)return;resetChartTips();renderReadouts(DATA);if(view==="board")renderBoard(DATA);else if(view==="agents")renderAgents(DATA);else if(view==="skills")renderSkillsView();else if(view==="skill-detail")renderSkillDetail();else renderDetail(DATA);}
 function renderReadouts(d){const L=d.leverage||{skills_week:0,assets:0};
   document.getElementById("readouts").innerHTML=
    `<div class="ro"><div class="n up">+${L.skills_week}</div><div class="l">${t("ro_skill")}</div></div>`
@@ -422,6 +435,54 @@ function skillsHTML(d){const rows=(d.skills||[]).map(s=>{const equipped=(s.mode|
 function sourceKey(s){return s==="非公司库"?"non_catalog":(s||"non_catalog");}
 function sourceLabel(s){return t("source_"+sourceKey(s))||s||t("source_non_catalog");}
 function skillColor(name){return name==="__other"?"var(--done)":`hsl(${hashHue(name)} 62% 56%)`;}
+let CHART_TIPS={},CHART_SEQ=0,CHART_PIN=false;
+function utcDate(day){
+  const p=String(day||"").split("-").map(Number);
+  if(p.length!==3||!p[0]||!p[1]||!p[2])return null;
+  return new Date(Date.UTC(p[0],p[1]-1,p[2]));
+}
+function isoDay(d){return d.toISOString().slice(0,10);}
+function apiToday(src){return (src&&src.today)||isoDay(new Date());}
+function daySeries(today,count){
+  const end=utcDate(today)||utcDate(apiToday())||new Date();
+  const days=[];
+  for(let i=count-1;i>=0;i--){const d=new Date(end.getTime());d.setUTCDate(end.getUTCDate()-i);days.push(isoDay(d));}
+  return days;
+}
+function resetChartTips(){CHART_TIPS={};CHART_SEQ=0;hideChartTip();}
+function chartToken(data){const key="tip"+(++CHART_SEQ);CHART_TIPS[key]=data;return key;}
+function chartTipHTML(data){
+  const rows=(data.items||[]).filter(x=>x.value>0).map(x=>`<div class="tip-row"><span class="tip-dot" style="--c:${x.color}"></span><span class="tip-name">${esc(x.name)}</span><span class="tip-val">${x.value}</span></div>`).join("");
+  const total=data.total==null?"":`<div class="tip-total"><span>${t("chartTotal")}</span><b>${data.total}</b></div>`;
+  return `<div class="tip-head"><span>${esc(data.day)}</span>${data.today?`<span class="tip-live">${t("inProgress")}</span>`:""}</div>${rows||`<div class="tip-empty">${t("noChartData")}</div>`}${total}`;
+}
+function ensureChartTip(){
+  let tip=document.getElementById("chart-tip");
+  if(!tip){tip=document.createElement("div");tip.id="chart-tip";tip.className="chart-tip";document.body.appendChild(tip);}
+  return tip;
+}
+function placeChartTip(tip,x,y){
+  tip.style.display="block";tip.style.left="0px";tip.style.top="0px";
+  const pad=12,box=tip.getBoundingClientRect();
+  let left=x+14,top=y+16;
+  if(left+box.width+pad>window.innerWidth)left=x-box.width-14;
+  if(top+box.height+pad>window.innerHeight)top=y-box.height-14;
+  tip.style.left=Math.max(pad,left)+"px";tip.style.top=Math.max(pad,top)+"px";
+}
+function clearChartHover(svg){
+  const root=svg?[svg]:document.querySelectorAll("svg.skill-chart");
+  root.forEach(s=>{s.classList.remove("hovering");s.querySelectorAll(".day-col.hovered").forEach(g=>g.classList.remove("hovered"));});
+}
+function chartTip(ev,el,pinned){
+  const data=CHART_TIPS[el.getAttribute("data-tip")];if(!data)return;
+  if(pinned){CHART_PIN=true;if(ev)ev.stopPropagation();}else if(CHART_PIN)return;
+  const svg=el.ownerSVGElement||el.closest("svg"),col=el.closest(".day-col");
+  if(svg&&col){svg.classList.add("hovering");svg.querySelectorAll(".day-col.hovered").forEach(g=>g.classList.remove("hovered"));col.classList.add("hovered");}
+  const tip=ensureChartTip();tip.innerHTML=chartTipHTML(data);placeChartTip(tip,ev.clientX,ev.clientY);
+}
+function chartLeave(_ev,svg){if(!CHART_PIN){clearChartHover(svg);hideChartTip();}}
+function hideChartTip(){CHART_PIN=false;clearChartHover();const tip=document.getElementById("chart-tip");if(tip)tip.style.display="none";}
+document.addEventListener("click",e=>{const x=e.target;if(CHART_PIN&&!(x&&x.closest&&x.closest(".bar-hit")))hideChartTip();});
 function setSkillFilter(k,v){skillFilters[k]=v;if(k==="days")loadSkills(true);else renderAll();}
 function setSkillSort(k){if(skillSort.key===k)skillSort.dir*=-1;else skillSort={key:k,dir:k==="name"||k==="source"?1:-1};renderAll();}
 function hoverSkill(name){skillFilters.hoverSkill=name;renderAll();}
@@ -466,24 +527,34 @@ function skillFilterBar(){
     <label class="field"><span>${t("runtimeFilter")}</span><select onchange="setSkillFilter('runtime',this.value)"><option value="">${t("all")}</option>${rtOpts}</select></label>
     <label class="field"><span>${t("sourceFilter")}</span><select onchange="setSkillFilter('source',this.value)"><option value="">${t("all")}</option>${srcs}</select></label>
     <label class="field"><span>${t("windowFilter")}</span><select onchange="setSkillFilter('days',Number(this.value))">
-      ${[7,30,90,0].map(d=>`<option value="${d}" ${skillFilters.days===d?"selected":""}>${d?d+"d":t("allTime")}</option>`).join("")}
+      ${[7,30,90].map(d=>`<option value="${d}" ${skillFilters.days===d?"selected":""}>${d}d</option>`).join("")}
     </select></label>
   </div>`;
 }
 function stackedChart(rows){
   if(!rows.length)return `<div class="empty"><div class="t">${t("noSkills")}</div><div class="h">${t("noSkillsH")}</div></div>`;
-  const byDay={},totSkill={};rows.forEach(r=>{const d=byDay[r.day]=byDay[r.day]||{};d[r.skill]=(d[r.skill]||0)+(r.sessions||0);totSkill[r.skill]=(totSkill[r.skill]||0)+(r.sessions||0);});
-  const days=Object.keys(byDay).sort(),top=Object.entries(totSkill).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,8).map(x=>x[0]);
-  const max=Math.max(...days.map(d=>Object.values(byDay[d]).reduce((a,b)=>a+b,0)),1),w=Math.max(680,days.length*28+50),h=220,bh=165,base=190,bw=Math.max(8,(w-54)/Math.max(days.length,1)-5);
+  const days=daySeries(apiToday(SKILLS_DATA),skillFilters.days),daySet=new Set(days),byDay={},totSkill={};
+  rows.forEach(r=>{if(!daySet.has(r.day))return;const v=Number(r.sessions||0);if(!v)return;const d=byDay[r.day]=byDay[r.day]||{};d[r.skill]=(d[r.skill]||0)+v;totSkill[r.skill]=(totSkill[r.skill]||0)+v;});
+  const top=Object.entries(totSkill).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,8).map(x=>x[0]);
+  const totals=days.map(d=>Object.values(byDay[d]||{}).reduce((a,b)=>a+b,0));
+  if(!totals.some(Boolean))return `<div class="empty"><div class="t">${t("noSkills")}</div><div class="h">${t("noSkillsH")}</div></div>`;
+  const max=Math.max(...totals,1),w=Math.max(680,days.length*28+50),h=220,bh=165,base=190,step=(w-54)/days.length,bw=Math.max(8,step-5),today=days[days.length-1],pat="skillStripe"+(++CHART_SEQ);
   const hover=skillFilters.hoverSkill;
-  let rects="";
-  days.forEach((day,i)=>{let y=base;const x=38+i*((w-54)/days.length);const vals=top.map(s=>[s,byDay[day][s]||0]);const other=Object.entries(byDay[day]).filter(([s])=>!top.includes(s)).reduce((a,[_s,v])=>a+v,0);if(other)vals.push(["__other",other]);
-    const detail=Object.entries(byDay[day]).sort((a,b)=>b[1]-a[1]).map(([s,v])=>`${s}: ${v}`).join("\\n");
-    vals.forEach(([s,v])=>{if(!v)return;const hh=Math.max(2,Math.round(v/max*bh));y-=hh;const dim=hover&&!((hover==="__other"&&s==="__other")||hover===s);const op=dim ? .45 : 1;rects+=`<rect x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${hh}" fill="${skillColor(s)}" opacity="${op}"><title>${esc(day+"\\n"+detail)}</title></rect>`;});});
-  const legend=[...top];if(rows.some(r=>!top.includes(r.skill)))legend.push("__other");
-  return `<div class="chart-box"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${attr(t("dailyUsed"))}">
+  let groups="";
+  days.forEach((day,i)=>{let y=base;const x=38+i*step,raw=byDay[day]||{},total=Object.values(raw).reduce((a,b)=>a+b,0);
+    const vals=top.map(s=>[s,raw[s]||0]);const other=Object.entries(raw).filter(([s])=>!top.includes(s)).reduce((a,[_s,v])=>a+v,0);if(other)vals.push(["__other",other]);
+    const items=vals.filter(([_s,v])=>v>0).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).map(([s,v])=>({name:s==="__other"?t("other"):s,value:v,color:skillColor(s)}));
+    const token=chartToken({day,today:day===today,items,total});
+    let segs="";
+    vals.forEach(([s,v])=>{if(!v)return;const hh=Math.max(2,Math.round(v/max*bh));y-=hh;const dim=hover&&!((hover==="__other"&&s==="__other")||hover===s);const op=dim ? .45 : 1;segs+=`<rect class="bar-seg" x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${hh}" fill="${skillColor(s)}" opacity="${op}"></rect>`;});
+    const totalH=total?Math.max(2,Math.round(total/max*bh)):0,overlay=day===today&&totalH?`<rect x="${x.toFixed(1)}" y="${base-totalH}" width="${bw.toFixed(1)}" height="${totalH}" fill="url(#${pat})" stroke="var(--text)" stroke-opacity=".42" stroke-width="1" pointer-events="none"></rect>`:"";
+    groups+=`<g class="day-col ${day===today?"is-today":""}" data-day="${day}">${segs}${overlay}<rect class="bar-hit" data-tip="${token}" x="${x.toFixed(1)}" y="24" width="${bw.toFixed(1)}" height="${base-24}" fill="transparent" onmouseenter="chartTip(event,this)" onmousemove="chartTip(event,this)" onclick="chartTip(event,this,true)"></rect></g>`;
+  });
+  const legend=[...top];if(Object.keys(totSkill).some(s=>!top.includes(s)))legend.push("__other");
+  return `<div class="chart-box"><svg class="skill-chart" viewBox="0 0 ${w} ${h}" style="min-width:${w}px" role="img" aria-label="${attr(t("dailyUsed"))}" onmouseleave="chartLeave(event,this)">
+    <defs><pattern id="${pat}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M 0 0 L 0 6" stroke="var(--text)" stroke-opacity=".22" stroke-width="2"/></pattern></defs>
     <line x1="34" y1="${base}" x2="${w-12}" y2="${base}" stroke="var(--line2)"/><line x1="34" y1="24" x2="34" y2="${base}" stroke="var(--line2)"/>
-    <text x="4" y="30" fill="var(--muted)" font-size="10">${t("skillTotal")}</text>${rects}
+    <text x="4" y="30" fill="var(--muted)" font-size="10">${t("skillTotal")}</text>${groups}
     ${days.map((d,i)=>i%Math.ceil(days.length/8||1)===0?`<text x="${38+i*((w-54)/days.length)}" y="211" fill="var(--faint)" font-size="10">${d.slice(5)}</text>`:"").join("")}
   </svg><div class="legend2">${legend.map(s=>`<button class="${hover===s?"on":""}" onmouseenter="hoverSkill(${jsArg(s)})" onmouseover="hoverSkill(${jsArg(s)})" onfocus="hoverSkill(${jsArg(s)})" onclick="hoverSkill(${jsArg(s)})" onmouseleave="hoverSkill(null)" onblur="hoverSkill(null)"><span class="sw" style="--c:${skillColor(s)}"></span>${s==="__other"?t("other"):esc(s)}</button>`).join("")}</div></div>`;
 }
@@ -526,13 +597,22 @@ function renderSkillsView(){
     <div class="split" style="margin-top:16px"><section class="frame"><h2><span><span class="sl">//</span>${t("mainRank")}</span><span class="cnt"><b>${rows.length}</b></span></h2>${skillsTable(rows)}</section>
     <section class="frame"><h2><span><span class="sl">//</span>${t("companyFunnel")}</span></h2>${funnelHTML(SKILLS_DATA.funnel,SKILLS_DATA.catalog)}</section></div>`;
 }
-function detailTrend(rows){
+function detailTrend(rows,today){
   if(!rows.length)return `<div class="empty"><div class="t">${t("noSkills")}</div></div>`;
-  const mx=Math.max(...rows.map(r=>Math.max(r.used||0,r.equipped||0)),1),w=Math.max(680,rows.length*28+50),h=210,base=178,bh=140,bw=Math.max(8,(w-54)/rows.length-5);
-  const pts=[];let bars="";
-  rows.forEach((r,i)=>{const x=38+i*((w-54)/rows.length),uh=Math.round((r.used||0)/mx*bh),eh=Math.round((r.equipped||0)/mx*bh);bars+=`<rect x="${x}" y="${base-uh}" width="${bw}" height="${Math.max(uh,0)}" fill="var(--info)"><title>${esc(r.day+" used: "+(r.used||0))}</title></rect>`;pts.push(`${x+bw/2},${base-eh}`);});
-  return `<div class="chart-box"><svg viewBox="0 0 ${w} ${h}"><line x1="34" y1="${base}" x2="${w-12}" y2="${base}" stroke="var(--line2)"/><line x1="34" y1="24" x2="34" y2="${base}" stroke="var(--line2)"/>${bars}<polyline points="${pts.join(" ")}" fill="none" stroke="var(--wait)" stroke-width="2"/>
-  ${rows.map((r,i)=>i%Math.ceil(rows.length/8||1)===0?`<text x="${38+i*((w-54)/rows.length)}" y="200" fill="var(--faint)" font-size="10">${r.day.slice(5)}</text>`:"").join("")}</svg><div class="legend2"><button><span class="sw" style="--c:var(--info)"></span>used</button><button><span class="sw" style="--c:var(--wait)"></span>equipped</button></div></div>`;
+  const days=daySeries(today||apiToday(SKILL_DETAIL),30),daySet=new Set(days),byDay={};
+  rows.forEach(r=>{if(!daySet.has(r.day))return;byDay[r.day]={day:r.day,used:Number(r.used||0),equipped:Number(r.equipped||0)};});
+  const series=days.map(day=>byDay[day]||{day,used:0,equipped:0});
+  const mx=Math.max(...series.map(r=>Math.max(r.used||0,r.equipped||0)),1),w=Math.max(680,series.length*28+50),h=210,base=178,bh=140,step=(w-54)/series.length,bw=Math.max(8,step-5),end=days[days.length-1],pat="detailStripe"+(++CHART_SEQ);
+  const pts=[];let bars="",circles="";
+  series.forEach((r,i)=>{const x=38+i*step,mid=x+bw/2,uh=(r.used||0)?Math.max(2,Math.round((r.used||0)/mx*bh)):0,eh=Math.round((r.equipped||0)/mx*bh),token=chartToken({day:r.day,today:r.day===end,items:[{name:"used",value:r.used||0,color:"var(--info)"},{name:"equipped",value:r.equipped||0,color:"var(--wait)"}]});
+    const overlay=r.day===end&&uh?`<rect x="${x.toFixed(1)}" y="${base-uh}" width="${bw.toFixed(1)}" height="${uh}" fill="url(#${pat})" stroke="var(--text)" stroke-opacity=".42" stroke-width="1" pointer-events="none"></rect>`:"";
+    bars+=`<g class="day-col ${r.day===end?"is-today":""}" data-day="${r.day}"><rect class="bar-seg" x="${x.toFixed(1)}" y="${base-uh}" width="${bw.toFixed(1)}" height="${uh}" fill="var(--info)" opacity=".9"></rect>${overlay}<rect class="bar-hit" data-tip="${token}" x="${x.toFixed(1)}" y="24" width="${bw.toFixed(1)}" height="${base-24}" fill="transparent" onmouseenter="chartTip(event,this)" onmousemove="chartTip(event,this)" onclick="chartTip(event,this,true)"></rect></g>`;
+    pts.push(`${mid},${base-eh}`);circles+=`<circle cx="${mid}" cy="${base-eh}" r="${r.day===end?3.5:2.5}" fill="var(--wait)" stroke="${r.day===end?"var(--text)":"none"}" stroke-opacity=".5" pointer-events="none"/>`;
+  });
+  return `<div class="chart-box"><svg class="skill-chart" viewBox="0 0 ${w} ${h}" style="min-width:${w}px" onmouseleave="chartLeave(event,this)">
+  <defs><pattern id="${pat}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M 0 0 L 0 6" stroke="var(--text)" stroke-opacity=".22" stroke-width="2"/></pattern></defs>
+  <line x1="34" y1="${base}" x2="${w-12}" y2="${base}" stroke="var(--line2)"/><line x1="34" y1="24" x2="34" y2="${base}" stroke="var(--line2)"/>${bars}<polyline points="${pts.join(" ")}" fill="none" stroke="var(--wait)" stroke-width="2" pointer-events="none"/>${circles}
+  ${series.map((r,i)=>i%Math.ceil(series.length/8||1)===0?`<text x="${38+i*((w-54)/series.length)}" y="200" fill="var(--faint)" font-size="10">${r.day.slice(5)}</text>`:"").join("")}</svg><div class="legend2"><button><span class="sw" style="--c:var(--info)"></span>used</button><button><span class="sw" style="--c:var(--wait)"></span>equipped</button></div></div>`;
 }
 function distHTML(items,key){
   const max=Math.max(...(items||[]).map(x=>(x.used||0)+(x.equipped||0)),1);
@@ -550,7 +630,7 @@ function renderSkillDetail(){
     <div class="dhead"><span class="alabel">${esc(d.name)}</span><span class="source-pill">${sourceLabel(d.source)}</span></div>
     <div class="statgrid">${stats.map(([k,v])=>`<div class="stat"><div class="v">${esc(String(v))}</div><div class="l">${t(k)}</div></div>`).join("")}</div>
     ${mm.equipped_total?`<div class="note-warn">${t("equippedSessions")}: <b class="mono">${mm.equipped_total}</b> · ${t("equippedNote")}</div>`:""}
-    <section class="frame"><h2><span><span class="sl">//</span>${t("trend")}</span></h2>${detailTrend(d.daily||[])}</section>
+    <section class="frame"><h2><span><span class="sl">//</span>${t("trend")}</span></h2>${detailTrend(d.daily||[],d.today)}</section>
     <div class="dist" style="margin-top:16px"><section class="frame"><h2><span><span class="sl">//</span>${t("runtimeDist")}</span></h2><div class="pad">${distHTML(d.runtime||[],"runtime")}</div></section>
     <section class="frame"><h2><span><span class="sl">//</span>${t("operatorDist")}</span></h2><div class="pad">${distHTML(d.operators||[],"operator")}</div></section></div>
     <section class="frame" style="margin-top:16px"><h2><span><span class="sl">//</span>${t("recentRecords")}</span></h2>
@@ -753,7 +833,7 @@ const CONFIG={
    integrations:[{name:"GitHub",desc:"读仓库、定位提交"},{name:"TRANFU reporter(MCP)",desc:"自动上报状态"}]}};
 
 function skillDemoData(){
-  const days=[...Array(30)].map((_,i)=>{const d=new Date(now);d.setDate(d.getDate()-(29-i));return d.toISOString().slice(0,10);});
+  const today=apiToday(),days=daySeries(today,30);
   const table=[
     {name:"组件命名规范",source:"own",sessions_7d:8,sessions_30d:19,sessions_total:36,users_30d:3,runtime_counts:{"claude-code":13,mulerun:4,"claude-desktop":2},trend_14d:[0,1,1,0,2,0,2,1,2,1,3,1,2,3],last_day:days[29]},
     {name:"pytest 脚手架",source:"非公司库",sessions_7d:5,sessions_30d:14,sessions_total:22,users_30d:2,runtime_counts:{codex:11,"claude-desktop":3},trend_14d:[1,0,0,2,1,0,1,1,0,2,1,1,2,1],last_day:days[28]},
@@ -761,13 +841,13 @@ function skillDemoData(){
   ];
   const daily=[];
   table.forEach((r,idx)=>{days.forEach((day,i)=>{const v=r.trend_14d[(i+idx)%r.trend_14d.length];if(v)daily.push({day,skill:r.name,runtime:Object.keys(r.runtime_counts)[0],sessions:v,source:r.source});});});
-  return {days:30,daily,table,funnel:{available:true,catalog:[{name:"组件命名规范",source:"own"},{name:"品牌语气库",source:"own"},{name:"落地页模板",source:"own"}],installed:[{name:"组件命名规范",source:"own"},{name:"品牌语气库",source:"own"},{name:"落地页模板",source:"own"}],used_30d:[{name:"组件命名规范",source:"own"},{name:"品牌语气库",source:"own"}],idle:[{name:"落地页模板",source:"own"}]},catalog:{available:true,fetched_at:now.toISOString(),stale:false,count:3}};
+  return {days:30,today,daily,table,funnel:{available:true,catalog:[{name:"组件命名规范",source:"own"},{name:"品牌语气库",source:"own"},{name:"落地页模板",source:"own"}],installed:[{name:"组件命名规范",source:"own"},{name:"品牌语气库",source:"own"},{name:"落地页模板",source:"own"}],used_30d:[{name:"组件命名规范",source:"own"},{name:"品牌语气库",source:"own"}],idle:[{name:"落地页模板",source:"own"}]},catalog:{available:true,fetched_at:now.toISOString(),stale:false,count:3}};
 }
 function demoSkillDetail(name){
   const src=SKILLS_DATA||skillDemoData(),row=(src.table||[]).find(x=>x.name===name);if(!row)return null;
-  const days=[...Array(14)].map((_,i)=>{const d=new Date(now);d.setDate(d.getDate()-(13-i));return d.toISOString().slice(0,10);});
-  const daily=days.map((day,i)=>({day,used:row.trend_14d[i]||0,equipped:name==="品牌语气库"&&i%3===0?1:0}));
-  return {name,source:row.source,metrics:{sessions_7d:row.sessions_7d,sessions_30d:row.sessions_30d,sessions_total:row.sessions_total,users_30d:row.users_30d,first_day:days[0],last_day:row.last_day,equipped_total:name==="品牌语气库"?6:0,equipped_30d:name==="品牌语气库"?6:0},daily,
+  const today=apiToday(src),days=daySeries(today,30);
+  const daily=days.map((day,i)=>({day,used:row.trend_14d[i%row.trend_14d.length]||0,equipped:name==="品牌语气库"&&i%3===0?1:0}));
+  return {name,today,source:row.source,metrics:{sessions_7d:row.sessions_7d,sessions_30d:row.sessions_30d,sessions_total:row.sessions_total,users_30d:row.users_30d,first_day:days[0],last_day:row.last_day,equipped_total:name==="品牌语气库"?6:0,equipped_30d:name==="品牌语气库"?6:0},daily,
     runtime:Object.entries(row.runtime_counts).map(([runtime,used])=>({runtime,used,equipped:name==="品牌语气库"&&runtime==="open-claw"?6:0})),
     operators:[{operator:"nezha",used:Math.ceil(row.sessions_total*.55),equipped:0},{operator:"bob",used:Math.floor(row.sessions_total*.35),equipped:name==="品牌语气库"?6:0}],
     records:[{day:row.last_day,operator:"nezha",runtime:Object.keys(row.runtime_counts)[0],mode:"used",session_id:"demo-session-1",first_seen:now.toISOString()}],catalog:{available:true,stale:false}};

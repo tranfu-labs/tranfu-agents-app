@@ -24,7 +24,7 @@ Engineering and operations teams whose members run **multiple, different AI agen
 
 - See **who is running what, right now**: operator → agent → current step → status.
 - Track **active time per agent**: today, this week, and a 7-day trend.
-- Understand **which Skills are actually adopted**: a dedicated SKILLS page shows daily usage trends, used-only rankings, per-skill drilldowns, and company catalog adoption.
+- Understand **which Skills are actually adopted**: a dedicated SKILLS page shows continuous 7/30/90-day UTC usage timelines, hover breakdowns, used-only rankings, per-skill drilldowns, and company catalog adoption.
 - Support **one person with many agents**: each agent is labelled by purpose (for example, "copy" vs "code").
 - Stay **heterogeneous by design**: local CLI agents (Claude Code, Codex, Open Claw, Hermes) report step-level detail; cloud agents (Manus, MuleRun, ChatGPT) report at start/end granularity.
 

@@ -856,13 +856,13 @@ def skill_usage(conn):
 
 
 def skills_overview(conn, days):
-    if days not in (0, 7, 30, 90):
-        raise HTTPException(400, "days must be one of 7, 30, 90, 0")
+    if days not in (7, 30, 90):
+        raise HTTPException(400, "days must be one of 7, 30, 90")
     today = datetime.now(timezone.utc).date()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     d14 = (today - timedelta(days=13)).isoformat()
-    daily_start = None if days == 0 else _day_cutoff(days)
+    daily_start = _day_cutoff(days)
     _items, catalog_by, catalog_meta = _catalog_context(conn)
 
     daily_where, daily_params = ["mode='used'", "day IS NOT NULL"], []
@@ -944,6 +944,7 @@ def skills_overview(conn, days):
     }
     return {
         "days": days,
+        "today": today.isoformat(),
         "daily": daily,
         "table": table,
         "funnel": funnel,
@@ -1014,6 +1015,7 @@ def skill_detail_payload(conn, name):
     """, (name,))]
     return {
         "name": name,
+        "today": today.isoformat(),
         "source": _skill_source(name, catalog_by),
         "metrics": {
             "sessions_7d": int(m["sessions_7d"] or 0),

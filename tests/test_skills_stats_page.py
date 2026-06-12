@@ -83,6 +83,7 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     days = _seed_skill_stats(client, app_mod)
 
     data = client.get("/api/skills?days=7").json()
+    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
     assert data["catalog"]["available"] is True
     alpha = next(r for r in data["table"] if r["name"] == "alpha")
     assert alpha["source"] == "own"
@@ -98,12 +99,39 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     assert sum(r["sessions"] for r in data["daily"] if r["skill"] == "alpha") == 2
     assert {r["day"] for r in data["daily"] if r["skill"] == "alpha"} == {days["used"]}
 
-    all_days = client.get("/api/skills?days=0").json()
-    assert sum(r["sessions"] for r in all_days["daily"] if r["skill"] == "alpha") == 3
     assert {x["name"] for x in data["funnel"]["catalog"]} == {"alpha", "idle-own", "meta-tool"}
     assert {x["name"] for x in data["funnel"]["installed"]} == {"alpha", "idle-own"}
     assert {x["name"] for x in data["funnel"]["used_30d"]} == {"alpha"}
     assert {x["name"] for x in data["funnel"]["idle"]} == {"idle-own"}
+
+
+def test_skills_overview_today_and_daily_window_use_server_utc(client, app_mod, monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 13, 0, 5, tzinfo=timezone.utc)
+            return value if tz else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(app_mod, "datetime", FixedDatetime)
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="today", skill="alpha", current_step="today")
+    ev(client, operator="alice", runtime="codex", session_id="edge", skill="alpha", current_step="edge")
+    ev(client, operator="alice", runtime="codex", session_id="old", skill="alpha", current_step="old")
+
+    with app_mod.db() as conn:
+        conn.execute("UPDATE skill_uses SET day=?, first_seen=? WHERE session_id=?",
+                     ("2026-05-15", "2026-05-15T12:00:00+00:00", "edge"))
+        conn.execute("UPDATE skill_uses SET day=?, first_seen=? WHERE session_id=?",
+                     ("2026-05-14", "2026-05-14T12:00:00+00:00", "old"))
+        conn.commit()
+
+    data30 = client.get("/api/skills?days=30").json()
+    assert data30["today"] == "2026-06-13"
+    assert {r["day"] for r in data30["daily"] if r["skill"] == "alpha"} == {"2026-05-15", "2026-06-13"}
+
+    data7 = client.get("/api/skills?days=7").json()
+    assert data7["today"] == "2026-06-13"
+    assert {r["day"] for r in data7["daily"] if r["skill"] == "alpha"} == {"2026-06-13"}
 
 
 def test_skills_overview_empty_when_catalog_unavailable(client, app_mod):
@@ -123,6 +151,7 @@ def test_skills_overview_empty_when_catalog_unavailable(client, app_mod):
 def test_skill_detail_keeps_used_and_equipped_separate(client, app_mod):
     days = _seed_skill_stats(client, app_mod)
     data = client.get("/api/skill/alpha").json()
+    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
     assert data["source"] == "own"
     assert data["metrics"]["sessions_total"] == 3
     assert data["metrics"]["sessions_30d"] == 2
@@ -145,3 +174,4 @@ def test_skill_detail_unknown_404(client):
 
 def test_skills_overview_rejects_invalid_days(client):
     assert client.get("/api/skills?days=13").status_code == 400
+    assert client.get("/api/skills?days=0").status_code == 400

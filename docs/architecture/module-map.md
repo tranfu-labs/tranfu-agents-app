@@ -17,7 +17,7 @@ agent 机器                         中心服务器(单容器)              浏
 ## 模块
 
 ### M1 — 服务端 collector (`server/app.py`)
-- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计、
+- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
   提供看板与 API、分发安装脚本与 shim。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
   `GET /api/agent/{key}`、`GET /healthz`、`GET /`(看板)、`GET /install.sh`、`GET /shims/manifest`、
@@ -29,7 +29,8 @@ agent 机器                         中心服务器(单容器)              浏
 
 ### M2 — 看板前端 (`dashboard/index.html`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
-  `/api/skills` 与 `/api/skill/{name}` 渲染 SKILLS 总览 / Skill 详情;暗亮主题、中英、手机适配。
+  `/api/skills` 与 `/api/skill/{name}` 渲染 SKILLS 总览 / Skill 详情;SKILLS 图表按服务端 UTC `today`
+  铺满 7/30/90 天或详情页 30 天日级时间轴;暗亮主题、中英、手机适配。
 - **入口**:由 M1 在 `/` 提供;数据来自 `/api/state`、`/api/skills`、`/api/skill/{name}`(同源相对路径)。
 - **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`;`/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。

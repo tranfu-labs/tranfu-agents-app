@@ -79,7 +79,8 @@ env 文件里写 `export TF_AUTO_UPDATE=0`。
   退出时从 `~/.hermes/config.yaml` 删除指向 `~/.tranfu/tf-hermes-hook.sh` 的 hooks 条目。
 - **SKILLS 统计页**:Claude Code 的 `Skill`、Hermes 的 `skill_view`、Codex 的本地 rollout 扫描都会默认统计
   Skill 名;OpenClaw 插件只统计 prompt 注入过的 Skill 名并标为 `equipped` 装备态(只记录名称,不含参数/内容)。
-  总览页只排 `used`,装备态只在单 Skill 详情里显示,不与使用态相加。
+  总览页只排 `used`,每日图按 7/30/90 天 UTC 时间窗铺满并显示当天明细;装备态只在单 Skill 详情里显示,
+  不与使用态相加。
   用户若要关闭,在对应 `tf_env.<runtime>.sh` 里加
   `export TF_REPORT_SKILLS=0` 并重启 agent。
 - **云端**(manus / mulerun / chatgpt):只能粗粒度,包住派发那一步:
@@ -93,7 +94,7 @@ env 文件里写 `export TF_AUTO_UPDATE=0`。
 source ~/.tranfu/tf_client.sh
 TF_RUNTIME=<runtime> TF_AGENT=<用途> tf_emit running --task "测试" --step "hello"
 ```
-告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。如任务使用了 Skill,SKILLS 页稍后会出现 used-only 统计;
+告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。如任务使用了 Skill,SKILLS 页稍后会出现 used-only 统计和连续日级时间轴;
 OpenClaw 装备态只在单 Skill 详情里显示。Claude Code / Codex / Hermes 装 hooks 后需要重启对应 agent;
 Codex 首次运行新增 hook 时可能要求信任,确认一次即可。
 如果看板显示「旧 shim」,说明这台机器还没完成新版安装或自动更新失败,让用户重跑安装命令即可。

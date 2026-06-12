@@ -252,7 +252,7 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 | 测试事件返回 413 | 请求体超过 256 KiB 上限(见 PROTOCOL §8),减小 `input`/`output`/`task`。 |
 | 看板没有 prompt/代码内容 | 没声明读侧鉴权,敏感字段被服务端丢弃(见 D2),配 `TF_READ_AUTH=1` 或 `TF_READ_KEY`。 |
 | SKILLS 页漏斗显示公司库目录不可达 | 服务端访问不到默认 catalog。设置 `TF_SKILLS_CATALOG_URL` 指向内网镜像,或确认服务器能访问 GitHub release。使用统计主表不依赖 catalog。 |
-| SKILLS 页没有使用数据 | 队友还没更新本地 shim、设置了 `TF_REPORT_SKILLS=0`,或本次任务没有触发可识别的 Skill 使用/装备信号。先查 `curl .../api/skills?days=30` 和 SQLite `skill_uses`。 |
+| SKILLS 页没有使用数据 | 队友还没更新本地 shim、设置了 `TF_REPORT_SKILLS=0`,或本次任务没有触发可识别的 Skill 使用/装备信号。先查 `curl .../api/skills?days=30`(只支持 7/30/90)和 SQLite `skill_uses`。 |
 | 成员上报没反应 | 成员的 `TF_SERVER` 写错、或没带对 key;让其 `echo $TF_SERVER $TF_KEY` 核对;新装后要新开终端。 |
 | 卡片变灰/不动 | 超过 3 分钟没心跳判为掉线,重新跑任务即可。 |
 | 上报被 Access 挡住 | `/v1/events` 没放行,见 D 节。 |

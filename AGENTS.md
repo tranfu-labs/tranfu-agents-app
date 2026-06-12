@@ -47,8 +47,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
   不能影响使用者的 agent 运行。
 - Skill 使用统计口径:事件可选 `skill` 字段只记录 Skill 名,可选 `skill_mode ∈ {used,equipped}`;
   服务端写 `skill_uses`(一行=会话×Skill×mode,`(session_id, skill, mode)` 幂等,长期保留)。
-  `/api/state.skills` 保留兼容排行;SKILLS 页读取 `/api/skills`(总览只统计 `used`)与
-  `/api/skill/{name}`(used/equipped 分列详情)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;
+  `/api/state.skills` 保留兼容排行;SKILLS 页读取 `/api/skills?days={7|30|90}`(总览只统计 `used`,响应含 UTC `today`)与
+  `/api/skill/{name}`(used/equipped 分列详情,响应含 UTC `today`)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;
   不得上报 Skill 参数、prompt、代码或输出。
 - 前端是**单文件**(`dashboard/index.html`):CSS/JS 内联;改动后用 `node --check` 校验抽出的 `<script>`。
   暗/亮双主题用 CSS 变量 + `body.light` 覆盖;品牌红 `--brand`(占位 `#ec1c2b`,待换精确值);logo 为内联红色 symbol。
