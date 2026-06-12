@@ -5,8 +5,11 @@
 
 > 「帮我接入 TRANFU//AGENTS,我是 bob,这个用来写代码。」
 
-你(执行安装的 agent)读完本手册后,应当**不再让用户粘任何命令**,自己跑完:
-确定身份 → 执行安装 → 自检 → 回话确认。`runtime` 不用问用户——**你就是那个 runtime**(见第 0 步)。
+你(执行安装的 agent)读完本手册后,应当**不再让用户粘任何命令**,自己跑完全程。
+**先建一个 TODO 清单再动手**(照它逐项推进、勾掉,别边装边问):
+1) 读本机已登记身份(第 0a 步)  2) 解析 / 引导补全 operator + agent 用途(第 0b 步)
+3) 取 server / key(第 0.5 步)  4) 执行安装(第 1 步)  5) 判读自检 JSON(第 2 步)  6) 回话确认(第 3 步)
+`runtime` 不用问用户——**你就是那个 runtime**(见第 0 步)。
 即使用户只说了一句「装一下」,也由你**主动引导补全**缺的信息(把要问的一次性问清,别边装边问);若这台机器**装过**,先读出已有身份让用户确认沿用,而不是从头再问。
 
 ---
@@ -79,7 +82,7 @@ curl -fsSL <server>/install.sh | bash -s -- \
 
 安装器会(全部幂等,重跑安全):
 - 先做**预检**(python3 / curl / 看板可达 / `~/.tranfu` 可写),任一不过会**明确报错并停**——按「错误处理」转述,**不要绕过**。
-- 按 `<server>/shims/manifest` 校验 sha256 全量装 shim 到 `~/.tranfu`,清掉旧版孤儿文件,写入身份 env。
+- 按 `<server>/shims/manifest` 校验 sha256 全量装 shim 到 `~/.tranfu`,清掉旧版孤儿文件,把身份 env 写进 `~/.tranfu`(key chmod 600);并往你登录 shell 的 rc 追加一段带标记的托管块(仅 `source` env + 加 `PATH`,幂等可重跑)。
 - 若 runtime 是 `claude-code`/`codex` → 幂等合并用户级 hooks(保留已有其它 hooks);`hermes` → 装 hook 脚本并打印要合并进 `~/.hermes/config.yaml` 的配置;`openclaw` → 装原生插件(装备态 Skill 统计)。
 - **当场注册**到看板,并在最后自动跑一次 `tf-doctor` 自检。
 
@@ -91,9 +94,12 @@ curl -fsSL <server>/install.sh | bash -s -- \
 python3 ~/.tranfu/tf-doctor --runtime <你自己的 runtime> --json
 ```
 
-解析返回的 JSON:
-- `.ok == true` → 进第 3 步。
-- 任一 `.checks[]` 的 `status == "fail"` → 按 `detail` 与「错误处理」处理后再重试;`status == "warn"`(如 hooks 需重启、shim 待自动更新)可照常进行并提示用户。
+解析返回的 JSON(`.ok` 已等于「无 fail」,以它为准):
+- `.ok == true` → 进第 3 步;其中 `warn` 项照常进行并提示用户(如 PATH 需开新终端、shim 待自动更新)。
+- `.ok == false` → 取出所有 `status == "fail"` 的 check,按 `detail` 与「错误处理」分类处置:
+  - 「agent 可自行修复」(缺身份 / 无 manifest → 重跑安装命令):重跑,至多 2 次。
+  - 「需用户介入」(401 换 key、连不上 / VPN):停下,把该 check 的 `name`+`detail` 原样转述,等用户处理后再重跑,不硬来。
+- **终态**:重试 2 次仍有 fail → 停止自动重装,把所有 fail 的 `name`+`detail` 如实汇总,明说「接入未完成 + 卡在哪一步」,交还用户决定,**不再循环**。
 
 ---
 
@@ -118,6 +124,7 @@ python3 ~/.tranfu/tf-doctor --runtime <你自己的 runtime> --json
 | 预检报缺 `python3` / `curl` | 让用户装好对应工具后重跑,**绝不 `sudo`**。 |
 | 写入权限 `EACCES` | 调整 `~/.tranfu` 归属/权限或 PATH,**绝不 `sudo`**。 |
 | 无法确定自己是哪个 runtime | 不传 `--runtime`,让安装器兜底;仍认不出就按 `cli` 注册并告知用户。 |
+| 重试 2 次仍 fail / `detail` 不在本表 | 停止自动重装,把 fail 的 `name`+`detail` 原样转述,标记接入未完成,交还用户。 |
 
 ---
 
@@ -126,7 +133,7 @@ python3 ~/.tranfu/tf-doctor --runtime <你自己的 runtime> --json
 1. **不要**把安装拆成一条条命令丢给用户手敲;按本手册**一次跑完**。
 2. **不要**问用户「你用什么 runtime」——你自己就是(见第 0 步)。
 3. **不要**靠环境变量去猜 runtime;拿不准就不传 `--runtime`,交给安装器兜底。
-4. env 只写 `~/.tranfu`;**不要**改 `~/.zshrc` 以外的 shell 配置,**不要**把 key 写进 hooks JSON / Hermes config(它们会 `source ~/.tranfu/tf_env.*`)。
+4. env **值**只写 `~/.tranfu`(含 key);登录 shell rc 里只允许那一段托管块(`source` + `PATH`),**不要**碰 `.bash_profile` / `.profile` / `.zprofile` 等其它 shell 配置;**不要**把 key 写进 hooks JSON / Hermes config(它们会 `source ~/.tranfu/tf_env.*`)。
 5. 除第 0.5 步首次缺 server/key 外,**中途不要**反复找用户确认每一步。
 6. **绝不 `sudo`**。
 7. **不要**动用户已有的其它 hooks / skills;安装器只幂等合并自己的条目。
@@ -137,4 +144,4 @@ python3 ~/.tranfu/tf-doctor --runtime <你自己的 runtime> --json
 
 默认只上报:谁 / 用途 / 状态 / 当前步骤 / 活跃时长,以及可安全识别的 Skill 名(不含参数/内容)。
 用户若要回传 prompt/代码/输出,设 `TF_CAPTURE_CONTENT=1`,并提醒:开启后内容对所有有看板权限的人可见。
-退出:对你说「关闭 TRANFU 上报 / 卸载」,撤掉 `~/.tranfu` 与 shell rc 里的 `TF_*` 段落即可。
+退出:对你说「关闭 TRANFU 上报 / 卸载」,删掉登录 shell rc(.zshrc/.bashrc)里 `# --- tranfu agent telemetry (managed) ---` 整段托管块,再删 `~/.tranfu` 即可。
