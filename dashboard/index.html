@@ -117,6 +117,8 @@
   .alabel{font-weight:600;font-size:14px}
   .badge{font-size:10px;color:var(--muted);border:1px solid var(--line2);padding:1px 7px;border-radius:4px}
   .coarse{font-size:10px;color:var(--wait);border:1px solid var(--wait);padding:1px 7px;border-radius:4px;opacity:.8}
+  .shim{font-family:var(--mono);font-size:9px;color:var(--muted);border:1px solid var(--line);padding:1px 6px;border-radius:4px}
+  .shim.old{color:var(--wait);border-color:var(--wait)}
   .age{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
   .task{font-size:13.5px;font-weight:500;margin:1px 0 4px}
   .step{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -268,7 +270,7 @@ const I18N={
   ro_skill:"新增 Skill",ro_assets:"资产总数",ro_live:"在线",
   pods:"Mission Pods",running:"运行",of:"共",dispatcher:"调度员",squad:"编队",live:"在线",feed:"活动流",silent:"静默中…",noPods:"尚无 Pod 上报",noPodsH:"成员入职后在此出现",
   skillsRank:"Skills 排行",skillName:"Skill",skill7:"7 天",skill30:"30 天",skillTotal:"累计",skillUsers30:"人数",skillLast:"最近",skillEquipped:"装备",noSkills:"暂无 Skill 使用数据",noSkillsH:"新版 shim 上报后在此出现",
-  th_agent:"Agent",th_disp:"调度员",th_rt:"运行时",th_model:"模型",th_status:"状态",th_today:"今日活跃",th_skill:"Skill",th_mcp:"MCP",th_q:"成功率",
+  th_agent:"Agent",th_disp:"调度员",th_rt:"运行时",th_model:"模型",th_status:"状态",th_today:"今日活跃",th_skill:"Skill",th_mcp:"MCP",th_shim:"Shim",th_q:"成功率",
   back:"返回列表",about:"这个 Agent 擅长什么",note:"调度员上手提示",configins:"配置与指令",recent:"代表性产出",trend7:"近 7 天活跃",trend30:"近 30 天活跃",trend180:"近 180 天活跃",trend12:"近 12 周活跃",less:"少",more:"多",quality:"质量与效率",skills:"Skill 资产",mcp:"已接 MCP",
   models:"模型",keycfg:"关键配置",insgist:"系统指令",today:"今日",week:"本周",
   q_runs:"运行次数",q_succ:"成功率",q_auto:"自动完成率",q_avg:"平均时长",q_err:"报错",q_reuse:"被复用",
@@ -277,12 +279,12 @@ const I18N={
   capability:"能力与擅长",src_cfg:"系统配置",from_cfg:"源 · 系统配置",from_mem:"源 · 记忆文件",
   access:"触达面与权限",a_shell:"Shell 权限",a_auto:"自动批准",a_net:"网络",a_mcp:"外部服务(MCP)",
   memory:"记忆沉淀",m_updated:"更新于",m_conv:"约定",m_learn:"已学到",no_mem:"未接入记忆文件",no_mem_h:"该 agent(多为云端黑盒)未连接 memory 文件,仅有运行数据。",
-  gb_reach:"触达",gb_mem:"记忆",gb_risk:"权限风险",risk_ok:"常规",risk_warn:"需关注",cfg_ver:"类型 / 版本",cfg_role:"角色",cfg_loc:"安装位置",cfg_term:"终端",cfg_im:"集成 IM",tools:"工具集成",skills_inst:"技能(已装 Skill)",noAgent:"未找到该 agent。"},
+  gb_reach:"触达",gb_mem:"记忆",gb_risk:"权限风险",risk_ok:"常规",risk_warn:"需关注",shim:"shim",shimOld:"旧 shim",cfg_shim:"Shim 版本",cfg_ver:"类型 / 版本",cfg_role:"角色",cfg_loc:"安装位置",cfg_term:"终端",cfg_im:"集成 IM",tools:"工具集成",skills_inst:"技能(已装 Skill)",noAgent:"未找到该 agent。"},
  en:{board:"Pods",agents:"Agents",demo:"Demo · offline",
   ro_skill:"New skills/wk",ro_assets:"Assets",ro_live:"Live",
   pods:"Mission Pods",running:"running",of:"of",dispatcher:"dispatcher",squad:"squad",live:"live",feed:"Activity",silent:"quiet…",noPods:"No pods yet",noPodsH:"appears after onboarding",
   skillsRank:"Skills ranking",skillName:"Skill",skill7:"7d",skill30:"30d",skillTotal:"Total",skillUsers30:"Users",skillLast:"Last",skillEquipped:"equipped",noSkills:"No skill usage yet",noSkillsH:"appears after updated shims report",
-  th_agent:"Agent",th_disp:"Dispatcher",th_rt:"Runtime",th_model:"Models",th_status:"Status",th_today:"Active today",th_skill:"Skill",th_mcp:"MCP",th_q:"Success",
+  th_agent:"Agent",th_disp:"Dispatcher",th_rt:"Runtime",th_model:"Models",th_status:"Status",th_today:"Active today",th_skill:"Skill",th_mcp:"MCP",th_shim:"Shim",th_q:"Success",
   back:"Back to list",about:"What this agent is good at",note:"Dispatcher's tips",configins:"Config & instructions",recent:"Representative work",trend7:"Active · last 7 days",trend30:"Active · last 30 days",trend180:"Active · last 180 days",trend12:"Active · last 12 weeks",less:"Less",more:"More",quality:"Quality & efficiency",skills:"Skill assets",mcp:"MCP servers",
   models:"Models",keycfg:"Key config",insgist:"System instructions",today:"Today",week:"This week",
   q_runs:"Runs",q_succ:"Success",q_auto:"Auto-completion",q_avg:"Avg duration",q_err:"Errors",q_reuse:"Reused by",
@@ -291,7 +293,7 @@ const I18N={
   capability:"Capability",src_cfg:"System config",from_cfg:"from config",from_mem:"from memory",
   access:"Access & permissions",a_shell:"Shell",a_auto:"Auto-approve",a_net:"Network",a_mcp:"External services (MCP)",
   memory:"Memory",m_updated:"updated",m_conv:"convention",m_learn:"learned",no_mem:"no memory file",no_mem_h:"This agent (often a cloud black-box) has no memory file connected; runtime data only.",
-  gb_reach:"Reach",gb_mem:"Memory",gb_risk:"Permission risk",risk_ok:"normal",risk_warn:"review",cfg_ver:"Type / version",cfg_role:"Role",cfg_loc:"Location",cfg_term:"Terminal",cfg_im:"IM",tools:"Integrations",skills_inst:"Skills installed",noAgent:"Agent not found."}
+  gb_reach:"Reach",gb_mem:"Memory",gb_risk:"Permission risk",risk_ok:"normal",risk_warn:"review",shim:"shim",shimOld:"old shim",cfg_shim:"Shim version",cfg_ver:"Type / version",cfg_role:"Role",cfg_loc:"Location",cfg_term:"Terminal",cfg_im:"IM",tools:"Integrations",skills_inst:"Skills installed",noAgent:"Agent not found."}
 };
 const ST={zh:{running:"运行中",started:"启动",waiting:"等待",blocked:"受阻",error:"错误",done:"完成",idle:"空闲"},
           en:{running:"running",started:"started",waiting:"waiting",blocked:"blocked",error:"error",done:"done",idle:"idle"}};
@@ -305,6 +307,10 @@ const LIVE=["running","started","waiting"];
 const hashHue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h;};
 const initials=s=>{const x=(s||"?").trim();return /^[\x00-\x7f]+$/.test(x)?(x.split(/[\s_\-.]+/).filter(Boolean).map(p=>p[0]).join("").slice(0,2)).toUpperCase():x.slice(0,1);};
 const keyOf=a=>a.operator+"::"+(a.agent||a.runtime);
+const latestShim=()=>DATA&&DATA.shim&&DATA.shim.version||"";
+const shortShim=v=>v?String(v).slice(0,8):"—";
+const shimOld=a=>latestShim()&&a.shim_version!==latestShim();
+const shimPill=a=>`<span class="shim ${shimOld(a)?"old":""}" title="${esc(t("cfg_shim"))}: ${esc(shortShim(a.shim_version))} / ${esc(shortShim(latestShim()))}">${shimOld(a)?t("shimOld"):t("shim")} ${esc(shortShim(a.shim_version))}</span>`;
 const sparkMini=ser=>{const mx=Math.max(...ser,1);return '<div class="spark">'+ser.map((v,i)=>'<i class="'+(i===6?"today":"")+'" style="height:'+Math.max(2,Math.round(v/mx*18))+'px"></i>').join("")+'</div>';};
 function gen30(a,days){days=days||30;if(a.active_days&&a.active_days.length>=days)return a.active_days.slice(-days);
   const base=a.active_series||[3000],seed=hashHue(keyOf(a)),out=[];
@@ -358,7 +364,7 @@ function cardHTML(s){const tag=s.agent||RT[s.runtime]||s.runtime,coarse=s.fideli
   const models=(s.models||[]).slice(0,3).map(m=>`<span class="chip">${esc(m)}</span>`).join("");
   const nsk=s.skills?((s.skills.local||[]).length+(s.skills.cross||[]).length):0;
   return `<div class="card s-${s.status}" onclick="openAgent('${keyOf(s)}')">
-    <div class="crow"><span class="mk"></span><span class="alabel">${esc(tag)}</span><span class="badge">${esc(RT[s.runtime]||s.runtime)}</span>${coarse?`<span class="coarse">${lang==="zh"?"云端·粗粒度":"cloud · coarse"}</span>`:""}<span class="age mono">${ago(s.ts)}</span></div>
+    <div class="crow"><span class="mk"></span><span class="alabel">${esc(tag)}</span><span class="badge">${esc(RT[s.runtime]||s.runtime)}</span>${shimPill(s)}${coarse?`<span class="coarse">${lang==="zh"?"云端·粗粒度":"cloud · coarse"}</span>`:""}<span class="age mono">${ago(s.ts)}</span></div>
     <div class="task">${esc(s.task)||"—"}</div><div class="step">${s.current_step?("▸ "+esc(s.current_step)):stName(s.status)}</div>
     <div class="chips">${models}${(s.mcp||[]).length?`<span class="chip">MCP ${s.mcp.length}</span>`:""}${nsk?`<span class="chip">Skill ${nsk}</span>`:""}</div>
     <div class="metrics"><span>${stName(s.status)}</span><span>${t("today")} <b>${dur(s.today_active)}</b></span>${sparkMini(s.active_series||[0,0,0,0,0,0,0])}</div></div>`;}
@@ -378,9 +384,9 @@ function renderAgents(d){
     return `<tr onclick="openAgent('${keyOf(s)}')"><td><b>${esc(s.agent||s.runtime)}</b></td><td>${esc(s.operator)}</td><td>${esc(RT[s.runtime]||s.runtime)}</td>
       <td class="q">${(s.models||[]).join(", ")||"—"}</td><td><span class="dot" style="background:${col}"></span>${stName(s.status)}</td>
       <td class="q">${dur(s.today_active)}</td><td class="q">${s.skills?((s.skills.local||[]).length+(s.skills.cross||[]).length):0}</td><td class="q">${(s.mcp||[]).length}</td>
-      <td>${sr!=null?`<span class="qbar"><i style="width:${sr}%"></i></span><span class="q">${sr}%</span>`:"—"}</td></tr>`;}).join("");
+      <td>${shimPill(s)}</td><td>${sr!=null?`<span class="qbar"><i style="width:${sr}%"></i></span><span class="q">${sr}%</span>`:"—"}</td></tr>`;}).join("");
   document.getElementById("main").innerHTML=`<section class="frame"><h2><span><span class="sl">//</span>${t("agents")}</span><span class="cnt"><b>${d.sessions.length}</b></span></h2>
-    <table><thead><tr><th>${t("th_agent")}</th><th>${t("th_disp")}</th><th>${t("th_rt")}</th><th>${t("th_model")}</th><th>${t("th_status")}</th><th>${t("th_today")}</th><th>${t("th_skill")}</th><th>${t("th_mcp")}</th><th>${t("th_q")}</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+    <table><thead><tr><th>${t("th_agent")}</th><th>${t("th_disp")}</th><th>${t("th_rt")}</th><th>${t("th_model")}</th><th>${t("th_status")}</th><th>${t("th_today")}</th><th>${t("th_skill")}</th><th>${t("th_mcp")}</th><th>${t("th_shim")}</th><th>${t("th_q")}</th></tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
 function renderDetail(d){
@@ -410,6 +416,7 @@ function renderDetail(d){
   const govbar=`<div class="govbar">
     <span class="gv"><span class="src">RUNTIME</span><b>${esc(RT[a.runtime]||a.runtime)}</b></span>
     <span class="gv"><span class="src">${t("models")}</span><b>${(a.models||[]).length}</b></span>
+    <span class="gv ${shimOld(a)?"warn":"ok"}"><span class="src">SHIM</span><b>${shortShim(a.shim_version)}</b></span>
     <span class="gv ${mcp.length>=3?"warn":""}"><span class="src">${t("gb_reach")}</span><b>${mcp.length} MCP</b></span>
     <span class="gv"><span class="src">${t("gb_mem")}</span><b>${nmem}</b></span>
     <span class="gv ${risk?"warn":"ok"}"><span class="src">${t("gb_risk")}</span><b>${risk?t("risk_warn"):t("risk_ok")}</b></span>
@@ -436,6 +443,7 @@ function renderDetail(d){
          <div class="kv"><span class="k">${t("cfg_loc")}</span><span class="v">${esc(cf.location||"—")}</span></div>
          <div class="kv"><span class="k">${t("cfg_term")}</span><span class="v">${esc(cf.terminal||"—")}</span></div>
          <div class="kv"><span class="k">${t("cfg_im")}</span><span class="v">${ims.length?ims.map(esc).join(" · "):"—"}</span></div>
+         <div class="kv"><span class="k">${t("cfg_shim")}</span><span class="v">${shimPill(a)}</span></div>
          <div class="kv"><span class="k">${t("models")}</span><span class="v">${(a.models||["—"]).join(" · ")}</span></div>${cfgRows}</div>
        <div class="panel"><h3>${t("tools")} <span class="meta">⚙ ${t("from_cfg")}</span></h3>${tools}</div>
      </div>
@@ -464,14 +472,14 @@ function fb(txt,cb){const ta=document.createElement("textarea");ta.value=txt;doc
 let toastT;function showToast(msg){const el=document.getElementById("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove("show"),2200);}
 
 const now=new Date(),iso=s=>new Date(now.getTime()-s*1000).toISOString();
-const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_active:42600},leverage:{skills_week:7,assets:48},
+const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_active:42600},leverage:{skills_week:7,assets:48},shim:{version:"demo-shim-current"},
  skills:[
   {name:"组件命名规范",mode:"used",sessions_7d:8,sessions_30d:19,sessions_total:36,users_30d:3,last_day:now.toISOString().slice(0,10)},
   {name:"pytest 脚手架",mode:"used",sessions_7d:5,sessions_30d:14,sessions_total:22,users_30d:2,last_day:now.toISOString().slice(0,10)},
   {name:"品牌语气库",mode:"equipped",sessions_7d:3,sessions_30d:9,sessions_total:31,users_30d:1,last_day:now.toISOString().slice(0,10)}
  ],
  sessions:[
-  {operator:"nezha",agent:"build",runtime:"claude-code",status:"running",task:"画原型",current_step:"梳理界面结构",ts:iso(9),fidelity:"full",
+  {operator:"nezha",agent:"build",runtime:"claude-code",status:"running",task:"画原型",current_step:"梳理界面结构",ts:iso(9),fidelity:"full",shim_version:"demo-shim-current",
    today_active:9120,week_active:31800,active_series:[4200,5400,3600,6100,5200,4300,9120],models:["claude-opus-4-6","claude-sonnet-4-6"],
    about:"把一句话需求快速变成可点击的低保真原型:先问清目标用户和核心动作,再用统一的组件命名出框架图,产出可直接进 Figma 的结构。",
    tips:"给它需求时先说清「谁用、要完成什么动作」,它会自己补齐信息架构;别一上来就让它定视觉。",
@@ -483,7 +491,7 @@ const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_acti
    mcp:["filesystem","figma","github"],quality:{runs:54,success:49,error:5,reuse:0.62,avg_sec:760,auto_rate:0.78,
      recent:1}, recent:[{task:"营销活动落地页原型",outcome:"3 屏框架 + 交互注释,已进 Figma",status:"done",dur:1080},{task:"后台数据看板布局",outcome:"等确认信息架构",status:"running",dur:420},{task:"导出 v1 设计稿",outcome:"exit 0",status:"done",dur:240}]},
 
-  {operator:"nezha",agent:"多儿",runtime:"hermes",status:"running",task:"梳理产品思路",current_step:"对话中",ts:iso(22),fidelity:"full",
+  {operator:"nezha",agent:"多儿",runtime:"hermes",status:"running",task:"梳理产品思路",current_step:"对话中",ts:iso(22),fidelity:"full",shim_version:"demo-shim-current",
    today_active:5400,week_active:18000,active_series:[2400,3000,1800,3600,2900,2100,5400],models:["claude-sonnet-4-6"],
    about:"思考伙伴:用第一性原理追问,帮你把模糊想法逼成清晰假设,适合早期方向探索,不负责产出文档。",
    tips:"把它当陪练:抛半成熟的想法,让它追问;别指望它给标准答案。",
@@ -493,7 +501,7 @@ const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_acti
    mcp:["notion"],quality:{runs:31,success:30,error:1,reuse:0.30,avg_sec:520,auto_rate:0.4},
    recent:[{task:"会员体系该不该做",outcome:"逼出 3 个核心假设 + 验证方式",status:"done",dur:900},{task:"梳理产品思路",outcome:"对话进行中",status:"running",dur:300}]},
 
-  {operator:"nezha",agent:"原型",runtime:"mulerun",status:"running",task:"云端生成原型",current_step:"云端 VM 运行中",ts:iso(140),fidelity:"coarse",
+  {operator:"nezha",agent:"原型",runtime:"mulerun",status:"running",task:"云端生成原型",current_step:"云端 VM 运行中",ts:iso(140),fidelity:"coarse",shim_version:"demo-shim-current",
    today_active:7200,week_active:7200,active_series:[0,0,0,0,0,0,7200],models:["gpt-4o","gemini-2.0"],
    about:"云端自动跑:把落地页需求丢进去,无人值守生成多版可选稿,适合走量、要快不要精。",
    tips:"一次给足约束(品牌色/参考站/字数),它中途没法追问;粗粒度只看起止。",
@@ -501,7 +509,7 @@ const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_acti
    skills:{local:[{name:"落地页模板",desc:"含 6 种常见结构的起手模板"}],cross:[{name:"组件命名规范",desc:"复用 build 的命名(保证可交接)"}],pitfalls:["黑盒无法中途纠偏,约束要一次给全"]},
    mcp:[],quality:{runs:12,success:9,error:3,reuse:0.50,avg_sec:1500,auto_rate:0.95}},
 
-  {operator:"bob",agent:"copy",runtime:"open-claw",status:"running",task:"改写落地页文案",current_step:"drafting hero",ts:iso(18),fidelity:"full",
+  {operator:"bob",agent:"copy",runtime:"open-claw",status:"running",task:"改写落地页文案",current_step:"drafting hero",ts:iso(18),fidelity:"full",shim_version:"demo-shim-old",
    today_active:2640,week_active:14400,active_series:[1800,2100,1500,3000,2200,1200,2640],models:["claude-sonnet-4-6"],
    about:"营销文案改写:吃品牌语气库,产出符合调性的多版标题与正文,擅长 hero/slogan。",
    tips:"先喂目标人群和一个你喜欢的样例,它会贴着语气走;要多版就说「给 5 版」。",
@@ -510,7 +518,7 @@ const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_acti
    mcp:["notion","slack"],quality:{runs:88,success:81,error:7,reuse:0.71,avg_sec:300,auto_rate:0.6},
    recent:[{task:"首页 hero 文案",outcome:"5 版,选定第 3 版",status:"done",dur:360},{task:"邮件营销序列",outcome:"3 封草稿",status:"done",dur:540}]},
 
-  {operator:"bob",agent:"code",runtime:"codex",status:"waiting",task:"迁移测试到 pytest",current_step:"等待 shell 授权",ts:iso(40),fidelity:"full",
+  {operator:"bob",agent:"code",runtime:"codex",status:"waiting",task:"迁移测试到 pytest",current_step:"等待 shell 授权",ts:iso(40),fidelity:"full",shim_version:"demo-shim-current",
    today_active:5280,week_active:22800,active_series:[3000,4200,2400,5100,3600,2700,5280],models:["gpt-4o"],
    about:"测试与重构:把老测试迁到 pytest、修 flaky、补覆盖率,稳健、改动小、爱写注释。",
    tips:"给它明确边界(别动 migrations),它会按最小改动来;授权 shell 前会停下等你。",
@@ -519,7 +527,7 @@ const DEMO={now:now.toISOString(),totals:{live:5,operators:3,agents:6,today_acti
    mcp:["github","filesystem"],quality:{runs:67,success:60,error:7,reuse:0.55,avg_sec:680,auto_rate:0.7},
    recent:[{task:"支付模块测试迁移",outcome:"等待 shell 授权",status:"waiting",dur:300},{task:"修复登录 flaky",outcome:"通过,补了 2 个用例",status:"done",dur:720}]},
 
-  {operator:"chen",agent:"code",runtime:"claude-desktop",status:"done",task:"修复 CI flaky test",current_step:"exit 0",ts:iso(360),fidelity:"coarse",
+  {operator:"chen",agent:"code",runtime:"claude-desktop",status:"done",task:"修复 CI flaky test",current_step:"exit 0",ts:iso(360),fidelity:"coarse",shim_version:"demo-shim-current",
    today_active:12960,week_active:39000,active_series:[7200,8400,6000,9000,7800,6600,12960],models:["claude-opus-4-6"],
    about:"疑难定位:专啃 flaky / 偶现 bug,擅长二分定位和写复现脚本;桌面版,通过 MCP 自动上报。",
    tips:"把能复现的最小信息给它(随机种子/并发数),它会自己二分;它接了 TRANFU MCP,会自动报状态。",

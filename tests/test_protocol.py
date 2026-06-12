@@ -3,6 +3,7 @@
 固化自开发期的 TestClient 冒烟检查,作为 CI 的回归保护。
 """
 from conftest import ev
+import hashlib
 
 
 # ---- 核心字段校验 ----------------------------------------------------------
@@ -21,6 +22,18 @@ def test_serves_install_and_nested_shims(client):
     r = client.get("/shims/openclaw/openclaw.plugin.json")
     assert r.status_code == 200
     assert "tranfu-skill-reporter" in r.text
+
+
+def test_shim_manifest_lists_targets_and_hashes(client):
+    r = client.get("/shims/manifest")
+    assert r.status_code == 200
+    manifest = r.json()
+    assert manifest["version"] and manifest["files"]
+    by_path = {f["path"]: f for f in manifest["files"]}
+    assert by_path["tf_hook.py"]["target"] == "tf_hook.py"
+    assert by_path["wrapper/tf-run"]["target"] == "tf-run"
+    hook_body = client.get("/shims/tf_hook.py").content
+    assert by_path["tf_hook.py"]["sha256"] == hashlib.sha256(hook_body).hexdigest()
 
 
 def test_shims_directory_traversal_rejected(client):
@@ -100,6 +113,14 @@ def test_v_and_parent_persisted(client):
     card = next(c for c in cards if c["session_id"] == "child")
     assert card["parent_session_id"] == "root"
     assert card["v"] == "0.1"
+
+
+def test_profile_shim_version_persisted_and_state_exposes_current(client):
+    ev(client, session_id="shim1", current_step="profile", shim_version="abc123")
+    state = client.get("/api/state").json()
+    card = next(c for c in state["sessions"] if c["session_id"] == "shim1")
+    assert card["shim_version"] == "abc123"
+    assert state["shim"]["version"]
 
 
 # ---- DELETE /v1/events admin 清理 ------------------------------------------

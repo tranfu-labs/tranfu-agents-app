@@ -10,7 +10,7 @@ agent 机器                         中心服务器(单容器)              浏
 │ shim:         │ ───────────────▶ │ server/app.py          │ ──────▶ │ dashboard/   │
 │ tf_report /   │  X-TF-Key=TF_KEY │  ingest → SQLite        │ /api/state │ index.html │
 │ tf_hook / ... │                  │  compute → snapshot     │ ◀────── │ (轮询2s)     │
-│ tf_profile    │ ◀─ /install.sh,/shims/<f> ── 分发自身 ──────│         └──────────────┘
+│ tf_profile    │ ◀─ /install.sh,/shims/manifest,<f> ─ 分发自身 ─│         └──────────────┘
 └───────────────┘                  └───────────────────────┘
 ```
 
@@ -20,7 +20,7 @@ agent 机器                         中心服务器(单容器)              浏
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用排行、
   提供看板与 API、分发安装脚本与 shim。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/agent/{key}`、`GET /healthz`、
-  `GET /`(看板)、`GET /install.sh`、`GET /shims/{path}`。
+  `GET /`(看板)、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`);
   浏览器(只读快照);使用者机器(取 install/shim)。
@@ -37,6 +37,8 @@ agent 机器                         中心服务器(单容器)              浏
 ### M3 — 采集 shim (`shims/`)
 - **职责**:在使用者机器上把状态/档案上报给 M1。
   - `tf_profile.py` 自动探测 profile(版本/终端/位置/IM/MCP/技能/集成);
+  - `tf_selfupdate.py` 在会话开始后台检查 `/shims/manifest`,经 staging + sha256 + py_compile 后原子更新本地 shim,
+    并在版本一致但文件缺失/哈希不符时补齐目标文件;
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
@@ -56,11 +58,11 @@ agent 机器                         中心服务器(单容器)              浏
 - **禁止依赖**:Python shim 不得依赖第三方库;所有 shim/plugin 不得抛错/阻塞宿主 agent;不得默认上报敏感内容。
   Skill 使用统计只允许上报 Skill 名与 `skill_mode`,不得上报参数、prompt、代码或输出。
 
-### M4 — 安装与分发 (`install.sh` + M1 的 `/install.sh`、`/shims/{path}`)
+### M4 — 安装与分发 (`install.sh` + M1 的 `/install.sh`、`/shims/manifest`、`/shims/{path}`)
 - **职责**:一键把 shim 装到 `~/.tranfu`、写 shell rc(身份/密钥)、装完自动注册一次。
 - **入口**:`curl -fsSL $SERVER/install.sh | bash -s -- --server .. --key .. --operator .. --runtime .. --agent .. --role ..`。
 - **上游**:管理员提供的 server/key。
-- **下游**:从 `$SERVER/shims/*` 取 shim 文件;装完调 `tf_report.py --status started --profile` 注册。
+- **下游**:按 `$SERVER/shims/manifest` 全量取 shim 文件;装完调 `tf_report.py --status started --profile` 注册。
 - **禁止依赖**:GitHub 公网可见性(改为从看板域名分发,见 ADR-0007),以支持私有库。
 
 ### M5 — 协议与文档 (`PROTOCOL.md`、`*.md`、`SKILL.md`、`openspec/`、`docs/`)

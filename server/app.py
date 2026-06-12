@@ -43,10 +43,15 @@ INSTALL_PATH = os.path.join(REPO_ROOT, "install.sh")
 _MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
           ".js": "text/javascript", ".mjs": "text/javascript",
           ".json": "application/json", ".md": "text/markdown"}
+_EXECUTABLE_SHIMS = {
+    "tf_client.sh", "tf_hooks.py", "tf_claude_hooks.py",
+    "wrapper/tf-run", "wrapper/tf-hermes-hook.sh",
+}
 
 # profile keys the shim MAY include on an event (all optional, opt-in)
 PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
-                "about", "tips", "cf", "instructions", "memory")
+                "about", "tips", "cf", "instructions", "memory",
+                "shim_version")
 # sensitive fields gated behind read-side auth (dropped if read access is open)
 SENSITIVE_KEYS = ("input", "output", "instructions", "memory")
 
@@ -64,6 +69,49 @@ _lock = threading.Lock()
 
 def _sha(s):
     return hashlib.sha256(s.encode()).hexdigest()
+
+
+def _shim_target(rel):
+    if rel.startswith("wrapper/"):
+        return os.path.basename(rel)
+    return rel
+
+
+def _build_shim_manifest():
+    """Content-addressed manifest for the files served from /shims.
+
+    The installer historically flattens wrapper/* into ~/.tranfu while keeping
+    nested plugin files such as openclaw/* under their directory. Encoding that
+    target path here lets old clients fetch new shim files without hard-coding a
+    new download list.
+    """
+    files = []
+    root = os.path.abspath(SHIMS_DIR)
+    for base, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d != "__pycache__" and not d.startswith(".")]
+        for name in sorted(names):
+            if name.startswith(".") or name.endswith((".pyc", ".pyo")):
+                continue
+            path = os.path.join(base, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            with open(path, "rb") as f:
+                data = f.read()
+            files.append({
+                "path": rel,
+                "target": _shim_target(rel),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+                "executable": rel in _EXECUTABLE_SHIMS or os.access(path, os.X_OK),
+            })
+    files.sort(key=lambda x: x["path"])
+    h = hashlib.sha256()
+    for item in files:
+        h.update(json.dumps({
+            "path": item["path"], "target": item["target"],
+            "sha256": item["sha256"], "executable": item["executable"],
+        }, sort_keys=True, separators=(",", ":")).encode())
+        h.update(b"\n")
+    return {"schema": 1, "version": h.hexdigest(), "files": files}
 
 
 def _clip(s, n):
@@ -266,6 +314,9 @@ def _skill_mode(value):
         return "used"
     value = value.strip().lower()
     return value if value in SKILL_MODES else "used"
+
+
+_SHIM_MANIFEST = _build_shim_manifest()
 
 
 # ---------------------------------------------------------------- enroll (§4)
@@ -668,6 +719,7 @@ def _snapshot(conn):
                   "task": r["task"], "ts": r["ts"]} for r in feed],
         "leverage": leverage(conn),
         "skills": skill_usage(conn),
+        "shim": {"version": _SHIM_MANIFEST["version"], "files": len(_SHIM_MANIFEST["files"])},
         "totals": {
             "live": len(live), "operators": len(ops), "agents": len(agents),
             "today_active": sum(v["today"] for v in dur.values()),
@@ -716,6 +768,12 @@ def install_sh():
             return PlainTextResponse(f.read(), media_type="text/x-shellscript")
     except FileNotFoundError:
         return PlainTextResponse("install.sh not found", status_code=404)
+
+
+@app.get("/shims/manifest")
+def shim_manifest():
+    """Serve the content-addressed shim manifest used by install/self-update."""
+    return JSONResponse(_SHIM_MANIFEST)
 
 
 @app.get("/shims/{path:path}")

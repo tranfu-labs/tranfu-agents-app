@@ -53,6 +53,30 @@ def test_claude_sessionstart_has_profile():
     assert "--profile" in a and a[a.index("--status") + 1] == "started"
 
 
+def test_sessionstart_spawns_selfupdate(monkeypatch):
+    calls = []
+
+    def fake_popen(args, **kwargs):
+        calls.append((args, kwargs))
+        class Proc:
+            pass
+        return Proc()
+
+    monkeypatch.setattr(tf_hook.subprocess, "Popen", fake_popen)
+    tf_hook._spawn_selfupdate({"hook_event_name": "SessionStart", "session_id": "s1"})
+
+    assert calls
+    assert calls[0][0][-1].endswith("tf_selfupdate.py")
+    assert calls[0][1]["env"]["TF_SESSION"] == "s1"
+    assert calls[0][1]["start_new_session"] is True
+
+
+def test_selfupdate_not_spawned_when_disabled(monkeypatch):
+    monkeypatch.setenv("TF_AUTO_UPDATE", "0")
+    monkeypatch.setattr(tf_hook.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no spawn")))
+    tf_hook._spawn_selfupdate({"hook_event_name": "SessionStart", "session_id": "s1"})
+
+
 def test_hermes_pre_tool_call():
     a = _args({"hook_event_name": "pre_tool_call", "tool_name": "terminal",
                "session_id": "sess_abc", "cwd": "/x"})

@@ -92,3 +92,10 @@ def test_openclaw_label_case_insensitive(monkeypatch):
     assert tf_profile.RT_LABEL.get("openclaw") == "OpenClaw"
     monkeypatch.setattr(tf_profile, "_sh", lambda cmd: "")   # 模拟未安装 openclaw 命令
     assert tf_profile.detect_version("OpenClaw") == "OpenClaw"
+
+
+def test_collect_includes_local_shim_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(tf_profile, "SHIM_DIR", tmp_path)
+    (tmp_path / "manifest.json").write_text('{"version":"v-local"}', encoding="utf-8")
+    p = tf_profile.collect(runtime="codex", cwd=str(tmp_path))
+    assert p["shim_version"] == "v-local"

@@ -20,6 +20,7 @@
 #   Use --no-codex-hooks to skip, or --codex-hooks status|install|uninstall|restore.
 set -e
 SERVER=""; KEY=""; OPERATOR="$USER"; RUNTIME=""; AGENT=""; ROLE=""; ABOUT=""; TIPS=""; MODELS=""
+AUTO_UPDATE="${TF_AUTO_UPDATE:-1}"
 CLAUDE_HOOKS=""; CLAUDE_SETTINGS=""
 CODEX_HOOKS=""; CODEX_SETTINGS=""
 OPENCLAW_PLUGIN=""
@@ -29,6 +30,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --agent) AGENT="$2"; shift 2;; --role) ROLE="$2"; shift 2;;
   --about) ABOUT="$2"; shift 2;; --tips) TIPS="$2"; shift 2;;
   --models) MODELS="$2"; shift 2;;
+  --auto-update) AUTO_UPDATE="$2"; shift 2;;
+  --no-auto-update) AUTO_UPDATE="0"; shift;;
   --install-claude-hooks) CLAUDE_HOOKS="install"; shift;;
   --no-claude-hooks) CLAUDE_HOOKS="skip"; shift;;
   --claude-hooks) CLAUDE_HOOKS="$2"; shift 2;;
@@ -44,10 +47,61 @@ while [ $# -gt 0 ]; do case "$1" in
 
 mkdir -p ~/.tranfu
 BASE="${SERVER%/}/shims"
-for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh; do
-  curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
-done
-chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf-hermes-hook.sh
+
+_install_from_manifest() {
+  TF_INSTALL_BASE="$BASE" TF_INSTALL_HOME="${HOME}/.tranfu" python3 - <<'PY'
+import hashlib, json, os, urllib.parse, urllib.request
+from pathlib import Path
+
+base = os.environ["TF_INSTALL_BASE"].rstrip("/")
+root = Path(os.environ["TF_INSTALL_HOME"]).expanduser()
+
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=15) as r:
+        return r.read()
+
+def safe_target(target):
+    target = str(target).replace("\\", "/")
+    if target.startswith("/"):
+        raise ValueError("absolute target")
+    parts = [p for p in target.split("/") if p]
+    if not parts or any(p in (".", "..") for p in parts):
+        raise ValueError("unsafe target")
+    path = root.joinpath(*parts).resolve()
+    r = root.resolve()
+    if path != r and not str(path).startswith(str(r) + os.sep):
+        raise ValueError("target escapes install root")
+    return path
+
+manifest = json.loads(fetch(base + "/manifest").decode("utf-8"))
+files = manifest.get("files")
+if not isinstance(files, list):
+    raise ValueError("manifest.files must be a list")
+root.mkdir(parents=True, exist_ok=True)
+for item in files:
+    src = item["path"]
+    dst = safe_target(item["target"])
+    data = fetch(base + "/" + urllib.parse.quote(src, safe="/"))
+    if hashlib.sha256(data).hexdigest() != item["sha256"]:
+        raise ValueError("sha256 mismatch: " + src)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(str(tmp), str(dst))
+    os.chmod(str(dst), 0o755 if item.get("executable") else 0o644)
+tmp = root / "manifest.json.tmp"
+tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.replace(str(tmp), str(root / "manifest.json"))
+PY
+}
+
+if ! _install_from_manifest; then
+  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh; do
+    curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
+  done
+  rm -f ~/.tranfu/manifest.json
+fi
+chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf-hermes-hook.sh
 
 _install_openclaw_plugin() {
   mkdir -p "${HOME}/.tranfu/openclaw"
@@ -88,6 +142,7 @@ _emit_env() {
   echo "export TF_SERVER=\"$SERVER\""
   [ -n "$KEY" ]     && echo "export TF_KEY=\"$KEY\"" || true
   echo "export TF_OPERATOR=\"$OPERATOR\""
+  echo "export TF_AUTO_UPDATE=\"$AUTO_UPDATE\""
   [ -n "$RUNTIME" ] && echo "export TF_RUNTIME=\"$RUNTIME\"" || true
   [ -n "$AGENT" ]   && echo "export TF_AGENT=\"$AGENT\"" || true
   [ -n "$ROLE" ]    && echo "export TF_ROLE=\"$ROLE\"" || true

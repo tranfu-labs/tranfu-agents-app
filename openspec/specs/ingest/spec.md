@@ -7,7 +7,7 @@
 - 必填:`operator`、`runtime`、`session_id`、`status`。
 - 可选:`agent`(用途标签)、`task`、`current_step`、`skill`、`skill_mode`、`ts`、`model`、`input`/`output`(opt-in)、`meta`。
 - `status` 枚举:`started / running / waiting / blocked / done / error / idle`。
-- 可选 profile 字段(任意子集):`models, config, mcp, skills, integrations, about, tips, cf, instructions, memory`。
+- 可选 profile 字段(任意子集):`models, config, mcp, skills, integrations, about, tips, cf, instructions, memory, shim_version`。
 
 ## 规则(MUST)
 1. 写入须带请求头 `X-TF-Key`,且等于服务端 `TF_KEY`(`TF_KEY` 为空时仅限本地开发)。
@@ -28,6 +28,7 @@
 8. 时间一律按 UTC;`day` 取 UTC 日期。
 9. 云端运行时 `{manus, mulerun, chatgpt}` 标记 `fidelity = coarse`,其余 `full`。
 10. `input`/`output`(内容)与 `instructions`/`memory`(敏感)默认不应被上报,仅在使用者显式开启时携带。
+11. `shim_version` 只记录本机 `~/.tranfu/manifest.json` 的内容版本,用于看板判断本地 shim 是否过期。
 
 ## 不变量
 - 不存在任何 token / 成本字段(见 ADR-0002)。
@@ -36,6 +37,7 @@
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。
 - 带 `skills` 的事件后,`/api/state` 该身份 session 含 `skills`,且 leverage 资产数随之增加。
+- 带 `shim_version` 的 profile 事件后,`/api/state` 该身份 session 含同值 `shim_version`。
 - 同一 session_id + 同一 skill + 同一 mode 投递两次 → skill 使用记录 1 行;第二次响应仍 200。
 - 同一 session_id + 同一 skill 分别以 `used` 与 `equipped` 投递 → skill 使用记录 2 行。
 - 带 `skill_mode=equipped` → skill 使用记录 `mode` 为 `equipped`;非法/缺省 `skill_mode` → `used`。

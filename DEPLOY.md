@@ -148,6 +148,7 @@ caddy reverse-proxy --from agents.tranfu.com --to localhost:8788
 **1) 服务在不在:**
 ```bash
 curl https://agents.tranfu.com/healthz       # ok
+curl https://agents.tranfu.com/shims/manifest | head -c 200  # shim version JSON
 ```
 
 **2) 发一条测试事件,看板能不能收到:**
@@ -163,7 +164,8 @@ curl -s -XPOST https://agents.tranfu.com/v1/events \
 curl -fsSL https://agents.tranfu.com/install.sh | bash -s -- \
   --server https://agents.tranfu.com --key <TF_KEY> --operator 名字 --runtime claude-code
 ```
-更详细的成员接入(三条路径 + 自动探测 + `TF_ROLE`)在 `QUICKSTART.md`。
+更详细的成员接入(三条路径 + 自动探测 + `TF_ROLE`)在 `QUICKSTART.md`。新版安装器会按 manifest
+全量安装 shim 并写入 `~/.tranfu/manifest.json`,后续 hook 型 runtime 会后台自动更新 shim。
 
 ---
 

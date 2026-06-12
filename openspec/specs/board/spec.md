@@ -3,7 +3,7 @@
 事实来源:`server/app.py`(`/api/state`、`metrics`、`leverage`、`reuse_map`、`_snapshot`)与 `dashboard/index.html`。
 
 ## 接口
-- `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], totals }`。
+- `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
 - `GET /` → 看板页;`GET /healthz` → `ok`。
 
@@ -20,12 +20,14 @@
    `sessions_total`、`users_30d`、`last_day`;按 `sessions_30d` 降序,平手按 `sessions_total`。
 9. Skill 计数口径:一个会话用过/装备某 skill 的某个 mode 算一次(来源即 `skill_uses` 的会话×skill×mode 粒度,
    读侧不再去重);时间窗口按 UTC 日切,与活跃统计口径一致。`used` 与 `equipped` 必须分条呈现,不得相加。
+10. `shim.version` 为服务端当前分发的 shim 内容版本;看板用它与每张卡的 `shim_version` 比较,缺失或不一致时显示旧版提示。
 
 ## 前端规则(MUST)
 - 轮询 `/api/state`(约 2s),取不到时退回内置演示数据并显示"未连接服务端"。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / 治理详情。
 - Pods 看板展示 Skills 排行区;`skills` 为空时显示空态,不报错。
 - 详情数据优先取 session 的服务端字段(`cf/skills/mcp/integrations/about/...`);演示映射仅用于独立预览。
+- 卡片/详情显示本机上报的 `shim_version` 短码;落后于服务端 `shim.version` 时标记过期。
 - 暗/亮双主题;手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
 - 不得使用浏览器本地存储;不得写死后端端口(同源相对路径)。
 
@@ -36,3 +38,4 @@
   `mode=used` 条目 `sessions_7d=2`、`sessions_30d=2`、`sessions_total=3`、`users_30d=2`。
 - 同一 skill A 同时有 `used` 与 `equipped` → `skills` 出现两条同名不同 mode 条目,计数互不相加。
 - 空库 → `skills: []`,看板显示空态。
+- 服务端 `shim.version` 与某 agent 的 `shim_version` 不一致或缺失 → 看板显示旧版角标。

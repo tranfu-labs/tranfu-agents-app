@@ -49,6 +49,7 @@ MAP = {
 PRE_TOOL = ("PreToolUse", "pre_tool_call")
 POST_TOOL = ("PostToolUse", "post_tool_call")
 SKILL_TOOLS = {"skill", "skill_view"}
+SELFUPDATE_EVENTS = ("SessionStart", "on_session_start")
 
 
 def _name_from(value):
@@ -129,6 +130,26 @@ def _run_report(rargs):
         pass  # telemetry must never break the session
 
 
+def _spawn_selfupdate(d):
+    if os.environ.get("TF_AUTO_UPDATE") == "0":
+        return
+    if _event_name(d) not in SELFUPDATE_EVENTS:
+        return
+    script = os.path.join(HERE, "tf_selfupdate.py")
+    if not os.path.exists(script):
+        return
+    env = os.environ.copy()
+    sid = _session_id(d)
+    if sid:
+        env["TF_SESSION"] = str(sid)
+    try:
+        subprocess.Popen(["python3", script], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         close_fds=True, start_new_session=True, env=env)
+    except Exception:
+        pass  # self-update must never break the session
+
+
 # Codex turn/session-end events that trigger a rollout scan. Codex never exposes
 # skills as a `Skill` tool call (so resolve()/PreToolUse can't see them); instead
 # we read its on-disk transcript once per turn end and report the skills it used.
@@ -164,6 +185,10 @@ def main():
         d = json.loads(raw) if raw.strip() else {}
     except Exception:
         d = {}
+    try:
+        _spawn_selfupdate(d)
+    except Exception:
+        pass  # self-update must never break the session
     rargs = resolve(d)
     if rargs is not None:
         _run_report(rargs)

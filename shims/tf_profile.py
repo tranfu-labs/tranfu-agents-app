@@ -30,6 +30,7 @@ import os, sys, json, glob, re, subprocess
 from pathlib import Path
 
 HOME = Path.home()
+SHIM_DIR = Path(os.environ.get("TF_TRANFU_HOME") or Path(__file__).resolve().parent)
 RT_LABEL = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop",
             "codex": "Codex", "open-claw": "OpenClaw", "openclaw": "OpenClaw",
             "hermes": "Hermes", "manus": "Manus", "mulerun": "MuleRun", "chatgpt": "ChatGPT"}
@@ -60,6 +61,13 @@ def _read_json(p):
         return json.loads(Path(p).read_text(encoding="utf-8", errors="ignore"))
     except Exception:
         return None
+
+
+def detect_shim_version():
+    d = _read_json(SHIM_DIR / "manifest.json")
+    if isinstance(d, dict) and isinstance(d.get("version"), str):
+        return d["version"]
+    return None
 
 
 def _read_toml(p):
@@ -304,6 +312,7 @@ def collect(runtime=None, cwd=None):
         "about": os.environ.get("TF_ABOUT") or None,
         "tips": os.environ.get("TF_TIPS") or None,
         "memory": _safe(lambda: detect_memory(cwd)),
+        "shim_version": _safe(detect_shim_version),
     }
     return {k: v for k, v in out.items() if v not in (None, "", [], {})}
 

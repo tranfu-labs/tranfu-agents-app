@@ -40,8 +40,11 @@ curl -fsSL <接入地址>/install.sh \
 如果 `<runtime>` 是 `hermes`,安装器会安装 `tf-hermes-hook.sh` 并打印需要合并到 `~/.hermes/config.yaml` 的 hooks 配置。
 如果 `<runtime>` 是 `open-claw` / `openclaw`,安装器会安装 OpenClaw 原生插件并尝试写入
 `plugins.entries.tranfu-skill-reporter`,用于装备态 Skill 统计;仍需用 `tf-run` 或派发脚本上报状态。
-重跑安装器是安全的:它会从 `$SERVER/shims` 拉新版 shim,覆盖 `~/.tranfu/tf_*.py`,并刷新
-`~/.tranfu/tf_env.<runtime>.sh`;Claude Code / Codex / Hermes / OpenClaw 更新后需要重启才会加载新 hook/shim/plugin。
+重跑安装器是安全的:它会按 `$SERVER/shims/manifest` 全量拉新版 shim,校验 sha256 后覆盖
+`~/.tranfu/` 里的目标文件,并刷新 `~/.tranfu/tf_env.<runtime>.sh`;只有全量安装成功才写入
+`~/.tranfu/manifest.json`。之后 Claude Code / Codex / Hermes 会在会话开始时后台自动更新 shim;
+OpenClaw 插件文件可被刷新,但仍需重启 OpenClaw 才加载新版 JS。若用户要关闭自动更新,在对应
+env 文件里写 `export TF_AUTO_UPDATE=0`。
 
 ## 第 4 步:按本 agent 的形态接好上报
 
@@ -91,6 +94,7 @@ TF_RUNTIME=<runtime> TF_AGENT=<用途> tf_emit running --task "测试" --step "h
 ```
 告诉用户去看板,在**他的 Pod**里应能看到「用途 [runtime] 运行中」。Claude Code / Codex / Hermes 装 hooks 后需要重启对应 agent;
 Codex 首次运行新增 hook 时可能要求信任,确认一次即可。
+如果看板显示「旧 shim」,说明这台机器还没完成新版安装或自动更新失败,让用户重跑安装命令即可。
 
 ## 隐私
 默认只上报 谁/用途/状态/步骤/活跃时长,以及可安全识别的 Skill 名。若用户要回传 prompt/代码/输出,设 `TF_CAPTURE_CONTENT=1`,

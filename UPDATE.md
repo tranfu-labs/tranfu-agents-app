@@ -78,7 +78,24 @@ curl https://tranfu-agents-app.tranfu.com/api/state | head -c 200   # JSON
 - [ ] 页面顶部不再显示「未连接服务端」
 - [ ] logo 是新的(红色图形内联)、有 Pods 看板 / Agents 列表 两个标签
 
-## 6. Skill 使用排行升级注意
+## 6. 本地 shim 自动更新升级注意
+
+本版本新增 `/shims/manifest` 与 `tf_selfupdate.py`。服务端更新后,看板会显示每个 agent 上报的
+shim 短版本,版本缺失或落后会标为"旧 shim"。现有机器还没有自更新器,需要**最后一次**通知队友重跑
+当前看板域名的 `install.sh`;重跑后安装器会按 manifest 全量下载并校验 shim,成功后保存
+`~/.tranfu/manifest.json`,之后 Claude Code / Codex / Hermes 会在会话开始时后台自动更新 shim。
+
+生效时机:
+- Claude Code / Codex / Hermes:文件替换后下一次 hook 触发即生效。
+- OpenClaw:文件会刷新到 `~/.tranfu/openclaw/`,但需要重启 OpenClaw 才加载新版插件 JS。
+
+排查:
+1. 看板卡片显示"旧 shim" → 先让该机器重跑新版 `install.sh`,再重启对应 agent。
+2. 本机要关闭自动更新 → 在 `~/.tranfu/tf_env.<runtime>.sh` 写 `export TF_AUTO_UPDATE=0`。
+3. 自动更新失败不会破坏旧文件;检查是否没有写入 `~/.tranfu` 权限、或网络无法访问 `$SERVER/shims/manifest`。
+4. 本地 `manifest.json` 版本一致但缺文件时,新版自更新器会自动补齐;补不齐通常是权限或下载失败。
+
+## 7. Skill 使用排行升级注意
 
 本版本新增 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,
 Skill 调用才会开始上报 `skill` 字段,所以排行数据会按人逐步出现。Claude Code 走 `Skill` 工具调用;
