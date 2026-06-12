@@ -17,20 +17,22 @@ agent 机器                         中心服务器(单容器)              浏
 ## 模块
 
 ### M1 — 服务端 collector (`server/app.py`)
-- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用排行、
+- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计、
   提供看板与 API、分发安装脚本与 shim。
-- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/agent/{key}`、`GET /healthz`、
-  `GET /`(看板)、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
+- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
+  `GET /api/agent/{key}`、`GET /healthz`、`GET /`(看板)、`GET /install.sh`、`GET /shims/manifest`、
+  `GET /shims/{path}`。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`);
-  浏览器(只读快照);使用者机器(取 install/shim)。
+  浏览器(只读快照与 Skills 聚合);使用者机器(取 install/shim)。
 - **禁止依赖**:外部数据库/缓存/消息队列;任何 token/成本计算;读取使用者敏感内容(除非事件显式带 opt-in 字段)。
 
 ### M2 — 看板前端 (`dashboard/index.html`)
-- **职责**:轮询 `/api/state` 渲染 Pods 看板 / Skills 排行 / Agents 列表 / 治理详情;
-  暗亮主题、中英、手机适配。
-- **入口**:由 M1 在 `/` 提供;数据来自 `/api/state`(同源相对路径)。
-- **上游**:M1 的 `/api/state`(取不到时退回内置演示数据,显示"未连接服务端")。
+- **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
+  `/api/skills` 与 `/api/skill/{name}` 渲染 SKILLS 总览 / Skill 详情;暗亮主题、中英、手机适配。
+- **入口**:由 M1 在 `/` 提供;数据来自 `/api/state`、`/api/skills`、`/api/skill/{name}`(同源相对路径)。
+- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`;`/api/state` 取不到时退回内置演示数据,
+  SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(localStorage 等);外部构建步骤;后端端口写死(必须走相对路径)。
 

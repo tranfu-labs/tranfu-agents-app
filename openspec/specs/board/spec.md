@@ -4,6 +4,8 @@
 
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。
+- `GET /api/skills?days={7|30|90|0}` → `{ daily[], table[], funnel, catalog }`(SKILLS 总览;`days` 仅影响 daily,默认 30)。
+- `GET /api/skill/{name}` → 单 skill 详情(指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
 - `GET /` → 看板页;`GET /healthz` → `ok`。
 
@@ -21,11 +23,23 @@
 9. Skill 计数口径:一个会话用过/装备某 skill 的某个 mode 算一次(来源即 `skill_uses` 的会话×skill×mode 粒度,
    读侧不再去重);时间窗口按 UTC 日切,与活跃统计口径一致。`used` 与 `equipped` 必须分条呈现,不得相加。
 10. `shim.version` 为服务端当前分发的 shim 内容版本;看板用它与每张卡的 `shim_version` 比较,缺失或不一致时显示旧版提示。
+11. SKILLS 为第三个顶级视图(看板 / Agents / SKILLS),含总览与单 skill 详情(独立视图 + 返回)两级。
+12. `/api/skills` 总览页所有聚合(`daily`、`table`)只统计 `mode=used`;`equipped` 仅在 `/api/skill/{name}`
+    详情页展示,并与 used 分列,任何位置不得相加。
+13. `/api/skills.table` 每行含来源字段,取值 own / meta / external / 非公司库;来源由服务端 catalog 缓存按名字映射。
+14. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
+    已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、30 天有人使用名单(UTC 日切);
+    并返回闲置名单 = 已安装 − 30 天使用。三层均返回名单而非仅数字。
+15. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
+    从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
 
 ## 前端规则(MUST)
 - 轮询 `/api/state`(约 2s),取不到时退回内置演示数据并显示"未连接服务端"。
-- 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / 治理详情。
-- Pods 看板展示 Skills 排行区;`skills` 为空时显示空态,不报错。
+- 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情。
+- Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
+- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图按 UTC 日,
+  前端取窗口内使用量前 8 的 skill 分色,其余合并为"其它"段;时间窗筛选只作用于柱状图,
+  主表固定 7 天/30 天/累计三列,漏斗第 3 层固定 30 天。
 - 详情数据优先取 session 的服务端字段(`cf/skills/mcp/integrations/about/...`);演示映射仅用于独立预览。
 - 卡片/详情显示本机上报的 `shim_version` 短码;落后于服务端 `shim.version` 时标记过期。
 - 暗/亮双主题;手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
@@ -39,3 +53,10 @@
 - 同一 skill A 同时有 `used` 与 `equipped` → `skills` 出现两条同名不同 mode 条目,计数互不相加。
 - 空库 → `skills: []`,看板显示空态。
 - 服务端 `shim.version` 与某 agent 的 `shim_version` 不一致或缺失 → 看板显示旧版角标。
+- 同名 skill 同时有 `used` 与 `equipped` → `/api/skills` 的 table 与 daily 只含 used;
+  `/api/skill/{name}` 两种模式并列展示且任何字段不相加。
+- 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
+- catalog 拉取失败 → `/api/skills` 返回 200,funnel 带过期标记与旧名单。
+- `days=7` → daily 仅含最近 7 个 UTC 日;`days` 变化不影响 table 与 funnel。
+- 主表默认按 30 天会话数降序,平手按累计。
+- 看板页面不再渲染 skills 区块,原有卡片与轮询行为不变。

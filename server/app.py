@@ -21,7 +21,7 @@ Read:
 
 Storage is SQLite (WAL) at $TF_DB, default ./tf.db. No external services.
 """
-import os, json, sqlite3, time, threading, hashlib, secrets
+import os, json, sqlite3, time, threading, hashlib, secrets, urllib.request
 from datetime import datetime, timezone, timedelta
 from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException
@@ -65,6 +65,26 @@ SKILL_MODES = {"used", "equipped"}
 
 app = FastAPI(title="TRANFU//AGENTS")
 _lock = threading.Lock()
+_catalog_lock = threading.Lock()
+
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+CATALOG_URL = os.environ.get(
+    "TF_SKILLS_CATALOG_URL",
+    "https://github.com/tranfu-labs/tranfu-skills/releases/download/catalog/index.json",
+)
+CATALOG_TTL_SECONDS = _env_int("TF_SKILLS_CATALOG_TTL", 3600)
+CATALOG_FETCH_TIMEOUT = _env_int("TF_SKILLS_CATALOG_TIMEOUT", 6)
+CATALOG_COMPANY_TYPES = {"own", "meta"}
+CATALOG_SOURCE_UNKNOWN = "非公司库"
+_catalog_state = {"items": None, "fetched_at": None, "error": None, "last_attempt": None}
+_catalog_thread_started = False
 
 
 def _sha(s):
@@ -177,6 +197,13 @@ def init_db():
         -- casing. Lets NEZHA / nezha / " NeZhA " resolve to ONE dispatcher.
         CREATE TABLE IF NOT EXISTS identities (
           norm TEXT PRIMARY KEY, display TEXT, created TEXT
+        );
+
+        -- cached tranfu-skills catalog for the SKILLS stats page. One row only.
+        CREATE TABLE IF NOT EXISTS catalog_cache (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          json TEXT NOT NULL,
+          fetched_at TEXT NOT NULL
         );
         """)
         # tolerate upgrades from an older schema (add columns if missing)
@@ -317,6 +344,180 @@ def _skill_mode(value):
 
 
 _SHIM_MANIFEST = _build_shim_manifest()
+
+
+def _catalog_source(value):
+    value = (value or "external").strip().lower() if isinstance(value, str) else "external"
+    return value if value in ("own", "meta", "external") else "external"
+
+
+def _parse_catalog_payload(raw):
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    data = json.loads(raw) if isinstance(raw, str) else raw
+    skills = data.get("skills") if isinstance(data, dict) else data
+    if not isinstance(skills, list):
+        raise ValueError("catalog skills must be a list")
+    out, seen = [], set()
+    for item in skills:
+        if not isinstance(item, dict):
+            continue
+        name = _skill_use_name(item.get("name"))
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append({
+            "name": name,
+            "type": _catalog_source(item.get("type")),
+            "description": item.get("description") or "",
+        })
+    return {
+        "version": data.get("version") if isinstance(data, dict) else None,
+        "generated_at": data.get("generated_at") if isinstance(data, dict) else None,
+        "skills": out,
+    }
+
+
+def _fetch_catalog():
+    req = urllib.request.Request(CATALOG_URL, headers={"User-Agent": "TRANFU-AGENTS/1.0"})
+    with urllib.request.urlopen(req, timeout=CATALOG_FETCH_TIMEOUT) as resp:
+        return _parse_catalog_payload(resp.read(768 * 1024))
+
+
+def _save_catalog_cache(conn, catalog, fetched_at=None):
+    fetched_at = fetched_at or now_iso()
+    conn.execute("""INSERT INTO catalog_cache(id,json,fetched_at) VALUES(1,?,?)
+      ON CONFLICT(id) DO UPDATE SET json=excluded.json,fetched_at=excluded.fetched_at""",
+      (json.dumps(catalog, ensure_ascii=False), fetched_at))
+    with _catalog_lock:
+        _catalog_state.update({
+            "items": catalog.get("skills") or [],
+            "fetched_at": fetched_at,
+            "error": None,
+            "last_attempt": fetched_at,
+        })
+
+
+def _record_catalog_error(exc):
+    msg = str(exc)[:240] if exc else "catalog fetch failed"
+    with _catalog_lock:
+        _catalog_state.update({"error": msg, "last_attempt": now_iso()})
+
+
+def sync_catalog_once():
+    """Fetch the catalog once. Failure is recorded but never raised."""
+    try:
+        catalog = _fetch_catalog()
+    except Exception as exc:
+        _record_catalog_error(exc)
+        return False
+    with _lock, closing(db()) as conn:
+        _save_catalog_cache(conn, catalog)
+        conn.commit()
+    return True
+
+
+def _catalog_loop():
+    while True:
+        sync_catalog_once()
+        time.sleep(max(60, CATALOG_TTL_SECONDS))
+
+
+def _start_catalog_sync():
+    global _catalog_thread_started
+    if os.environ.get("TF_SKILLS_CATALOG_SYNC", "1") == "0":
+        return
+    with _catalog_lock:
+        if _catalog_thread_started:
+            return
+        _catalog_thread_started = True
+    threading.Thread(target=_catalog_loop, name="tf-skills-catalog", daemon=True).start()
+
+
+def _startup_catalog_sync():
+    _start_catalog_sync()
+
+
+app.add_event_handler("startup", _startup_catalog_sync)
+
+
+def _load_catalog_cache(conn):
+    with _catalog_lock:
+        state = dict(_catalog_state)
+    if state.get("items") is not None:
+        items = state.get("items") or []
+        return {
+            "items": items,
+            "fetched_at": state.get("fetched_at"),
+            "stale": bool(state.get("error")),
+            "available": bool(items),
+            "error": state.get("error"),
+            "last_attempt": state.get("last_attempt"),
+        }
+    row = conn.execute("SELECT json,fetched_at FROM catalog_cache WHERE id=1").fetchone()
+    if not row:
+        return {
+            "items": [],
+            "fetched_at": None,
+            "stale": True,
+            "available": False,
+            "error": state.get("error"),
+            "last_attempt": state.get("last_attempt"),
+        }
+    try:
+        data = json.loads(row["json"])
+        items = data.get("skills") or []
+    except Exception as exc:
+        items = []
+        state["error"] = str(exc)[:240]
+    return {
+        "items": items,
+        "fetched_at": row["fetched_at"],
+        "stale": bool(state.get("error")),
+        "available": bool(items),
+        "error": state.get("error"),
+        "last_attempt": state.get("last_attempt"),
+    }
+
+
+def _catalog_context(conn):
+    cache = _load_catalog_cache(conn)
+    by_name = {i["name"]: i["type"] for i in cache["items"] if i.get("name")}
+    catalog = {
+        "available": cache["available"],
+        "fetched_at": cache["fetched_at"],
+        "stale": cache["stale"],
+        "error": cache["error"],
+        "last_attempt": cache["last_attempt"],
+        "count": len(cache["items"]),
+    }
+    return cache["items"], by_name, catalog
+
+
+def _skill_source(name, catalog_by_name):
+    return catalog_by_name.get(name) or CATALOG_SOURCE_UNKNOWN
+
+
+def _installed_skill_names(conn):
+    names = set()
+    for r in conn.execute("SELECT json FROM profiles"):
+        try:
+            p = json.loads(r["json"])
+        except Exception:
+            continue
+        for nm in _skill_names(p.get("skills")):
+            clean = _skill_use_name(nm)
+            if clean:
+                names.add(clean)
+    return names
+
+
+def _catalog_list(names, catalog_by_name):
+    return [{"name": n, "source": catalog_by_name[n]} for n in sorted(names)]
+
+
+def _day_cutoff(days):
+    return (datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
 
 
 # ---------------------------------------------------------------- enroll (§4)
@@ -654,6 +855,186 @@ def skill_usage(conn):
     } for r in rows]
 
 
+def skills_overview(conn, days):
+    if days not in (0, 7, 30, 90):
+        raise HTTPException(400, "days must be one of 7, 30, 90, 0")
+    today = datetime.now(timezone.utc).date()
+    d7 = (today - timedelta(days=6)).isoformat()
+    d30 = (today - timedelta(days=29)).isoformat()
+    d14 = (today - timedelta(days=13)).isoformat()
+    daily_start = None if days == 0 else _day_cutoff(days)
+    _items, catalog_by, catalog_meta = _catalog_context(conn)
+
+    daily_where, daily_params = ["mode='used'", "day IS NOT NULL"], []
+    if daily_start:
+        daily_where.append("day >= ?")
+        daily_params.append(daily_start)
+    daily_rows = conn.execute(f"""
+      SELECT day, skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE {' AND '.join(daily_where)}
+      GROUP BY day, skill, runtime
+      ORDER BY day ASC, skill ASC, runtime ASC
+    """, daily_params).fetchall()
+    daily = [{
+        "day": r["day"],
+        "skill": r["skill"],
+        "runtime": r["runtime"] or "unknown",
+        "sessions": int(r["sessions"] or 0),
+        "source": _skill_source(r["skill"], catalog_by),
+    } for r in daily_rows]
+
+    base_rows = conn.execute("""
+      SELECT skill,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        COUNT(*) sessions_total,
+        COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
+        MAX(day) last_day
+      FROM skill_uses
+      WHERE mode='used'
+      GROUP BY skill
+    """, (d7, d30, d30)).fetchall()
+    runtime_counts = {}
+    for r in conn.execute("""
+      SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used'
+      GROUP BY skill, runtime
+    """):
+        runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
+    trend_days = [(today - timedelta(days=i)).isoformat() for i in range(13, -1, -1)]
+    trend = {}
+    for r in conn.execute("""
+      SELECT skill, day, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND day >= ?
+      GROUP BY skill, day
+    """, (d14,)):
+        trend.setdefault(r["skill"], {})[r["day"]] = int(r["sessions"] or 0)
+    table = []
+    for r in base_rows:
+        skill = r["skill"]
+        table.append({
+            "name": skill,
+            "source": _skill_source(skill, catalog_by),
+            "sessions_7d": int(r["sessions_7d"] or 0),
+            "sessions_30d": int(r["sessions_30d"] or 0),
+            "sessions_total": int(r["sessions_total"] or 0),
+            "users_30d": int(r["users_30d"] or 0),
+            "runtime_counts": runtime_counts.get(skill, {}),
+            "trend_14d": [trend.get(skill, {}).get(day, 0) for day in trend_days],
+            "trend_days": trend_days,
+            "last_day": r["last_day"],
+        })
+    table.sort(key=lambda x: (-x["sessions_30d"], -x["sessions_total"], x["name"]))
+
+    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
+    installed_names = _installed_skill_names(conn) & company_names
+    used_30d_names = {r["skill"] for r in conn.execute("""
+      SELECT DISTINCT skill FROM skill_uses
+      WHERE mode='used' AND day >= ?
+    """, (d30,)) if r["skill"] in company_names}
+    funnel = {
+        "available": bool(company_names),
+        "catalog": _catalog_list(company_names, catalog_by),
+        "installed": _catalog_list(installed_names, catalog_by),
+        "used_30d": _catalog_list(used_30d_names, catalog_by),
+        "idle": _catalog_list(installed_names - used_30d_names, catalog_by),
+    }
+    return {
+        "days": days,
+        "daily": daily,
+        "table": table,
+        "funnel": funnel,
+        "catalog": catalog_meta,
+    }
+
+
+def skill_detail_payload(conn, name):
+    name = _skill_use_name(name)
+    if not name:
+        raise HTTPException(404, "skill not found")
+    exists = conn.execute("SELECT COUNT(*) c FROM skill_uses WHERE skill=?", (name,)).fetchone()["c"]
+    if not exists:
+        raise HTTPException(404, "skill not found")
+    today = datetime.now(timezone.utc).date()
+    d7 = (today - timedelta(days=6)).isoformat()
+    d30 = (today - timedelta(days=29)).isoformat()
+    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    m = conn.execute("""
+      SELECT
+        SUM(CASE WHEN mode='used' AND day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN mode='used' AND day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        SUM(CASE WHEN mode='used' THEN 1 ELSE 0 END) sessions_total,
+        COUNT(DISTINCT CASE WHEN mode='used' AND day >= ? THEN operator END) users_30d,
+        MIN(CASE WHEN mode='used' THEN day END) first_day,
+        MAX(CASE WHEN mode='used' THEN day END) last_day,
+        SUM(CASE WHEN mode='equipped' AND day >= ? THEN 1 ELSE 0 END) equipped_7d,
+        SUM(CASE WHEN mode='equipped' AND day >= ? THEN 1 ELSE 0 END) equipped_30d,
+        SUM(CASE WHEN mode='equipped' THEN 1 ELSE 0 END) equipped_total,
+        COUNT(DISTINCT CASE WHEN mode='equipped' AND day >= ? THEN operator END) equipped_users_30d
+      FROM skill_uses
+      WHERE skill=?
+    """, (d7, d30, d30, d7, d30, d30, name)).fetchone()
+    daily_map = {}
+    for r in conn.execute("""
+      SELECT day, mode, COUNT(*) sessions
+      FROM skill_uses
+      WHERE skill=? AND day IS NOT NULL
+      GROUP BY day, mode
+      ORDER BY day ASC
+    """, (name,)):
+        day = daily_map.setdefault(r["day"], {"day": r["day"], "used": 0, "equipped": 0})
+        day[r["mode"] if r["mode"] in SKILL_MODES else "used"] = int(r["sessions"] or 0)
+    runtime_map = {}
+    for r in conn.execute("""
+      SELECT COALESCE(runtime,'') runtime, mode, COUNT(*) sessions
+      FROM skill_uses
+      WHERE skill=?
+      GROUP BY runtime, mode
+    """, (name,)):
+        item = runtime_map.setdefault(r["runtime"] or "unknown", {"runtime": r["runtime"] or "unknown", "used": 0, "equipped": 0})
+        item[r["mode"] if r["mode"] in SKILL_MODES else "used"] = int(r["sessions"] or 0)
+    operator_map = {}
+    for r in conn.execute("""
+      SELECT COALESCE(operator,'') operator, mode, COUNT(*) sessions
+      FROM skill_uses
+      WHERE skill=?
+      GROUP BY operator, mode
+    """, (name,)):
+        item = operator_map.setdefault(r["operator"] or "unknown", {"operator": r["operator"] or "unknown", "used": 0, "equipped": 0})
+        item[r["mode"] if r["mode"] in SKILL_MODES else "used"] = int(r["sessions"] or 0)
+    records = [dict(r) for r in conn.execute("""
+      SELECT day, operator, runtime, mode, session_id, first_seen
+      FROM skill_uses
+      WHERE skill=?
+      ORDER BY COALESCE(first_seen, day) DESC
+      LIMIT 50
+    """, (name,))]
+    return {
+        "name": name,
+        "source": _skill_source(name, catalog_by),
+        "metrics": {
+            "sessions_7d": int(m["sessions_7d"] or 0),
+            "sessions_30d": int(m["sessions_30d"] or 0),
+            "sessions_total": int(m["sessions_total"] or 0),
+            "users_30d": int(m["users_30d"] or 0),
+            "first_day": m["first_day"],
+            "last_day": m["last_day"],
+            "equipped_7d": int(m["equipped_7d"] or 0),
+            "equipped_30d": int(m["equipped_30d"] or 0),
+            "equipped_total": int(m["equipped_total"] or 0),
+            "equipped_users_30d": int(m["equipped_users_30d"] or 0),
+        },
+        "daily": list(daily_map.values()),
+        "runtime": sorted(runtime_map.values(), key=lambda x: (-(x["used"] + x["equipped"]), x["runtime"])),
+        "operators": sorted(operator_map.values(), key=lambda x: (-(x["used"] + x["equipped"]), x["operator"])),
+        "records": records,
+        "catalog": catalog_meta,
+    }
+
+
 # ---------------------------------------------------------------- read: snapshot
 def _snapshot(conn):
     sessions = conn.execute("""
@@ -731,6 +1112,18 @@ def _snapshot(conn):
 def state():
     with closing(db()) as conn:
         return JSONResponse(_snapshot(conn))
+
+
+@app.get("/api/skills")
+def skills_stats(days: int = 30):
+    with closing(db()) as conn:
+        return JSONResponse(skills_overview(conn, days))
+
+
+@app.get("/api/skill/{name}")
+def skill_detail(name: str):
+    with closing(db()) as conn:
+        return JSONResponse(skill_detail_payload(conn, name))
 
 
 @app.get("/api/agent/{key}")

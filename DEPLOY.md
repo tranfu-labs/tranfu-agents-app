@@ -35,6 +35,7 @@ openssl rand -hex 24
 **2) 填环境变量**
 - 设置 `TF_KEY=<TF_KEY>`。
 - 如需可信归因或内容捕获,再按 D 节设置 `TF_REQUIRE_TOKEN` / `TF_READ_AUTH` / `TF_READ_KEY`。
+- 如部署环境不能访问 GitHub release,给 SKILLS 页公司库漏斗设置 `TF_SKILLS_CATALOG_URL=<内网 catalog index.json>`。
 
 **3) 配 Domain**
 - 给 `server` service 配 Domain:`https://agents.example.com:8788`。
@@ -72,6 +73,8 @@ After=network.target
 [Service]
 Environment=TF_KEY=<TF_KEY>
 Environment=TF_DB=/var/lib/tranfu/tf.db
+# 可选:内网 tranfu-skills catalog 镜像,用于 SKILLS 页公司库采纳漏斗
+# Environment=TF_SKILLS_CATALOG_URL=https://agents.example.com/catalog/index.json
 WorkingDirectory=$(pwd)
 ExecStart=$(pwd)/.venv/bin/python -m uvicorn server.app:app --host 0.0.0.0 --port 8788
 Restart=always
@@ -248,6 +251,8 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 | 测试事件返回 403 | 开了 `TF_REQUIRE_TOKEN`,但没带 `X-TF-Token` 或令牌与 `operator` 不匹配(见 D3,重新 enroll)。 |
 | 测试事件返回 413 | 请求体超过 256 KiB 上限(见 PROTOCOL §8),减小 `input`/`output`/`task`。 |
 | 看板没有 prompt/代码内容 | 没声明读侧鉴权,敏感字段被服务端丢弃(见 D2),配 `TF_READ_AUTH=1` 或 `TF_READ_KEY`。 |
+| SKILLS 页漏斗显示公司库目录不可达 | 服务端访问不到默认 catalog。设置 `TF_SKILLS_CATALOG_URL` 指向内网镜像,或确认服务器能访问 GitHub release。使用统计主表不依赖 catalog。 |
+| SKILLS 页没有使用数据 | 队友还没更新本地 shim、设置了 `TF_REPORT_SKILLS=0`,或本次任务没有触发可识别的 Skill 使用/装备信号。先查 `curl .../api/skills?days=30` 和 SQLite `skill_uses`。 |
 | 成员上报没反应 | 成员的 `TF_SERVER` 写错、或没带对 key;让其 `echo $TF_SERVER $TF_KEY` 核对;新装后要新开终端。 |
 | 卡片变灰/不动 | 超过 3 分钟没心跳判为掉线,重新跑任务即可。 |
 | 上报被 Access 挡住 | `/v1/events` 没放行,见 D 节。 |

@@ -4,7 +4,7 @@
 
 > 中文一句话:TRANFU//AGENTS 是一个开源、可自托管、跨厂商的实时看板,让团队在一个页面上看到每个人的 AI agent 在干什么——谁、哪个 agent、当前到哪一步、状态、活跃了多久。支持 Claude Code、Codex、Open Claw、Hermes、Manus、MuleRun、ChatGPT 等。
 
-*Last updated: 2026-05 · License: MIT · Status: production-ready starter · Home: https://tranfu.com*
+*Last updated: 2026-06 · License: MIT · Status: production-ready starter · Home: https://tranfu.com*
 
 ---
 
@@ -24,6 +24,7 @@ Engineering and operations teams whose members run **multiple, different AI agen
 
 - See **who is running what, right now**: operator → agent → current step → status.
 - Track **active time per agent**: today, this week, and a 7-day trend.
+- Understand **which Skills are actually adopted**: a dedicated SKILLS page shows daily usage trends, used-only rankings, per-skill drilldowns, and company catalog adoption.
 - Support **one person with many agents**: each agent is labelled by purpose (for example, "copy" vs "code").
 - Stay **heterogeneous by design**: local CLI agents (Claude Code, Codex, Open Claw, Hermes) report step-level detail; cloud agents (Manus, MuleRun, ChatGPT) report at start/end granularity.
 
@@ -92,8 +93,8 @@ No. A small shim reports a tiny status event, so heterogeneous agents are first-
 **Can one person run multiple agents?**
 Yes. Each agent is labelled by purpose (for example "copy" or "code") under the same operator (person).
 
-**Does it track usage or cost?**
-Not in this version, which is deliberately kept to a single container. The protocol leaves room to add it later.
+**Does it track tokens or cost?**
+No. It tracks status, active time, profile metadata, and privacy-bounded Skill names only. Token/cost tracking is deliberately out of scope.
 
 **How is it deployed?**
 As a single container that serves both the API and the dashboard. No external services are required.

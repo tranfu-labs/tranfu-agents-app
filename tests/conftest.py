@@ -16,6 +16,11 @@ def app_mod(tmp_path):
     app.INGEST_KEY = ""          # 不校验写密钥,测试免带 header
     app.REQUIRE_TOKEN = False
     app.READ_AUTH_OK = False
+    # 单测显式调用 sync_catalog_once() 时再测试 catalog；避免 TestClient
+    # startup 在后台打真实网络,也避免跨测试污染内存缓存。
+    app._catalog_thread_started = True
+    with app._catalog_lock:
+        app._catalog_state.update({"items": None, "fetched_at": None, "error": None, "last_attempt": None})
     app.init_db()
     return app
 

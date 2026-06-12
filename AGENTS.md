@@ -2,7 +2,7 @@
 
 TRANFU//AGENTS 是一个**自托管、厂商中立的团队 AI Agent 可观测看板**:每个人的 agent 上报
 极简状态事件到中心 collector,看板实时展示「谁在跑、用哪个 agent、当前哪一步、状态、活跃时长」,
-并展示每个 agent 的治理详情(版本/终端/IM/MCP/技能等)。MIT 许可。
+展示每个 agent 的治理详情(版本/终端/IM/MCP/技能等),并提供独立 SKILLS 统计页。MIT 许可。
 
 > 改动本项目前,先读这份 + `docs/architecture/module-map.md`(模块边界)+ `docs/adr/`(已定下的约束)。
 > 业务规则的事实来源是 `openspec/specs/<domain>/spec.md`;要做需求/变更,先在
@@ -33,6 +33,7 @@ TF_KEY=devkey python -m uvicorn server.app:app --host 0.0.0.0 --port 8788
 # 本地裸 Python 健康/接口自检
 curl http://localhost:8788/healthz          # ok
 curl http://localhost:8788/api/state | head # JSON
+curl 'http://localhost:8788/api/skills?days=30' | head # SKILLS 总览 JSON
 curl http://localhost:8788/shims/manifest | head # shim 版本清单
 
 # 发一条测试事件
@@ -44,9 +45,11 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - **服务端只用标准库 + FastAPI/uvicorn**;数据库是单文件 SQLite(`$TF_DB`,默认 `tf.db`),不引入外部 DB/中间件。
 - **shim(`tf_profile.py`/`tf_report.py`/`tf_hook.py`/`tf_selfupdate.py`)只用 Python 标准库,且绝不抛错**——上报/更新失败必须静默,
   不能影响使用者的 agent 运行。
-- Skill 使用统计口径:事件可选 `skill` 字段只记录 Skill 名;服务端写 `skill_uses`(一行=会话×Skill,
-  `(session_id, skill)` 幂等,长期保留),`/api/state.skills` 读时聚合排行。默认上报,本机
-  `TF_REPORT_SKILLS=0` 关闭;不得上报 Skill 参数、prompt、代码或输出。
+- Skill 使用统计口径:事件可选 `skill` 字段只记录 Skill 名,可选 `skill_mode ∈ {used,equipped}`;
+  服务端写 `skill_uses`(一行=会话×Skill×mode,`(session_id, skill, mode)` 幂等,长期保留)。
+  `/api/state.skills` 保留兼容排行;SKILLS 页读取 `/api/skills`(总览只统计 `used`)与
+  `/api/skill/{name}`(used/equipped 分列详情)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;
+  不得上报 Skill 参数、prompt、代码或输出。
 - 前端是**单文件**(`dashboard/index.html`):CSS/JS 内联;改动后用 `node --check` 校验抽出的 `<script>`。
   暗/亮双主题用 CSS 变量 + `body.light` 覆盖;品牌红 `--brand`(占位 `#ec1c2b`,待换精确值);logo 为内联红色 symbol。
 - 时间统一 **UTC**(活跃时长按 UTC 日/周;90 天窗口)。
@@ -60,7 +63,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 
 ## 修改后检查
 1. 服务端:`python -m py_compile server/app.py`;关键路径用 TestClient 自测
-   (`/v1/events` 去重、`/api/state` 返回结构与卡片合并、`/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。
+   (`/v1/events` 去重、`/api/state` 返回结构与卡片合并、`/api/skills` 与 `/api/skill/{name}` 聚合口径、
+   `/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。
    协议契约测试固化在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)会在 PR 上自动跑;
    改协议行为时同步加/改用例。
 2. 前端:抽出 `<script>` 跑 `node --check`;暗/亮主题与手机窄屏(≤600px)各看一眼。
