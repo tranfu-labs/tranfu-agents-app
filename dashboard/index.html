@@ -461,13 +461,14 @@ function ensureChartTip(){
   if(!tip){tip=document.createElement("div");tip.id="chart-tip";tip.className="chart-tip";document.body.appendChild(tip);}
   return tip;
 }
-function placeChartTip(tip,x,y){
+function placeChartTip(tip,el,svg){
   tip.style.display="block";tip.style.left="0px";tip.style.top="0px";
-  const pad=12,box=tip.getBoundingClientRect();
-  let left=x+14,top=y+16;
-  if(left+box.width+pad>window.innerWidth)left=x-box.width-14;
-  if(top+box.height+pad>window.innerHeight)top=y-box.height-14;
-  tip.style.left=Math.max(pad,left)+"px";tip.style.top=Math.max(pad,top)+"px";
+  const GAP=10,PAD=12,box=tip.getBoundingClientRect(),bar=el.getBoundingClientRect(),chart=(svg||el.ownerSVGElement).getBoundingClientRect();
+  let left=bar.right+GAP,top=chart.top;
+  if(left+box.width+PAD>window.innerWidth)left=bar.left-box.width-GAP;
+  left=Math.min(Math.max(PAD,left),window.innerWidth-box.width-PAD);
+  if(top+box.height+PAD>window.innerHeight)top=window.innerHeight-box.height-PAD;
+  tip.style.left=left+"px";tip.style.top=Math.max(PAD,top)+"px";
 }
 function clearChartHover(svg){
   const root=svg?[svg]:document.querySelectorAll("svg.skill-chart");
@@ -478,7 +479,7 @@ function chartTip(ev,el,pinned){
   if(pinned){CHART_PIN=true;if(ev)ev.stopPropagation();}else if(CHART_PIN)return;
   const svg=el.ownerSVGElement||el.closest("svg"),col=el.closest(".day-col");
   if(svg&&col){svg.classList.add("hovering");svg.querySelectorAll(".day-col.hovered").forEach(g=>g.classList.remove("hovered"));col.classList.add("hovered");}
-  const tip=ensureChartTip();tip.innerHTML=chartTipHTML(data);placeChartTip(tip,ev.clientX,ev.clientY);
+  const tip=ensureChartTip();tip.innerHTML=chartTipHTML(data);placeChartTip(tip,el,svg);
 }
 function chartLeave(_ev,svg){if(!CHART_PIN){clearChartHover(svg);hideChartTip();}}
 function hideChartTip(){CHART_PIN=false;clearChartHover();const tip=document.getElementById("chart-tip");if(tip)tip.style.display="none";}
@@ -548,7 +549,7 @@ function stackedChart(rows){
     let segs="";
     vals.forEach(([s,v])=>{if(!v)return;const hh=Math.max(2,Math.round(v/max*bh));y-=hh;const dim=hover&&!((hover==="__other"&&s==="__other")||hover===s);const op=dim ? .45 : 1;segs+=`<rect class="bar-seg" x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${hh}" fill="${skillColor(s)}" opacity="${op}"></rect>`;});
     const totalH=total?Math.max(2,Math.round(total/max*bh)):0,overlay=day===today&&totalH?`<rect x="${x.toFixed(1)}" y="${base-totalH}" width="${bw.toFixed(1)}" height="${totalH}" fill="url(#${pat})" stroke="var(--text)" stroke-opacity=".42" stroke-width="1" pointer-events="none"></rect>`:"";
-    groups+=`<g class="day-col ${day===today?"is-today":""}" data-day="${day}">${segs}${overlay}<rect class="bar-hit" data-tip="${token}" x="${x.toFixed(1)}" y="24" width="${bw.toFixed(1)}" height="${base-24}" fill="transparent" onmouseenter="chartTip(event,this)" onmousemove="chartTip(event,this)" onclick="chartTip(event,this,true)"></rect></g>`;
+    groups+=`<g class="day-col ${day===today?"is-today":""}" data-day="${day}">${segs}${overlay}<rect class="bar-hit" data-tip="${token}" x="${x.toFixed(1)}" y="24" width="${bw.toFixed(1)}" height="${base-24}" fill="transparent" onmouseenter="chartTip(event,this)" onclick="chartTip(event,this,true)"></rect></g>`;
   });
   const legend=[...top];if(Object.keys(totSkill).some(s=>!top.includes(s)))legend.push("__other");
   return `<div class="chart-box"><svg class="skill-chart" viewBox="0 0 ${w} ${h}" style="min-width:${w}px" role="img" aria-label="${attr(t("dailyUsed"))}" onmouseleave="chartLeave(event,this)">
@@ -606,7 +607,7 @@ function detailTrend(rows,today){
   const pts=[];let bars="",circles="";
   series.forEach((r,i)=>{const x=38+i*step,mid=x+bw/2,uh=(r.used||0)?Math.max(2,Math.round((r.used||0)/mx*bh)):0,eh=Math.round((r.equipped||0)/mx*bh),token=chartToken({day:r.day,today:r.day===end,items:[{name:"used",value:r.used||0,color:"var(--info)"},{name:"equipped",value:r.equipped||0,color:"var(--wait)"}]});
     const overlay=r.day===end&&uh?`<rect x="${x.toFixed(1)}" y="${base-uh}" width="${bw.toFixed(1)}" height="${uh}" fill="url(#${pat})" stroke="var(--text)" stroke-opacity=".42" stroke-width="1" pointer-events="none"></rect>`:"";
-    bars+=`<g class="day-col ${r.day===end?"is-today":""}" data-day="${r.day}"><rect class="bar-seg" x="${x.toFixed(1)}" y="${base-uh}" width="${bw.toFixed(1)}" height="${uh}" fill="var(--info)" opacity=".9"></rect>${overlay}<rect class="bar-hit" data-tip="${token}" x="${x.toFixed(1)}" y="24" width="${bw.toFixed(1)}" height="${base-24}" fill="transparent" onmouseenter="chartTip(event,this)" onmousemove="chartTip(event,this)" onclick="chartTip(event,this,true)"></rect></g>`;
+    bars+=`<g class="day-col ${r.day===end?"is-today":""}" data-day="${r.day}"><rect class="bar-seg" x="${x.toFixed(1)}" y="${base-uh}" width="${bw.toFixed(1)}" height="${uh}" fill="var(--info)" opacity=".9"></rect>${overlay}<rect class="bar-hit" data-tip="${token}" x="${x.toFixed(1)}" y="24" width="${bw.toFixed(1)}" height="${base-24}" fill="transparent" onmouseenter="chartTip(event,this)" onclick="chartTip(event,this,true)"></rect></g>`;
     pts.push(`${mid},${base-eh}`);circles+=`<circle cx="${mid}" cy="${base-eh}" r="${r.day===end?3.5:2.5}" fill="var(--wait)" stroke="${r.day===end?"var(--text)":"none"}" stroke-opacity=".5" pointer-events="none"/>`;
   });
   return `<div class="chart-box"><svg class="skill-chart" viewBox="0 0 ${w} ${h}" style="min-width:${w}px" onmouseleave="chartLeave(event,this)">
