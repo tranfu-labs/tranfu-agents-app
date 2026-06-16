@@ -2,7 +2,7 @@
 
 TRANFU//AGENTS 是一个**自托管、厂商中立的团队 AI Agent 可观测看板**:每个人的 agent 上报
 极简状态事件到中心 collector,看板实时展示「谁在跑、用哪个 agent、当前哪一步、状态、活跃时长」,
-展示每个 agent 的治理详情(版本/终端/IM/MCP/技能等),并提供独立 SKILLS 统计页。MIT 许可。
+展示每个 agent 的治理详情(版本/终端/IM/MCP/技能等),并提供独立 SKILLS 统计页(按 skill / 按人双视角)。MIT 许可。
 
 > 改动本项目前,先读这份 + `docs/architecture/module-map.md`(模块边界)+ `docs/adr/`(已定下的约束)。
 > 业务规则的事实来源是 `openspec/specs/<domain>/spec.md`;要做需求/变更,先在
@@ -42,6 +42,7 @@ npm --prefix frontend run build
 curl http://localhost:8788/healthz          # ok
 curl http://localhost:8788/api/state | head # JSON
 curl 'http://localhost:8788/api/skills?days=30' | head # SKILLS 总览 JSON
+curl http://localhost:8788/api/operator/alice | head # 单操作员 SKILLS 详情 JSON(需已有数据)
 curl http://localhost:8788/shims/manifest | head # shim 版本清单
 
 # 发一条测试事件
@@ -55,11 +56,15 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
   不能影响使用者的 agent 运行。
 - Skill 使用统计口径:事件可选 `skill` 字段只记录 Skill 名,可选 `skill_mode ∈ {used,equipped}`;
   服务端写 `skill_uses`(一行=会话×Skill×mode,`(session_id, skill, mode)` 幂等,长期保留)。
-  `/api/state.skills` 保留兼容排行;SKILLS 页读取 `/api/skills?days={7|30|90}`(总览只统计 `used`,响应含 UTC `today`)与
-  `/api/skill/{name}`(used/equipped 分列详情,响应含 UTC `today`)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;
+  `/api/state.skills` 保留兼容排行;SKILLS 页读取 `/api/skills?days={7|30|90}`(总览含 skill/operator 两套 used-only 聚合,响应含 UTC `today`)、
+  `/api/skill/{name}`(used/equipped 分列详情,响应含 UTC `today`)与
+  `/api/operator/{name}`(按人 used-only 详情,空 operator 与 equipped 不计入)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;
   不得上报 Skill 参数、prompt、代码或输出。
 - 前端是 `frontend/` 下的 React + TypeScript SPA;生产产物由 Docker/CI 构建,仓库不提交 `frontend/dist`。
   暗/亮双主题用 CSS 变量 + `body.light` 覆盖;品牌红 `--brand`(占位 `#ec1c2b`,待换精确值);logo 为内联红色 symbol。
+  SKILLS 总览的视角切换使用独立 `frame` 卡片:标题栏左侧为「视角」、右侧 `cnt` 显示当前视角说明,
+  内容行放 32px 高分段按钮,选中态用 `--brand`;筛选条留在 SKILLS 统计卡。可下钻表格整行可点且键盘可达,
+  最近记录表不可点,时间列显示 `first_seen` 到秒(缺失回退 UTC 日期)。
 - 时间统一 **UTC**(活跃时长按 UTC 日/周;90 天窗口)。
 - 不追踪 token / 成本(已彻底移除);写凭证只有 `TF_KEY`,请求头 `X-TF-Key`。
 - 仓库 owner/库名统一 `tranfu-labs/tranfu-agents-app`;raw/clone/install 链接都指它。
@@ -71,7 +76,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 
 ## 修改后检查
 1. 服务端:`python -m py_compile server/app.py`;关键路径用 TestClient 自测
-   (`/v1/events` 去重、`/api/state` 返回结构与卡片合并、`/api/skills` 与 `/api/skill/{name}` 聚合口径、
+   (`/v1/events` 去重、`/api/state` 返回结构与卡片合并、`/api/skills`、`/api/skill/{name}` 与
+   `/api/operator/{name}` 聚合口径、
    `/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。
    协议契约测试固化在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)会在 PR 上自动跑;
    改协议行为时同步加/改用例。
@@ -91,4 +97,4 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 ## 线框图
 本项目默认生成 `docs/wireframes/`(字符图线框,用于对齐页面信息架构与版式)。是否保留按下面规则判断:
 - 若本项目确定为**无界面**的工具 / 库 / CLI / SDK 类(如纯 npm 工具包),删除整个 `docs/wireframes/` 目录,并删除本节。
-- 本项目**有界面**(`frontend/` React SPA),按 `docs/wireframes/AGENTS.md` 的约定维护:每个真实路由在 `docs/wireframes/pages/` 下对应一页(现已覆盖 `/`·`/agents`·`/agent/:key`·`/skills`·`/skill/:name`),页面间流转记在 `docs/wireframes/flow.md`;新增/改路由时同步增改对应页与流转图。
+- 本项目**有界面**(`frontend/` React SPA),按 `docs/wireframes/AGENTS.md` 的约定维护:每个真实路由在 `docs/wireframes/pages/` 下对应一页(现已覆盖 `/`·`/agents`·`/agent/:key`·`/skills`·`/skill/:name`·`/operator/:name`),页面间流转记在 `docs/wireframes/flow.md`;新增/改路由时同步增改对应页与流转图。

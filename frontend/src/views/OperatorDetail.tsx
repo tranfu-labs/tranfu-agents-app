@@ -1,8 +1,9 @@
-import { Link, useLocation, useParams } from 'react-router-dom'
+import type { KeyboardEvent } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Distribution, RuntimeBars, StackedSkillChart } from '../components/Charts'
 import { Empty } from '../components/Common'
 import type { OperatorDetail } from '../lib/types'
-import { encodePathParam, RT, sourceLabel } from '../lib/utils'
+import { encodePathParam, fmtTs, RT, sourceLabel } from '../lib/utils'
 
 function operatorBack(search: string) {
   const params = new URLSearchParams(search)
@@ -11,9 +12,16 @@ function operatorBack(search: string) {
   return `/skills${next ? `?${next}` : ''}`
 }
 
+function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  go()
+}
+
 export function OperatorDetailView({ data, loading, error, t }: { data: OperatorDetail | null; loading: boolean; error: string; t: (key: string) => string }) {
   const params = useParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const back = operatorBack(location.search)
   const backQuery = back.includes('?') ? back.slice(back.indexOf('?')) : ''
   if (loading && !data) {
@@ -51,6 +59,14 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
     ['first', metrics.first_day || '—'],
     ['skillLast', metrics.last_day || '—'],
   ]
+  const skillRows = (data.skills || []).slice().sort((a, b) => {
+    const recent = Number(b.sessions_7d || 0) - Number(a.sessions_7d || 0)
+    if (recent) return recent
+    const total = Number(b.sessions_total || 0) - Number(a.sessions_total || 0)
+    if (total) return total
+    return String(a.name || '').localeCompare(String(b.name || ''))
+  })
+  const openSkill = (name: string) => navigate(`/skill/${encodePathParam(name)}${backQuery}`)
 
   return (
     <>
@@ -80,12 +96,23 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
         </h2>
         <StackedSkillChart rows={data.daily || []} days={30} t={t} today={data.today} segmentKey="skill" emptyTitle={t('noSkills')} emptyHint={t('noSkillsH')} />
       </section>
-      <div className="dist" style={{ marginTop: 16 }}>
+      <div className="dist-mirror" style={{ marginTop: 16 }}>
         <section className="frame">
           <h2>
             <span>
               <span className="sl">//</span>
-              {t('skillBreakdown')}
+              {t('runtimeDist')}
+            </span>
+          </h2>
+          <div className="pad">
+            <Distribution items={data.runtime} labelKey="runtime" />
+          </div>
+        </section>
+        <section className="frame">
+          <h2>
+            <span>
+              <span className="sl">//</span>
+              {t('skillRank')}
             </span>
           </h2>
           <div className="skills-wrap">
@@ -102,12 +129,10 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
                 </tr>
               </thead>
               <tbody>
-                {(data.skills || []).map((row) => (
-                  <tr key={row.name}>
+                {skillRows.map((row) => (
+                  <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
                     <td>
-                      <Link to={`/skill/${encodePathParam(row.name)}${backQuery}`}>
-                        <b>{row.name}</b>
-                      </Link>
+                      <b>{row.name}</b>
                     </td>
                     <td>
                       <span className="source-pill">{sourceLabel(row.source, t)}</span>
@@ -125,17 +150,6 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
             </table>
           </div>
         </section>
-        <section className="frame">
-          <h2>
-            <span>
-              <span className="sl">//</span>
-              {t('runtimeDist')}
-            </span>
-          </h2>
-          <div className="pad">
-            <Distribution items={data.runtime} labelKey="runtime" />
-          </div>
-        </section>
       </div>
       <section className="frame" style={{ marginTop: 16 }}>
         <h2>
@@ -144,7 +158,7 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
             {t('recentRecords')}
           </span>
         </h2>
-        <table>
+        <table className="records-table">
           <thead>
             <tr>
               <th>{t('skillLast')}</th>
@@ -156,7 +170,7 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
           <tbody>
             {(data.records || []).map((record) => (
               <tr key={`${record.session_id}-${record.skill}-${record.day}`}>
-                <td className="q">{record.day || ''}</td>
+                <td className="q">{fmtTs(record.first_seen) || record.day || ''}</td>
                 <td>{record.skill || ''}</td>
                 <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
                 <td className="q">{(record.session_id || '').slice(0, 12)}</td>

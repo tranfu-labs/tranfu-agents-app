@@ -2,7 +2,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { DetailTrend, Distribution } from '../components/Charts'
 import { Empty } from '../components/Common'
 import type { SkillDetail as SkillDetailPayload } from '../lib/types'
-import { RT, sourceLabel } from '../lib/utils'
+import { fmtTs, RT, sourceLabel } from '../lib/utils'
 
 export function SkillDetailView({ data, loading, error, t }: { data: SkillDetailPayload | null; loading: boolean; error: string; t: (key: string) => string }) {
   const params = useParams()
@@ -104,7 +104,7 @@ export function SkillDetailView({ data, loading, error, t }: { data: SkillDetail
             {t('recentRecords')}
           </span>
         </h2>
-        <table>
+        <table className="records-table">
           <thead>
             <tr>
               <th>{t('skillLast')}</th>
@@ -117,7 +117,7 @@ export function SkillDetailView({ data, loading, error, t }: { data: SkillDetail
           <tbody>
             {(data.records || []).map((record) => (
               <tr key={`${record.session_id}-${record.mode}-${record.day}`}>
-                <td className="q">{record.day || ''}</td>
+                <td className="q">{fmtTs(record.first_seen) || record.day || ''}</td>
                 <td>{record.operator || ''}</td>
                 <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
                 <td>

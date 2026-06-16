@@ -1,4 +1,5 @@
-import { Link, useLocation } from 'react-router-dom'
+import type { KeyboardEvent, MouseEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { RuntimeBars, MiniTrend, StackedSkillChart } from '../components/Charts'
 import { Empty, SectionTitle } from '../components/Common'
 import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
@@ -44,6 +45,12 @@ function sortedRows<T extends object>(rows: T[], sort: string, dir: string) {
     if (typeof av === 'number' || typeof bv === 'number') return (Number(av || 0) - Number(bv || 0)) * direction
     return String(av).localeCompare(String(bv)) * direction
   })
+}
+
+function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  go()
 }
 
 function FilterBar({ data, t, params, setParams, view }: { data: SkillsOverview | null; t: (key: string) => string; params: SkillQueryState; setParams: SetSkillQueryState; view: 'skill' | 'operator' }) {
@@ -101,28 +108,41 @@ function ViewSwitch({ view, setParams, t }: { view: 'skill' | 'operator'; setPar
     void setParams({ view: next, sort: 'sessions_30d', dir: 'desc' })
   }
   return (
-    <div className="viewbar">
-      <span>{t('viewBy')}</span>
-      <div className="seg">
-        <button className={view === 'skill' ? 'on' : ''} onClick={() => setView('skill')}>
-          {t('viewSkill')}
-        </button>
-        <button className={view === 'operator' ? 'on' : ''} onClick={() => setView('operator')}>
-          {t('viewOperator')}
-        </button>
+    <section className="frame viewcard">
+      <h2>
+        <span>
+          <span className="sl">//</span>
+          {t('viewBy')}
+        </span>
+        <span className="cnt">{view === 'operator' ? t('viewOperatorHint') : t('viewSkillHint')}</span>
+      </h2>
+      <div className="viewbody">
+        <div className="seg">
+          <button type="button" aria-pressed={view === 'skill'} className={view === 'skill' ? 'on' : ''} onClick={() => setView('skill')}>
+            {t('viewSkill')}
+          </button>
+          <button type="button" aria-pressed={view === 'operator'} className={view === 'operator' ? 'on' : ''} onClick={() => setView('operator')}>
+            {t('viewOperator')}
+          </button>
+        </div>
       </div>
-    </div>
+    </section>
   )
 }
 
 function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; t: (key: string) => string }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const updateSort = (key: string) => {
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
     void setParams({ sort: key, dir })
   }
+  const openSkill = (name: string) => navigate(`/skill/${encodePathParam(name)}${location.search}`)
   const head = (key: string, label: string, cls = '') => (
-    <th className={`sort ${cls}`} onClick={() => updateSort(key)}>
+    <th className={`sort ${cls}`} onClick={(event: MouseEvent<HTMLTableCellElement>) => {
+      event.stopPropagation()
+      updateSort(key)
+    }}>
       {label}
       {params.sort === key ? (params.dir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
@@ -146,11 +166,9 @@ function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; pa
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.name}>
+            <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
               <td>
-                <Link to={`/skill/${encodePathParam(row.name)}${location.search}`}>
-                  <b>{row.name}</b>
-                </Link>
+                <b>{row.name}</b>
               </td>
               <td>
                 <span className="source-pill">{sourceLabel(row.source, t)}</span>
@@ -176,12 +194,17 @@ function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; pa
 
 function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; t: (key: string) => string }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const updateSort = (key: string) => {
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
     void setParams({ sort: key, dir })
   }
+  const openOperator = (operator: string) => navigate(`/operator/${encodePathParam(operator)}${location.search}`)
   const head = (key: string, label: string, cls = '') => (
-    <th className={`sort ${cls}`} onClick={() => updateSort(key)}>
+    <th className={`sort ${cls}`} onClick={(event: MouseEvent<HTMLTableCellElement>) => {
+      event.stopPropagation()
+      updateSort(key)
+    }}>
       {label}
       {params.sort === key ? (params.dir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
@@ -205,11 +228,9 @@ function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.operator}>
+            <tr key={row.operator} role="link" tabIndex={0} onClick={() => openOperator(row.operator)} onKeyDown={(event) => rowKey(event, () => openOperator(row.operator))}>
               <td>
-                <Link to={`/operator/${encodePathParam(row.operator)}${location.search}`}>
-                  <b>{row.operator}</b>
-                </Link>
+                <b>{row.operator}</b>
               </td>
               <td className="num">{row.sessions_7d}</td>
               <td className="num">{row.sessions_30d}</td>
@@ -282,14 +303,18 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
 
   if (loading && !data) {
     return (
-      <section className="frame">
-        <Empty title={t('loading')} />
-      </section>
+      <>
+        <ViewSwitch view={view} setParams={setParams} t={t} />
+        <section className="frame">
+          <Empty title={t('loading')} />
+        </section>
+      </>
     )
   }
 
   return (
     <>
+      <ViewSwitch view={view} setParams={setParams} t={t} />
       <section className="frame">
         <h2>
           <span>
@@ -298,7 +323,6 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           </span>
           <span className="cnt">{loading ? t('loading') : error ? t(error) : ''}</span>
         </h2>
-        <ViewSwitch view={view} setParams={setParams} t={t} />
         <FilterBar data={data} t={t} params={params} setParams={setParams} view={view} />
       </section>
       <section className="frame" style={{ marginTop: 16 }}>

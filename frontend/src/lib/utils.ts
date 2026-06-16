@@ -118,3 +118,7 @@ export function locale(lang: Lang) {
 export function encodePathParam(value: string) {
   return encodeURIComponent(value)
 }
+
+export function fmtTs(iso?: string) {
+  return iso ? iso.slice(0, 19).replace('T', ' ') : ''
+}
