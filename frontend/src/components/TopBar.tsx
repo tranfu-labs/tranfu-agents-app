@@ -20,7 +20,7 @@ export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props
   const active = (name: 'board' | 'agents' | 'skills') => {
     if (name === 'board') return location.pathname === '/'
     if (name === 'agents') return location.pathname === '/agents' || location.pathname.startsWith('/agent/')
-    return location.pathname === '/skills' || location.pathname.startsWith('/skill/')
+    return location.pathname === '/skills' || location.pathname.startsWith('/skill/') || location.pathname.startsWith('/operator/')
   }
 
   useEffect(() => {

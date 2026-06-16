@@ -4,7 +4,7 @@
 > 按用户流程分节，每节一张字符流程图 + 一张步骤表。规则见 [AGENTS.md](AGENTS.md)「流转图」一节，画法见 [legend.md](legend.md)。
 > 节点=真实页面（实线框，内部一行指向其 `pages/<page>.md`），可跨流程复现；同页态变化用虚线框 `┄┊` 节点，不伪造成新页面。
 > 编号与步骤表一一对应、无孤儿编号。本图是流程图、不是视口，不套比例尺、不分断点。
-> 路由来源：`frontend/src/App.tsx`（5 条 Route）+ `frontend/src/components/TopBar.tsx`（顶栏三标签全局导航）。
+> 路由来源：`frontend/src/App.tsx`（6 条 Route）+ `frontend/src/components/TopBar.tsx`（顶栏三标签全局导航）。
 
 ## 顶部导航全局切换
 
@@ -61,15 +61,19 @@
 
 ## SKILLS 统计下钻
 
-过滤条改动只改 URL query、同页刷新；点 skill 名进详情，返回时带回 query。
+过滤条与视角切换只改 URL query、同页刷新；点 skill 或操作员进对应详情，返回时带回 query。
 
 ```
-┌─ SKILLS 统计 /skills ─┐   ② 点 skill 名     ┌─ Skill 详情 /skill/:name ─┐
-│ → pages/skills.md     │ ─────────────────▶ │ → pages/skill-detail.md   │
-│                       │ ◀── ③ ←SKILLS(带query) │                        │
-└───────────────────────┘                    └───────────────────────────┘
+┌─ SKILLS 统计 /skills ─┐   ② 点 skill 名       ┌─ Skill 详情 /skill/:name ─┐
+│ → pages/skills.md     │ ───────────────────▶ │ → pages/skill-detail.md   │
+│                       │ ◀── ③ ←SKILLS(query) │                            │
+│                       │                       └───────────────────────────┘
+│                       │   ④ 点操作员          ┌─ Operator 详情 /operator/:name ─┐
+│                       │ ───────────────────▶ │ → pages/operator-detail.md      │
+│                       │ ◀── ⑤ ←SKILLS(view)  │                                  │
+└───────────────────────┘                       └──────────────────────────────────┘
         │  ▲
-        ① 改过滤条（搜索/runtime/来源/时间窗）
+        ① 改过滤条或视角（搜索/runtime/来源/时间窗/view）
         ▼  │
 ┌┄ 同页态：query 写入 URL，表格/图表原地重筛 ┄┐
 ┊（无跳转）                                    ┊
@@ -78,6 +82,8 @@
 
 | 步 | 从 | 到 | 触发 |
 |---|---|---|---|
-| ① | SKILLS `/skills` | 同页（query 变化） | 改过滤条（搜索框 / runtime / 来源 / 时间窗下拉） |
+| ① | SKILLS `/skills` | 同页（query 变化） | 改过滤条或视角（搜索框 / runtime / 来源 / 时间窗 / 按 skill / 按人） |
 | ② | SKILLS `/skills` | Skill 详情 `/skill/:name` | 点排行表中 skill 名（Link，附带 `location.search`） |
 | ③ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
+| ④ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表中操作员名（Link，附带 `location.search`） |
+| ⑤ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |

@@ -1,11 +1,13 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
-import type { SkillDailyRow, SkillDetail, SkillsOverview } from '../lib/types'
+import type { OperatorDailyRow, SkillDailyRow, SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
 type TipItem = { name: string; value: number; color: string }
 type TipAnchor = { left: number; right: number; chartTop: number }
 type Tip = { day: string; today?: boolean; items: TipItem[]; total?: number; anchor: TipAnchor }
+type StackRow = { day: string; sessions: number; skill?: string; operator?: string }
+type SegmentKey = 'skill' | 'operator'
 
 const PLOT_TOP = 24
 const TIP_GAP = 10
@@ -93,40 +95,62 @@ function ChartTip({ tip, t }: { tip: Tip | null; t: (key: string) => string }) {
   )
 }
 
-export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDailyRow[]; overview: SkillsOverview | null; days: number; t: (key: string) => string }) {
-  const [hoverSkill, setHoverSkill] = useState<string | null>(null)
+export function StackedSkillChart({
+  rows,
+  overview,
+  days,
+  t,
+  segmentKey = 'skill',
+  today,
+  emptyTitle,
+  emptyHint,
+  ariaLabel,
+}: {
+  rows: StackRow[]
+  overview?: SkillsOverview | null
+  days: number
+  t: (key: string) => string
+  segmentKey?: SegmentKey
+  today?: string
+  emptyTitle?: string
+  emptyHint?: string
+  ariaLabel?: string
+}) {
+  const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
   const model = useMemo(() => {
-    const axis = daySeries(apiToday(overview), days)
+    const axis = daySeries(today || apiToday(overview), days)
     const daySet = new Set(axis)
     const byDay: Record<string, Record<string, number>> = {}
-    const totalBySkill: Record<string, number> = {}
+    const totalBySegment: Record<string, number> = {}
     rows.forEach((row) => {
       if (!daySet.has(row.day)) return
+      const segment = String(row[segmentKey] || '')
+      if (!segment) return
       const value = Number(row.sessions || 0)
       if (!value) return
       const day = (byDay[row.day] = byDay[row.day] || {})
-      day[row.skill] = (day[row.skill] || 0) + value
-      totalBySkill[row.skill] = (totalBySkill[row.skill] || 0) + value
+      day[segment] = (day[segment] || 0) + value
+      totalBySegment[segment] = (totalBySegment[segment] || 0) + value
     })
-    const top = Object.entries(totalBySkill)
+    const top = Object.entries(totalBySegment)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 8)
       .map(([name]) => name)
     const totals = axis.map((day) => Object.values(byDay[day] || {}).reduce((a, b) => a + b, 0))
     const legend = [...top]
-    if (Object.keys(totalBySkill).some((name) => !top.includes(name))) legend.push('__other')
+    if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
-  }, [days, overview, rows])
+  }, [days, overview, rows, segmentKey, today])
 
   if (!rows.length || !model.totals.some(Boolean)) {
     return (
       <div className="empty">
-        <div className="t">{t('noSkills')}</div>
-        <div className="h">{t('noSkillsH')}</div>
+        <div className="t">{emptyTitle || t('noSkills')}</div>
+        <div className="h">{emptyHint || t('noSkillsH')}</div>
       </div>
     )
   }
@@ -138,8 +162,8 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
   const bh = 165
   const step = (w - 54) / model.axis.length
   const bw = Math.max(8, step - 5)
-  const today = model.axis[model.axis.length - 1]
-  const patternId = `skillStripe-${days}-${model.axis.length}`
+  const end = model.axis[model.axis.length - 1]
+  const patternId = `skillStripe-${segmentKey}-${days}-${model.axis.length}`
 
   return (
     <div
@@ -151,7 +175,7 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
       }}
       onScroll={() => setTip(null)}
     >
-      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }} role="img" aria-label={t('dailyUsed')}>
+      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }} role="img" aria-label={ariaLabel || t('dailyUsed')}>
         <defs>
           <pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <path d="M 0 0 L 0 6" stroke="var(--text)" strokeOpacity=".22" strokeWidth="2" />
@@ -183,11 +207,11 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
                 if (!value) return null
                 const height = Math.max(2, Math.round((value / max) * bh))
                 y -= height
-                const dim = hoverSkill && !((hoverSkill === '__other' && name === '__other') || hoverSkill === name)
+                const dim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
                 return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={dim ? 0.45 : 1} />
               })}
-              {day === today && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
-              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: day === today, items, total })} onClick={(event) => showTip(event, { day, today: day === today, items, total })} />
+              {day === end && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
+              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: day === end, items, total })} onClick={(event) => showTip(event, { day, today: day === end, items, total })} />
             </g>
           )
         })}
@@ -195,7 +219,7 @@ export function StackedSkillChart({ rows, overview, days, t }: { rows: SkillDail
       </svg>
       <div className="legend2">
         {model.legend.map((name) => (
-          <button key={name} className={hoverSkill === name ? 'on' : ''} onMouseEnter={() => setHoverSkill(name)} onFocus={() => setHoverSkill(name)} onMouseLeave={() => setHoverSkill(null)} onBlur={() => setHoverSkill(null)} onClick={() => setHoverSkill(name)}>
+          <button key={name} className={hoverSegment === name ? 'on' : ''} onMouseEnter={() => setHoverSegment(name)} onFocus={() => setHoverSegment(name)} onMouseLeave={() => setHoverSegment(null)} onBlur={() => setHoverSegment(null)} onClick={() => setHoverSegment(name)}>
             <span className="sw" style={{ background: skillColor(name) }} />
             {name === '__other' ? t('other') : name}
           </button>

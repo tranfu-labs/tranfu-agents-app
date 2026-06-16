@@ -20,7 +20,7 @@ agent 机器                         中心服务器(单容器)                 
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
-  `GET /api/agent/{key}`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、`GET /assets/*`、
+  `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、`GET /assets/*`、
   `GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`);
@@ -29,13 +29,13 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
-  `/api/skills` 与 `/api/skill/{name}` 渲染 SKILLS 总览 / Skill 详情;SKILLS 图表按服务端 UTC `today`
+  `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 图表按服务端 UTC `today`
   铺满 7/30/90 天或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
   暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
-  `/agents`、`/agent/:key`、`/skills`、`/skill/:name` 及其它非 API 深链提供;数据来自
-  `/api/state`、`/api/skills`、`/api/skill/{name}`(同源相对路径)。
-- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`;`/api/state` 取不到时退回内置演示数据,
+  `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name` 及其它非 API 深链提供;数据来自
+  `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`(同源相对路径)。
+- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(localStorage 等);独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。

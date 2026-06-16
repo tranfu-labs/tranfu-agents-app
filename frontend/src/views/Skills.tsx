@@ -3,12 +3,11 @@ import { RuntimeBars, MiniTrend, StackedSkillChart } from '../components/Charts'
 import { Empty, SectionTitle } from '../components/Common'
 import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
-import type { SkillsOverview, SkillTableRow } from '../lib/types'
+import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
-type SortKey = keyof SkillTableRow | 'source'
-
 type FilterableSkill = { name?: string; skill?: string; runtime?: string; source?: string; runtime_counts?: Record<string, number> }
+type FilterableOperator = { operator?: string; runtime?: string; source?: string; runtime_counts?: Record<string, number>; source_counts?: Record<string, number> }
 
 function skillPass(row: FilterableSkill, q: string, runtime: string, source: string) {
   const needle = q.trim().toLowerCase()
@@ -22,26 +21,42 @@ function skillPass(row: FilterableSkill, q: string, runtime: string, source: str
   return true
 }
 
-function sortedRows(rows: SkillTableRow[], sort: string, dir: string) {
+function operatorPass(row: FilterableOperator, q: string, runtime: string, source: string) {
+  const needle = q.trim().toLowerCase()
+  const operator = String(row.operator || '')
+  if (needle && !operator.toLowerCase().includes(needle)) return false
+  if (source) {
+    const sourceOk = row.source ? sourceKey(row.source) === source : Object.keys(row.source_counts || {}).some((item) => sourceKey(item) === source)
+    if (!sourceOk) return false
+  }
+  if (runtime) {
+    if (row.runtime) return row.runtime === runtime
+    return Boolean(row.runtime_counts?.[runtime])
+  }
+  return true
+}
+
+function sortedRows<T extends object>(rows: T[], sort: string, dir: string) {
   const direction = dir === 'asc' ? 1 : -1
-  const key = sort as SortKey
   return rows.slice().sort((a, b) => {
-    const av = a[key as keyof SkillTableRow] ?? ''
-    const bv = b[key as keyof SkillTableRow] ?? ''
+    const av = (a as Record<string, unknown>)[sort] ?? ''
+    const bv = (b as Record<string, unknown>)[sort] ?? ''
     if (typeof av === 'number' || typeof bv === 'number') return (Number(av || 0) - Number(bv || 0)) * direction
     return String(av).localeCompare(String(bv)) * direction
   })
 }
 
-function FilterBar({ data, t, params, setParams }: { data: SkillsOverview | null; t: (key: string) => string; params: SkillQueryState; setParams: SetSkillQueryState }) {
+function FilterBar({ data, t, params, setParams, view }: { data: SkillsOverview | null; t: (key: string) => string; params: SkillQueryState; setParams: SetSkillQueryState; view: 'skill' | 'operator' }) {
   const runtimes = new Set<string>()
   data?.daily?.forEach((row) => row.runtime && runtimes.add(row.runtime))
+  data?.operator_daily?.forEach((row) => row.runtime && runtimes.add(row.runtime))
   data?.table?.forEach((row) => Object.keys(row.runtime_counts || {}).forEach((runtime) => runtimes.add(runtime)))
+  data?.operator_table?.forEach((row) => Object.keys(row.runtime_counts || {}).forEach((runtime) => runtimes.add(runtime)))
   const update = (patch: Partial<typeof params>) => void setParams(patch)
   return (
     <div className="toolbar">
       <label className="field">
-        <span>{t('skillSearch')}</span>
+        <span>{view === 'operator' ? t('operatorSearch') : t('skillSearch')}</span>
         <input value={params.q} onChange={(event) => update({ q: event.target.value })} />
       </label>
       <label className="field">
@@ -76,6 +91,26 @@ function FilterBar({ data, t, params, setParams }: { data: SkillsOverview | null
           ))}
         </select>
       </label>
+    </div>
+  )
+}
+
+function ViewSwitch({ view, setParams, t }: { view: 'skill' | 'operator'; setParams: SetSkillQueryState; t: (key: string) => string }) {
+  const setView = (next: 'skill' | 'operator') => {
+    if (next === view) return
+    void setParams({ view: next, sort: 'sessions_30d', dir: 'desc' })
+  }
+  return (
+    <div className="viewbar">
+      <span>{t('viewBy')}</span>
+      <div className="seg">
+        <button className={view === 'skill' ? 'on' : ''} onClick={() => setView('skill')}>
+          {t('viewSkill')}
+        </button>
+        <button className={view === 'operator' ? 'on' : ''} onClick={() => setView('operator')}>
+          {t('viewOperator')}
+        </button>
+      </div>
     </div>
   )
 }
@@ -139,6 +174,63 @@ function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; pa
   )
 }
 
+function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; t: (key: string) => string }) {
+  const location = useLocation()
+  const updateSort = (key: string) => {
+    const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
+    void setParams({ sort: key, dir })
+  }
+  const head = (key: string, label: string, cls = '') => (
+    <th className={`sort ${cls}`} onClick={() => updateSort(key)}>
+      {label}
+      {params.sort === key ? (params.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+    </th>
+  )
+  if (!rows.length) return <Empty title={t('noOperators')} hint={t('noOperatorsH')} />
+  return (
+    <div className="skills-wrap">
+      <table className="skill-table">
+        <thead>
+          <tr>
+            {head('operator', t('operatorName'))}
+            {head('sessions_7d', t('skill7'), 'num')}
+            {head('sessions_30d', t('skill30'), 'num')}
+            {head('sessions_total', t('skillTotal'), 'num')}
+            {head('skill_count', t('skillsUsed'), 'num')}
+            {head('session_count', t('sessionCount'), 'num')}
+            <th>{t('runtimeFilter')}</th>
+            <th>{t('trend')}</th>
+            {head('last_day', t('skillLast'))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.operator}>
+              <td>
+                <Link to={`/operator/${encodePathParam(row.operator)}${location.search}`}>
+                  <b>{row.operator}</b>
+                </Link>
+              </td>
+              <td className="num">{row.sessions_7d}</td>
+              <td className="num">{row.sessions_30d}</td>
+              <td className="num">{row.sessions_total}</td>
+              <td className="num">{row.skill_count}</td>
+              <td className="num">{row.session_count}</td>
+              <td>
+                <RuntimeBars counts={row.runtime_counts} />
+              </td>
+              <td>
+                <MiniTrend values={row.trend_14d} />
+              </td>
+              <td className="q">{row.last_day || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function Funnel({ data, t }: { data: SkillsOverview | null; t: (key: string) => string }) {
   const funnel = data?.funnel
   if (!funnel?.available) {
@@ -181,8 +273,12 @@ function Funnel({ data, t }: { data: SkillsOverview | null; t: (key: string) => 
 export function SkillsView({ data, loading, error, t }: { data: SkillsOverview | null; loading: boolean; error: string; t: (key: string) => string }) {
   const [params, setParams] = useSkillQueryState()
   const days = [7, 30, 90].includes(params.win) ? params.win : 30
-  const filteredDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
-  const rows = sortedRows((data?.table || []).filter((row) => skillPass(row, params.q, params.rt, params.src)), params.sort, params.dir)
+  const view = params.view === 'operator' ? 'operator' : 'skill'
+  const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
+  const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorPass({ operator: row.operator, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
+  const skillRows = sortedRows((data?.table || []).filter((row) => skillPass(row, params.q, params.rt, params.src)), params.sort, params.dir) as SkillTableRow[]
+  const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorPass(row, params.q, params.rt, params.src)), params.sort, params.dir) as OperatorTableRow[]
+  const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
 
   if (loading && !data) {
     return (
@@ -202,22 +298,30 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           </span>
           <span className="cnt">{loading ? t('loading') : error ? t(error) : ''}</span>
         </h2>
-        <FilterBar data={data} t={t} params={params} setParams={setParams} />
+        <ViewSwitch view={view} setParams={setParams} t={t} />
+        <FilterBar data={data} t={t} params={params} setParams={setParams} view={view} />
       </section>
       <section className="frame" style={{ marginTop: 16 }}>
         <h2>
           <span>
             <span className="sl">//</span>
-            {t('dailyUsed')}
+            {view === 'operator' ? t('dailyByOperator') : t('dailyUsed')}
           </span>
           <span className="cnt">{days}d</span>
         </h2>
-        <StackedSkillChart rows={filteredDaily} overview={data} days={days} t={t} />
+        <StackedSkillChart rows={chartRows} overview={data} days={days} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
       </section>
       <div className="split" style={{ marginTop: 16 }}>
         <section className="frame">
-          <SectionTitle title={t('mainRank')} count={rows.length} />
-          <SkillsTable rows={rows} params={params} setParams={setParams} t={t} />
+          <SectionTitle title={view === 'operator' ? t('operatorRank') : t('mainRank')} count={view === 'operator' ? operatorRows.length : skillRows.length} />
+          {view === 'operator' ? (
+            <>
+              <div className="usage-note">{t('operatorMetricNote')}</div>
+              <OperatorTable rows={operatorRows} params={params} setParams={setParams} t={t} />
+            </>
+          ) : (
+            <SkillsTable rows={skillRows} params={params} setParams={setParams} t={t} />
+          )}
         </section>
         <section className="frame">
           <SectionTitle title={t('companyFunnel')} />

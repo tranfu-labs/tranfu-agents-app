@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DEMO_STATE, demoSkillDetail, demoSkillsOverview } from './demo'
-import type { Loadable, SkillDetail, SkillsOverview, StatePayload } from './types'
+import { DEMO_STATE, demoOperatorDetail, demoSkillDetail, demoSkillsOverview } from './demo'
+import type { Loadable, OperatorDetail, SkillDetail, SkillsOverview, StatePayload } from './types'
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' })
@@ -126,5 +126,49 @@ export function useSkillDetail(enabled: boolean, name: string | undefined, fallb
 
   const visibleData = name && data?.name !== name ? null : data
   const visibleLoading = loading || Boolean(name && data && data.name !== name)
+  return { data: visibleData, loading: visibleLoading, error, demo, refresh }
+}
+
+export function useOperatorDetail(enabled: boolean, name: string | undefined, fallback?: SkillsOverview | null): Loadable<OperatorDetail> {
+  const [data, setData] = useState<OperatorDetail | null>(null)
+  const [loading, setLoading] = useState(Boolean(enabled && name))
+  const [error, setError] = useState('')
+  const [demo, setDemo] = useState(false)
+  const lastFetch = useRef(0)
+
+  const refresh = useCallback(
+    async (force = false) => {
+      const now = Date.now()
+      if (!enabled || !name || (!force && now - lastFetch.current < 9500)) return
+      setLoading(true)
+      try {
+        const next = await fetchJson<OperatorDetail>(`/api/operator/${encodeURIComponent(name)}`)
+        setData(next)
+        setError('')
+        setDemo(false)
+        lastFetch.current = Date.now()
+      } catch {
+        setData(demoOperatorDetail(name, fallback || demoSkillsOverview()))
+        setError('operatorNotFound')
+        setDemo(true)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [enabled, fallback, name],
+  )
+
+  useEffect(() => {
+    if (!enabled) return
+    const first = window.setTimeout(() => void refresh(true), 0)
+    const timer = window.setInterval(() => void refresh(false), 10000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+    }
+  }, [enabled, refresh])
+
+  const visibleData = name && data?.operator !== name ? null : data
+  const visibleLoading = loading || Boolean(name && data && data.operator !== name)
   return { data: visibleData, loading: visibleLoading, error, demo, refresh }
 }

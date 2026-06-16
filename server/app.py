@@ -15,6 +15,10 @@ Ingest:
 Read:
   GET  /api/state        snapshot the dashboard polls (sessions + profile +
                          computed quality + leverage + 90d activity)
+  GET  /api/skills       SKILLS overview (skill and operator aggregates)
+  GET  /api/skill/{name} single skill detail
+  GET  /api/operator/{name}
+                         single operator skill-usage detail
   GET  /api/agent/{key}  single agent detail (key = "operator::agentOrRuntime")
   GET  /                 the dashboard
   GET  /healthz
@@ -889,6 +893,26 @@ def skills_overview(conn, days):
         "source": _skill_source(r["skill"], catalog_by),
     } for r in daily_rows]
 
+    operator_daily_where = ["mode='used'", "day IS NOT NULL", "trim(COALESCE(operator,'')) <> ''"]
+    operator_daily_params = []
+    if daily_start:
+        operator_daily_where.append("day >= ?")
+        operator_daily_params.append(daily_start)
+    operator_daily_rows = conn.execute(f"""
+      SELECT day, operator, COALESCE(runtime,'') runtime, skill, COUNT(*) sessions
+      FROM skill_uses
+      WHERE {' AND '.join(operator_daily_where)}
+      GROUP BY day, operator, runtime, skill
+      ORDER BY day ASC, operator ASC, runtime ASC, skill ASC
+    """, operator_daily_params).fetchall()
+    operator_daily = [{
+        "day": r["day"],
+        "operator": r["operator"],
+        "runtime": r["runtime"] or "unknown",
+        "source": _skill_source(r["skill"], catalog_by),
+        "sessions": int(r["sessions"] or 0),
+    } for r in operator_daily_rows]
+
     base_rows = conn.execute("""
       SELECT skill,
         SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
@@ -934,6 +958,62 @@ def skills_overview(conn, days):
         })
     table.sort(key=lambda x: (-x["sessions_30d"], -x["sessions_total"], x["name"]))
 
+    operator_rows = conn.execute("""
+      SELECT operator,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        COUNT(*) sessions_total,
+        COUNT(DISTINCT skill) skill_count,
+        COUNT(DISTINCT session_id) session_count,
+        MAX(day) last_day
+      FROM skill_uses
+      WHERE mode='used' AND trim(COALESCE(operator,'')) <> ''
+      GROUP BY operator
+    """, (d7, d30)).fetchall()
+    operator_runtime_counts = {}
+    for r in conn.execute("""
+      SELECT operator, COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND trim(COALESCE(operator,'')) <> ''
+      GROUP BY operator, runtime
+    """):
+        operator_runtime_counts.setdefault(r["operator"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
+    operator_source_counts = {}
+    for r in conn.execute("""
+      SELECT operator, skill, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND trim(COALESCE(operator,'')) <> ''
+      GROUP BY operator, skill
+    """):
+        source = _skill_source(r["skill"], catalog_by)
+        counts = operator_source_counts.setdefault(r["operator"], {})
+        counts[source] = counts.get(source, 0) + int(r["sessions"] or 0)
+    operator_trend = {}
+    for r in conn.execute("""
+      SELECT operator, day, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND day >= ? AND trim(COALESCE(operator,'')) <> ''
+      GROUP BY operator, day
+    """, (d14,)):
+        operator_trend.setdefault(r["operator"], {})[r["day"]] = int(r["sessions"] or 0)
+    operator_table = []
+    for r in operator_rows:
+        operator = r["operator"]
+        operator_table.append({
+            "operator": operator,
+            "sessions_7d": int(r["sessions_7d"] or 0),
+            "sessions_30d": int(r["sessions_30d"] or 0),
+            "sessions_total": int(r["sessions_total"] or 0),
+            "skill_count": int(r["skill_count"] or 0),
+            "session_count": int(r["session_count"] or 0),
+            "runtime_counts": operator_runtime_counts.get(operator, {}),
+            "source_counts": operator_source_counts.get(operator, {}),
+            "trend_14d": [operator_trend.get(operator, {}).get(day, 0) for day in trend_days],
+            "trend_days": trend_days,
+            "last_day": r["last_day"],
+        })
+    operator_table.sort(key=lambda x: (-x["sessions_30d"], -x["sessions_total"], x["operator"]))
+
     company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
     installed_names = _installed_skill_names(conn) & company_names
     used_30d_names = {r["skill"] for r in conn.execute("""
@@ -952,7 +1032,113 @@ def skills_overview(conn, days):
         "today": today.isoformat(),
         "daily": daily,
         "table": table,
+        "operator_daily": operator_daily,
+        "operator_table": operator_table,
         "funnel": funnel,
+        "catalog": catalog_meta,
+    }
+
+
+def operator_detail_payload(conn, name):
+    operator = (name or "").strip()
+    if not operator:
+        raise HTTPException(404, "operator not found")
+    row = conn.execute("SELECT display FROM identities WHERE norm=?", (operator.casefold(),)).fetchone()
+    if row:
+        operator = row["display"]
+    exists = conn.execute("""
+      SELECT COUNT(*) c FROM skill_uses
+      WHERE operator=? AND mode='used' AND trim(COALESCE(operator,'')) <> ''
+    """, (operator,)).fetchone()["c"]
+    if not exists:
+        raise HTTPException(404, "operator not found")
+    today = datetime.now(timezone.utc).date()
+    d7 = (today - timedelta(days=6)).isoformat()
+    d30 = (today - timedelta(days=29)).isoformat()
+    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    m = conn.execute("""
+      SELECT
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        COUNT(*) sessions_total,
+        COUNT(DISTINCT skill) skill_count,
+        COUNT(DISTINCT session_id) session_count,
+        MIN(day) first_day,
+        MAX(day) last_day
+      FROM skill_uses
+      WHERE operator=? AND mode='used'
+    """, (d7, d30, operator)).fetchone()
+    daily = [dict(r) for r in conn.execute("""
+      SELECT day, skill, COUNT(*) sessions
+      FROM skill_uses
+      WHERE operator=? AND mode='used' AND day IS NOT NULL
+      GROUP BY day, skill
+      ORDER BY day ASC, skill ASC
+    """, (operator,))]
+    skill_runtime_counts = {}
+    for r in conn.execute("""
+      SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE operator=? AND mode='used'
+      GROUP BY skill, runtime
+    """, (operator,)):
+        skill_runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
+    skill_rows = conn.execute("""
+      SELECT skill,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        COUNT(*) sessions_total,
+        MAX(day) last_day
+      FROM skill_uses
+      WHERE operator=? AND mode='used'
+      GROUP BY skill
+    """, (d7, d30, operator)).fetchall()
+    skill_table = []
+    for r in skill_rows:
+        skill = r["skill"]
+        skill_table.append({
+            "name": skill,
+            "source": _skill_source(skill, catalog_by),
+            "sessions_7d": int(r["sessions_7d"] or 0),
+            "sessions_30d": int(r["sessions_30d"] or 0),
+            "sessions_total": int(r["sessions_total"] or 0),
+            "runtime_counts": skill_runtime_counts.get(skill, {}),
+            "last_day": r["last_day"],
+        })
+    skill_table.sort(key=lambda x: (-x["sessions_30d"], -x["sessions_total"], x["name"]))
+    runtime = [{
+        "runtime": r["runtime"] or "unknown",
+        "used": int(r["sessions"] or 0),
+    } for r in conn.execute("""
+      SELECT COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE operator=? AND mode='used'
+      GROUP BY runtime
+      ORDER BY sessions DESC, runtime ASC
+    """, (operator,))]
+    records = [dict(r) for r in conn.execute("""
+      SELECT day, skill, runtime, session_id, first_seen
+      FROM skill_uses
+      WHERE operator=? AND mode='used'
+      ORDER BY COALESCE(first_seen, day) DESC
+      LIMIT 50
+    """, (operator,))]
+    return {
+        "operator": operator,
+        "today": today.isoformat(),
+        "metrics": {
+            "sessions_7d": int(m["sessions_7d"] or 0),
+            "sessions_30d": int(m["sessions_30d"] or 0),
+            "sessions_total": int(m["sessions_total"] or 0),
+            "skill_count": int(m["skill_count"] or 0),
+            "session_count": int(m["session_count"] or 0),
+            "first_day": m["first_day"],
+            "last_day": m["last_day"],
+        },
+        "daily": daily,
+        "skills": skill_table,
+        "runtime": runtime,
+        "records": records,
         "catalog": catalog_meta,
     }
 
@@ -1131,6 +1317,12 @@ def skills_stats(days: int = 30):
 def skill_detail(name: str):
     with closing(db()) as conn:
         return JSONResponse(skill_detail_payload(conn, name))
+
+
+@app.get("/api/operator/{name}")
+def operator_detail(name: str):
+    with closing(db()) as conn:
+        return JSONResponse(operator_detail_payload(conn, name))
 
 
 @app.get("/api/agent/{key}")

@@ -117,6 +117,14 @@ export type SkillDailyRow = {
   sessions: number
 }
 
+export type OperatorDailyRow = {
+  day: string
+  operator: string
+  runtime?: string
+  source?: string
+  sessions: number
+}
+
 export type SkillTableRow = {
   name: string
   source?: string
@@ -125,6 +133,19 @@ export type SkillTableRow = {
   sessions_total: number
   users_30d: number
   runtime_counts?: Record<string, number>
+  trend_14d?: number[]
+  last_day?: string
+}
+
+export type OperatorTableRow = {
+  operator: string
+  sessions_7d: number
+  sessions_30d: number
+  sessions_total: number
+  skill_count: number
+  session_count: number
+  runtime_counts?: Record<string, number>
+  source_counts?: Record<string, number>
   trend_14d?: number[]
   last_day?: string
 }
@@ -140,6 +161,8 @@ export type SkillsOverview = {
   today: string
   daily: SkillDailyRow[]
   table: SkillTableRow[]
+  operator_daily?: OperatorDailyRow[]
+  operator_table?: OperatorTableRow[]
   funnel?: {
     available: boolean
     catalog?: CatalogSkill[]
@@ -154,6 +177,39 @@ export type SkillsOverview = {
     count?: number
     error?: string
   }
+}
+
+export type OperatorDetail = {
+  operator: string
+  today: string
+  metrics?: {
+    sessions_7d?: number
+    sessions_30d?: number
+    sessions_total?: number
+    skill_count?: number
+    session_count?: number
+    first_day?: string
+    last_day?: string
+  }
+  daily?: Array<{ day: string; skill: string; sessions: number }>
+  skills?: Array<{
+    name: string
+    source?: string
+    sessions_7d?: number
+    sessions_30d?: number
+    sessions_total?: number
+    runtime_counts?: Record<string, number>
+    last_day?: string
+  }>
+  runtime?: Array<{ runtime: string; used?: number }>
+  records?: Array<{
+    day?: string
+    skill?: string
+    runtime?: string
+    session_id?: string
+    first_seen?: string
+  }>
+  catalog?: Record<string, unknown>
 }
 
 export type SkillDetail = {

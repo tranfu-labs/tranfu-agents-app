@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentMemory, SkillDetail, SkillsOverview, SkillTableRow, StatePayload } from './types'
+import type { AgentConfig, AgentMemory, OperatorDetail, OperatorTableRow, SkillDetail, SkillsOverview, SkillTableRow, StatePayload } from './types'
 import { apiToday, daySeries } from './utils'
 
 const now = new Date()
@@ -214,11 +214,24 @@ export function demoSkillsOverview(): SkillsOverview {
       return value ? [{ day, skill: row.name, runtime: Object.keys(row.runtime_counts || {})[0], sessions: value, source: row.source }] : []
     }),
   )
+  const operatorTable: OperatorTableRow[] = [
+    { operator: 'nezha', sessions_7d: 9, sessions_30d: 22, sessions_total: 42, skill_count: 5, session_count: 18, runtime_counts: { 'claude-code': 15, hermes: 7 }, source_counts: { own: 16, external: 6 }, trend_14d: [1, 1, 2, 0, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3], last_day: days[29] },
+    { operator: 'bob', sessions_7d: 6, sessions_30d: 18, sessions_total: 37, skill_count: 4, session_count: 15, runtime_counts: { codex: 12, 'open-claw': 6 }, source_counts: { own: 8, '非公司库': 10 }, trend_14d: [0, 1, 0, 2, 1, 2, 1, 0, 2, 2, 1, 1, 2, 3], last_day: days[29] },
+    { operator: 'chen', sessions_7d: 4, sessions_30d: 11, sessions_total: 21, skill_count: 3, session_count: 9, runtime_counts: { 'claude-desktop': 11 }, source_counts: { '非公司库': 9, own: 2 }, trend_14d: [1, 0, 1, 1, 0, 1, 0, 2, 1, 0, 1, 1, 1, 2], last_day: days[28] },
+  ]
+  const operatorDaily = operatorTable.flatMap((row, idx) =>
+    days.flatMap((day, i) => {
+      const value = row.trend_14d?.[(i + idx) % (row.trend_14d.length || 1)] || 0
+      return value ? [{ day, operator: row.operator, runtime: Object.keys(row.runtime_counts || {})[0], source: Object.keys(row.source_counts || {})[0], sessions: value }] : []
+    }),
+  )
   return {
     days: 30,
     today,
     daily,
     table,
+    operator_daily: operatorDaily,
+    operator_table: operatorTable,
     funnel: {
       available: true,
       catalog: [{ name: '组件命名规范', source: 'own' }, { name: '品牌语气库', source: 'own' }, { name: '落地页模板', source: 'own' }],
@@ -227,6 +240,52 @@ export function demoSkillsOverview(): SkillsOverview {
       idle: [{ name: '落地页模板', source: 'own' }],
     },
     catalog: { available: true, fetched_at: now.toISOString(), stale: false, count: 3 },
+  }
+}
+
+export function demoOperatorDetail(operator: string, overview = demoSkillsOverview()): OperatorDetail | null {
+  const row = overview.operator_table?.find((item) => item.operator === operator)
+  if (!row) return null
+  const today = apiToday(overview)
+  const days = daySeries(today, 30)
+  const skills = overview.table.slice(0, Math.max(2, Math.min(overview.table.length, row.skill_count || 3))).map((skill, index) => ({
+    name: skill.name,
+    source: skill.source,
+    sessions_7d: Math.max(1, Math.floor((skill.sessions_7d || 1) / (index + 1))),
+    sessions_30d: Math.max(1, Math.floor((skill.sessions_30d || 1) / (index + 1))),
+    sessions_total: Math.max(1, Math.floor((skill.sessions_total || 1) / (index + 1))),
+    runtime_counts: skill.runtime_counts,
+    last_day: skill.last_day,
+  }))
+  const daily = days.flatMap((day, i) =>
+    skills.flatMap((skill, index) => {
+      const value = i % (index + 2) === 0 ? Math.max(1, Math.floor((skill.sessions_30d || 1) / 10)) : 0
+      return value ? [{ day, skill: skill.name, sessions: value }] : []
+    }),
+  )
+  return {
+    operator,
+    today,
+    metrics: {
+      sessions_7d: row.sessions_7d,
+      sessions_30d: row.sessions_30d,
+      sessions_total: row.sessions_total,
+      skill_count: row.skill_count,
+      session_count: row.session_count,
+      first_day: days[0],
+      last_day: row.last_day,
+    },
+    daily,
+    skills,
+    runtime: Object.entries(row.runtime_counts || {}).map(([runtime, used]) => ({ runtime, used })),
+    records: skills.slice(0, 6).map((skill, index) => ({
+      day: days[29 - index],
+      skill: skill.name,
+      runtime: Object.keys(skill.runtime_counts || {})[0],
+      session_id: `demo-${operator}-${index}`,
+      first_seen: now.toISOString(),
+    })),
+    catalog: { available: true, stale: false },
   }
 }
 

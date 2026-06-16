@@ -105,6 +105,41 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     assert {x["name"] for x in data["funnel"]["idle"]} == {"idle-own"}
 
 
+def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_mod):
+    days = _seed_skill_stats(client, app_mod)
+    with app_mod.db() as conn:
+        conn.execute("""INSERT INTO skill_uses(session_id,skill,mode,operator,runtime,day,first_seen)
+          VALUES('blank-op','alpha','used','','codex',?,?)""",
+          (days["used"], f"{days['used']}T12:00:00+00:00"))
+        conn.commit()
+
+    data7 = client.get("/api/skills?days=7").json()
+    operators = {r["operator"]: r for r in data7["operator_table"]}
+    assert set(operators) == {"alice", "bob", "chen"}
+    assert operators["alice"]["sessions_7d"] == 1
+    assert operators["alice"]["sessions_30d"] == 1
+    assert operators["alice"]["sessions_total"] == 2
+    assert operators["alice"]["skill_count"] == 1
+    assert operators["alice"]["session_count"] == 2
+    assert operators["alice"]["runtime_counts"] == {"codex": 2}
+    assert operators["alice"]["source_counts"] == {"own": 2}
+    assert [r["operator"] for r in data7["operator_table"]] == ["alice", "bob", "chen"]
+
+    daily_ops = {r["operator"] for r in data7["operator_daily"]}
+    assert daily_ops == {"alice", "bob", "chen"}
+    assert "dan" not in daily_ops
+    assert "" not in daily_ops
+    assert all(r["day"] != days["old"] for r in data7["operator_daily"])
+
+    data90 = client.get("/api/skills?days=90").json()
+    assert any(r["operator"] == "alice" and r["day"] == days["old"] for r in data90["operator_daily"])
+    assert {r["operator"]: r["sessions_total"] for r in data90["operator_table"]} == {
+        "alice": 2,
+        "bob": 1,
+        "chen": 1,
+    }
+
+
 def test_skills_overview_today_and_daily_window_use_server_utc(client, app_mod, monkeypatch):
     class FixedDatetime(datetime):
         @classmethod
@@ -166,6 +201,69 @@ def test_skill_detail_keeps_used_and_equipped_separate(client, app_mod):
     assert runtime["codex"]["used"] == 2
     assert runtime["open-claw"]["equipped"] == 1
     assert any(r["mode"] == "equipped" and r["session_id"] == "e-new" for r in data["records"])
+
+
+def test_operator_detail_used_only_skill_breakdown_and_recent_records(client, app_mod):
+    days = _seed_skill_stats(client, app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="a-new", skill="beta", current_step="6")
+    ev(client, operator="alice", runtime="open-claw", session_id="a-new", skill="meta-tool",
+       skill_mode="equipped", current_step="7")
+    _set_skill_day(app_mod, "a-new", "beta", 5)
+    _set_skill_day(app_mod, "a-new", "meta-tool", 5, mode="equipped")
+
+    data = client.get("/api/operator/alice").json()
+    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["operator"] == "alice"
+    assert data["metrics"] == {
+        "sessions_7d": 2,
+        "sessions_30d": 2,
+        "sessions_total": 3,
+        "skill_count": 2,
+        "session_count": 2,
+        "first_day": days["old"],
+        "last_day": days["used"],
+    }
+    daily = {(r["day"], r["skill"]): r["sessions"] for r in data["daily"]}
+    assert daily[(days["used"], "alpha")] == 1
+    assert daily[(days["used"], "beta")] == 1
+    assert (days["used"], "meta-tool") not in daily
+
+    skills = {r["name"]: r for r in data["skills"]}
+    assert set(skills) == {"alpha", "beta"}
+    assert skills["alpha"]["source"] == "own"
+    assert skills["beta"]["source"] == "external"
+    assert skills["alpha"]["sessions_total"] == 2
+    assert skills["beta"]["sessions_30d"] == 1
+    assert data["runtime"] == [{"runtime": "codex", "used": 3}]
+    assert all("mode" not in r for r in data["records"])
+    assert [r["skill"] for r in data["records"][:2]] == ["alpha", "beta"]
+
+
+def test_operator_detail_resolves_canonical_operator_identity(client, app_mod):
+    ev(client, operator="Alice", runtime="codex", session_id="a1", skill="alpha", current_step="1")
+
+    data = client.get("/api/operator/alice").json()
+    assert data["operator"] == "Alice"
+    assert data["metrics"]["sessions_total"] == 1
+
+
+def test_operator_detail_recent_records_are_limited_to_50(client, app_mod):
+    _set_catalog(app_mod)
+    for i in range(55):
+        session = f"a-{i:02d}"
+        ev(client, operator="alice", runtime="codex", session_id=session, skill=f"skill-{i:02d}",
+           current_step=f"step-{i}")
+        _set_skill_day(app_mod, session, f"skill-{i:02d}", 0)
+
+    data = client.get("/api/operator/alice").json()
+    assert len(data["records"]) == 50
+
+
+def test_operator_detail_unknown_or_equipped_only_404(client, app_mod):
+    ev(client, operator="dan", runtime="open-claw", session_id="e-new", skill="alpha",
+       skill_mode="equipped", current_step="equipped")
+    assert client.get("/api/operator/dan").status_code == 404
+    assert client.get("/api/operator/nope").status_code == 404
 
 
 def test_skill_detail_unknown_404(client):

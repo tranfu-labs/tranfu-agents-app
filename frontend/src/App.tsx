@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
-import { usePollingState, useSkillDetail, useSkillsOverview } from './lib/api'
+import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsOverview } from './lib/api'
 import { makeT } from './lib/i18n'
 import { useSkillQueryState } from './lib/skillQuery'
 import type { Lang } from './lib/types'
@@ -11,6 +11,7 @@ import { Agents } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
 import { SkillDetailView } from './views/SkillDetail'
+import { OperatorDetailView } from './views/OperatorDetail'
 
 function SkillsRoute({ t }: { t: (key: string) => string }) {
   const [params] = useSkillQueryState()
@@ -26,6 +27,15 @@ function SkillDetailRoute({ t }: { t: (key: string) => string }) {
   const overview = useSkillsOverview(false, days)
   const detail = useSkillDetail(true, name ? decodeURIComponent(name) : undefined, overview.data)
   return <SkillDetailView data={detail.data} loading={detail.loading} error={detail.error} t={t} />
+}
+
+function OperatorDetailRoute({ t }: { t: (key: string) => string }) {
+  const { name } = useParams()
+  const [params] = useSkillQueryState()
+  const days = [7, 30, 90].includes(params.win) ? params.win : 30
+  const overview = useSkillsOverview(false, days)
+  const detail = useOperatorDetail(true, name ? decodeURIComponent(name) : undefined, overview.data)
+  return <OperatorDetailView data={detail.data} loading={detail.loading} error={detail.error} t={t} />
 }
 
 export default function App() {
@@ -65,6 +75,7 @@ export default function App() {
             <Route path="/agent/:key" element={<AgentDetail data={state.data} lang={lang} t={t} />} />
             <Route path="/skills" element={<SkillsRoute t={t} />} />
             <Route path="/skill/:name" element={<SkillDetailRoute t={t} />} />
+            <Route path="/operator/:name" element={<OperatorDetailRoute t={t} />} />
             <Route path="*" element={<Board data={state.data} lang={lang} t={t} />} />
           </Routes>
         ) : (

@@ -4,10 +4,11 @@
 
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。
-- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 仅影响 daily,默认 30)。
+- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], operator_daily[], operator_table[], funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 仅影响 daily/operator_daily,默认 30)。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
+- `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
-- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skill/{name}` → React 看板 SPA;
+- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
   `GET /assets/*` → Vite 指纹化静态资源;`GET /healthz` → `ok`。
 
 ## 规则(MUST)
@@ -33,19 +34,28 @@
     并返回闲置名单 = 已安装 − 30 天使用。三层均返回名单而非仅数字。
 15. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
     从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
+16. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
+    会话×skill 去重使用次数(一行 `skill_uses` used 记录),语义为"此人在多少个会话里用过 skill",非真实调用次数。
+    `operator_table` 固定输出 7 天 / 30 天 / 累计、用过 skill 数、会话数、runtime 计数、来源计数、近 14 天趋势和最近使用日;
+    默认按 30 天降序,平手按累计。`days` 只影响 `operator_daily`,不影响 `operator_table`。
+17. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
+    skill 排行(含来源)、runtime 分布和最近 50 条记录。
 
 ## 前端规则(MUST)
 - 轮询 `/api/state`(约 3s),取不到时退回内置演示数据并显示"未连接服务端"。
-- 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情。
+- 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;
-  Skill 详情 `/skill/:name`;刷新、前进后退、复制链接必须保持当前视图。
-- SKILLS 总览筛选绑定到 URL search params:`win`(7/30/90)、`rt`、`src`、`q`、`sort`、`dir`;
+  Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
+- SKILLS 总览筛选绑定到 URL search params:`win`(7/30/90)、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`);
   筛选变化使用 replace,不污染浏览器历史;详情跳转使用 push。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 UTC 日窗口逐日铺满:
   右端取服务端 `today`,左端为 `today-(N-1)`,N ∈ {7,30,90};每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽。前端取窗口内使用量前 8 的 skill 分色,其余合并为"其它"段;时间窗筛选只作用于柱状图,
   主表固定 7 天/30 天/累计三列,漏斗第 3 层固定 30 天;窗口选择器不含"全部"档。
+- SKILLS 总览提供按 skill / 按人视角切换。切换后柱状图、主表、行级下钻必须整页同一主语:
+  skill 视角按 skill 分段并下钻 `/skill/:name`;按人视角按 operator 分段并下钻 `/operator/:name`。
+  筛选条复用同一套 query,搜索框提示语随视角变;切换视角不重置 `win`。公司库漏斗常驻且始终使用 skill/catalog 口径。
 - SKILLS 柱状图悬停某日列时,该列高亮、其余列降透明,并显示锚定柱子的明细浮窗(日期、当天各 skill 降序明细、
   Top8 外并"其它"、合计);浮窗锚定柱子几何而非光标——默认贴柱子右侧、顶部对齐图表绘图区顶,
   碰视口右边界翻到柱子左侧、碰下边界上移贴视口底。今日列作为最后一格,以进行中视觉区分并在浮窗标注。
@@ -77,5 +87,10 @@
 - 悬停某柱 → 浮窗锚定该柱右侧、顶部与图表绘图区顶对齐;最右侧柱 → 浮窗翻到柱子左侧,不溢出视口;
   手机窄屏点击柱子也显示同一浮窗,横向滚动或点击非柱区域关闭。
 - 进入任一 skill 详情 → 趋势图铺满最近 30 个 UTC 日,used/equipped 分列展示且不相加。
+- 按人视角中,同一操作员在同一会话内多次使用同一 skill 只计 1;仅 equipped 或空 operator 的记录不进入
+  `operator_table`、`operator_daily` 与 `/api/operator/{name}`。
+- `days=7` → `operator_daily` 仅含最近 7 个 UTC 日;`operator_table` 三列不受影响。
+- 单操作员详情的 skill 排行行点击 → 进入对应 `/skill/{name}` 详情。
+- `GET /api/operator/不存在的人` → 404。
 - 主表默认按 30 天会话数降序,平手按累计。
 - 看板页面不再渲染 skills 区块,原有卡片与轮询行为不变。
