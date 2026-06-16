@@ -21,7 +21,7 @@ agent 机器                         中心服务器(单容器)                 
   提供看板 SPA 与 API、分发安装脚本与 shim。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
   `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
-  `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
+  `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
   `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`/`admin_trash`/`admin_audit`);

@@ -70,6 +70,27 @@ export async function restoreAdminBatch(key: string, batchId: string) {
   })
 }
 
+export async function exportAdminDb(key: string): Promise<void> {
+  const response = await fetch('/api/admin/export', {
+    cache: 'no-store',
+    headers: { 'X-TF-Admin-Key': key },
+  })
+  if (!response.ok) throw new Error(String(response.status))
+  // browser <a download> can't carry the admin header, so fetch->blob->click.
+  const disposition = response.headers.get('content-disposition') || ''
+  const match = /filename="?([^"]+)"?/i.exec(disposition)
+  const filename = match ? match[1] : `tf-${new Date().toISOString().slice(0, 10)}.db`
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 export function usePollingState(): Loadable<StatePayload> {
   const [data, setData] = useState<StatePayload | null>(null)
   const [loading, setLoading] = useState(true)

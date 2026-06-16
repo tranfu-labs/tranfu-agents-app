@@ -26,6 +26,7 @@ Read:
   GET  /api/admin/trash
   POST /api/admin/restore
                          admin cleanup (X-TF-Admin-Key)
+  GET  /api/admin/export consistent SQLite snapshot download (X-TF-Admin-Key)
   GET  /                 the dashboard
   GET  /healthz
 
@@ -34,8 +35,8 @@ Storage is SQLite (WAL) at $TF_DB, default ./tf.db. No external services.
 import os, sys, json, sqlite3, time, threading, hashlib, hmac, secrets, urllib.request, uuid
 from datetime import datetime, timezone, timedelta
 from contextlib import closing
-from fastapi import FastAPI, Request, Header, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
+from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 DB_PATH = os.environ.get("TF_DB", "tf.db")
@@ -1561,6 +1562,29 @@ async def admin_restore(request: Request, x_tf_admin_key: str = Header(default="
         _maybe_prune_trash(conn)
         conn.commit()
         return JSONResponse(result)
+
+
+@app.get("/api/admin/export")
+def admin_export(background_tasks: BackgroundTasks, request: Request,
+                 x_tf_admin_key: str = Header(default="")):
+    """Download a consistent SQLite snapshot of the whole DB.
+
+    Copying tf.db directly is unsafe in WAL mode: the live -wal file may hold
+    committed-but-not-checkpointed pages, so a raw file copy can be torn or
+    stale. `VACUUM INTO` writes a single self-contained snapshot under the
+    writer lock, which we then stream and delete after the response is sent.
+    """
+    actor = check_admin(x_tf_admin_key, request, {"path": "/api/admin/export"})
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    snap_path = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)) or ".",
+                             f".tf-export-{stamp}-{uuid.uuid4().hex[:8]}.db")
+    with _lock, closing(db()) as conn:
+        conn.execute("VACUUM INTO ?", (snap_path,))
+        _audit(conn, actor, "export", {"path": "/api/admin/export"}, {"snapshot": stamp}, None)
+        conn.commit()
+    background_tasks.add_task(lambda p: os.path.exists(p) and os.remove(p), snap_path)
+    return FileResponse(snap_path, media_type="application/x-sqlite3",
+                        filename=f"tf-{stamp}.db")
 
 
 @app.delete("/v1/events")

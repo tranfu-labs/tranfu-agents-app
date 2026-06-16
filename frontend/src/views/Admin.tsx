@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Empty, SectionTitle } from '../components/Common'
 import {
   deleteAdminData,
+  exportAdminDb,
   fetchAdminInventory,
   fetchAdminPreview,
   fetchAdminTrash,
@@ -290,6 +291,7 @@ export function AdminView({ t }: { t: (key: string) => string }) {
   const [force, setForce] = useState(false)
   const [confirmCount, setConfirmCount] = useState('')
   const [restoring, setRestoring] = useState('')
+  const [exporting, setExporting] = useState(false)
   const [manualOperator, setManualOperator] = useState('')
   const [manualBeforeDay, setManualBeforeDay] = useState('')
 
@@ -433,6 +435,19 @@ export function AdminView({ t }: { t: (key: string) => string }) {
     }
   }
 
+  const exportDb = async () => {
+    setExporting(true)
+    setError('')
+    try {
+      await exportAdminDb(adminKey)
+      setToast(t('adminExportOk'))
+    } catch (err) {
+      setError(err instanceof Error ? `${t('loadError')} ${err.message}` : t('loadError'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (!adminKey) {
     return <Guard t={t} error={gateError} onSubmit={enter} />
   }
@@ -443,6 +458,9 @@ export function AdminView({ t }: { t: (key: string) => string }) {
         <Link className="back" to="/">
           {t('adminBack')}
         </Link>
+        <button className="btn mini" type="button" disabled={exporting} onClick={() => void exportDb()}>
+          {exporting ? t('loading') : t('adminExport')}
+        </button>
         <button className="btn mini" type="button" onClick={logout}>
           {t('adminExit')}
         </button>
