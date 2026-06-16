@@ -91,6 +91,9 @@ app = FastAPI(title="TRANFU//AGENTS")
 # 锁定本源的 CSP:script 仅允许同源(挡掉注入的内联/外链脚本偷 sessionStorage
 # 里的管理钥匙);connect 仅同源(挡外传);style/font/img 放行前端实际用到的
 # Google Fonts 与品牌图床。前端无内联脚本(JSON-LD 数据块不受 script-src 管控)。
+# 维护规则:前端新接外部域名(脚本/接口/字体/图片/iframe)时,必须把该来源加进
+# 对应指令(脚本->script-src、fetch/ws->connect-src、字体->font-src、图片->img-src),
+# 否则浏览器会静默拦截、功能坏掉。改完按 AGENTS.md「修改后检查」核对暗/亮主题。
 _CSP = (
     "default-src 'self'; "
     "script-src 'self'; "
