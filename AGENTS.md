@@ -87,3 +87,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - ❌ 不得为看板引入外部数据库/消息队列/独立前端运行服务或运行期 node 依赖(保持单运行容器;前端只允许 Docker/CI 构建产物)。
 - ❌ 不得把密钥写进仓库或文档正文(`TF_KEY` 仅存部署机 `.env` / 使用者 shell rc)。
 - ❌ 不得绕过"按身份(operator + agent||runtime)合并卡片"的模型去按 session 散开展示。
+
+## 线框图
+本项目默认生成 `docs/wireframes/`(字符图线框,用于对齐页面信息架构与版式)。是否保留按下面规则判断:
+- 若本项目确定为**无界面**的工具 / 库 / CLI / SDK 类(如纯 npm 工具包),删除整个 `docs/wireframes/` 目录,并删除本节。
+- 本项目**有界面**(`frontend/` React SPA),按 `docs/wireframes/AGENTS.md` 的约定维护:每个真实路由在 `docs/wireframes/pages/` 下对应一页(现已覆盖 `/`·`/agents`·`/agent/:key`·`/skills`·`/skill/:name`),页面间流转记在 `docs/wireframes/flow.md`;新增/改路由时同步增改对应页与流转图。
