@@ -294,13 +294,11 @@ export function AdminView({ t }: { t: (key: string) => string }) {
   const [manualBeforeDay, setManualBeforeDay] = useState('')
 
   useEffect(() => {
+    // 安全:不再从 URL 读取 admin key —— ?key= 会被反代/CDN 访问日志明文记录。
+    // 旧链接若仍带 key,只清理地址栏、不予采用;key 一律走页面内手动输入。
     const params = new URLSearchParams(window.location.search)
-    const fromUrl = params.get('key')?.trim()
-    if (fromUrl) {
-      window.sessionStorage.setItem(STORAGE_KEY, fromUrl)
-      setAdminKey(fromUrl)
+    if (params.has('key')) {
       window.history.replaceState({}, '', '/admin')
-      return
     }
     const saved = window.sessionStorage.getItem(STORAGE_KEY)
     if (saved) setAdminKey(saved)

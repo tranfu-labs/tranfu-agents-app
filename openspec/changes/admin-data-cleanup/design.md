@@ -2,7 +2,7 @@
 
 ## 1. 鉴权(与 TF_KEY 隔离)
 - 新增 `TF_ADMIN_KEY = os.environ.get("TF_ADMIN_KEY","")`;新增 `check_admin(key, request)`:校验请求头 `X-TF-Admin-Key`,**未配置该环境变量时一律 403**(默认关)。从 `request.client.host` 取 IP 拼成 `actor` 供审计。
-- Coolify 部署:`compose.yml` 写 `TF_ADMIN_KEY: ${SERVICE_PASSWORD_64_ADMIN}`,Coolify 首次部署自动生成 64 位纯字母数字(可直接进 HTTP 头,无需转义)并持久化;运维去 Environment Variables 复制。本地开发直接 `export TF_ADMIN_KEY=devadmin`。
+- Coolify 部署:`compose.yml` 写 `TF_ADMIN_KEY: ${SERVICE_PASSWORD_64_ADMIN}`,Coolify 首次部署自动生成 64 位纯字母数字(可直接进 HTTP 头,无需转义)并持久化;运维去 Environment Variables 复制。本地开发用 `export TF_ADMIN_KEY=$(openssl rand -hex 32)` 生成强随机值,勿用易猜口令。
 
 ## 2. 数据模型(两张新表)
 ```sql

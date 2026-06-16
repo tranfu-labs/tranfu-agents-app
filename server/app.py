@@ -31,7 +31,7 @@ Read:
 
 Storage is SQLite (WAL) at $TF_DB, default ./tf.db. No external services.
 """
-import os, json, sqlite3, time, threading, hashlib, secrets, urllib.request, uuid
+import os, sys, json, sqlite3, time, threading, hashlib, hmac, secrets, urllib.request, uuid
 from datetime import datetime, timezone, timedelta
 from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException
@@ -77,6 +77,12 @@ MAX_META = 4 * 1024            # stored meta json
 MAX_SKILL_NAME = 160           # skill usage metadata, bounded like other strings
 WINDOW_DAYS = 90               # retention + read window
 SKILL_MODES = {"used", "equipped"}
+
+# 启动自检:管理钥匙若过短或为常见示例值,在线猜测成本极低 —— 打印告警(不阻断)。
+_WEAK_ADMIN_KEYS = {"devadmin", "admin", "password", "changeme", "test", "secret"}
+if ADMIN_KEY and (len(ADMIN_KEY) < 16 or ADMIN_KEY.lower() in _WEAK_ADMIN_KEYS):
+    print("[tranfu] WARNING: TF_ADMIN_KEY 偏弱(过短或为常见示例值),管理接口可被在线"
+          "猜测;请用 `openssl rand -hex 32` 生成强随机值。", file=sys.stderr)
 
 app = FastAPI(title="TRANFU//AGENTS")
 app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets"), check_dir=False), name="assets")
@@ -357,7 +363,9 @@ def _audit_denied(request, key, selector=None):
 
 def check_admin(key, request, selector=None):
     actor = _admin_actor(key, request)
-    if not ADMIN_KEY or key != ADMIN_KEY:
+    # constant-time 比较:避免按字符短路泄露 key 长度/前缀;编码成 bytes 兼容非 ASCII 输入
+    ok = bool(ADMIN_KEY) and hmac.compare_digest((key or "").encode("utf-8"), ADMIN_KEY.encode("utf-8"))
+    if not ok:
         _audit_denied(request, key, selector)
         raise HTTPException(status_code=403, detail="admin disabled or bad key")
     return actor
