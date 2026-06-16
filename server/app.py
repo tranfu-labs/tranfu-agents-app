@@ -940,19 +940,29 @@ def _validate_targets(targets):
     return out
 
 
-def _event_ids_for_sessions(conn, session_ids):
+def _event_ids_for_sessions(conn, session_ids, operator_norm=None):
+    # operator_norm 非空时收口到该 operator 自身的行(共用 session 不误伤他人);
+    # 为 None 时整删 session 全部行(供 session_ids 显式选择器用)。
     if not session_ids:
         return set()
-    rows = conn.execute(f"SELECT id FROM events WHERE session_id IN ({_marks(session_ids)})",
-                        list(session_ids)).fetchall()
+    sql = f"SELECT id FROM events WHERE session_id IN ({_marks(session_ids)})"
+    params = list(session_ids)
+    if operator_norm is not None:
+        sql += " AND lower(trim(COALESCE(operator,'')))=?"
+        params.append(operator_norm)
+    rows = conn.execute(sql, params).fetchall()
     return {int(r["id"]) for r in rows}
 
 
-def _skill_keys_for_sessions(conn, session_ids):
+def _skill_keys_for_sessions(conn, session_ids, operator_norm=None):
     if not session_ids:
         return set()
-    rows = conn.execute(f"""SELECT session_id,skill,mode FROM skill_uses
-      WHERE session_id IN ({_marks(session_ids)})""", list(session_ids)).fetchall()
+    sql = f"SELECT session_id,skill,mode FROM skill_uses WHERE session_id IN ({_marks(session_ids)})"
+    params = list(session_ids)
+    if operator_norm is not None:
+        sql += " AND lower(trim(COALESCE(operator,'')))=?"
+        params.append(operator_norm)
+    rows = conn.execute(sql, params).fetchall()
     return {_skill_key(r) for r in rows}
 
 
@@ -1027,13 +1037,19 @@ def _profile_keys_for_selector(conn, operator, agent=None, runtime=None):
     return {_profile_key(r) for r in rows}
 
 
-def _expand_child_sessions(conn, session_ids):
+def _expand_child_sessions(conn, session_ids, operator_norm=None):
+    # operator_norm 非空时后代会话只在同 operator 范围内扩展,不借后代把他人行卷入。
     all_sids = set(session_ids)
     frontier = set(session_ids)
     while frontier:
-        rows = conn.execute(f"""SELECT DISTINCT session_id FROM events
+        sql = f"""SELECT DISTINCT session_id FROM events
           WHERE parent_session_id IN ({_marks(frontier)})
-            AND session_id IS NOT NULL""", list(frontier)).fetchall()
+            AND session_id IS NOT NULL"""
+        params = list(frontier)
+        if operator_norm is not None:
+            sql += " AND lower(trim(COALESCE(operator,'')))=?"
+            params.append(operator_norm)
+        rows = conn.execute(sql, params).fetchall()
         found = {r["session_id"] for r in rows if r["session_id"] and r["session_id"] not in all_sids}
         if not found:
             break
@@ -1095,11 +1111,14 @@ def _resolution_token(resolved):
 
 def _resolve_admin_targets(conn, targets, cascade_children=False, revoke=False):
     targets = _validate_targets(targets)
-    session_ids, skill_keys, profile_keys = set(), set(), set()
+    # 逐 target 带各自 operator 约束解析后取并集:operator / before_day 路径收口到本人行;
+    # 裸 session_ids 路径整删该 session(用户精确点选)。session_ids 仅用于活跃会话预警。
+    session_ids, event_ids, skill_keys, profile_keys = set(), set(), set(), set()
+    plain_session_ids = set()
     target_ops = set()
     for target in targets:
         if target.get("session_ids") is not None:
-            session_ids.update(target["session_ids"])
+            plain_session_ids.update(target["session_ids"])
             continue
         if target.get("skill") is not None:
             skill_keys.update(_skill_keys_for_skill(conn, target["skill"]))
@@ -1110,16 +1129,25 @@ def _resolve_admin_targets(conn, targets, cascade_children=False, revoke=False):
         if operator is not None:
             target_ops.add(operator)
         if target.get("before_day") is not None:
-            session_ids.update(_session_ids_before_day(conn, target["before_day"], operator, agent, runtime))
-            continue
-        if operator is not None:
-            session_ids.update(_session_ids_by_operator(conn, operator, agent, runtime))
+            sids = _session_ids_before_day(conn, target["before_day"], operator, agent, runtime)
+        elif operator is not None:
+            sids = _session_ids_by_operator(conn, operator, agent, runtime)
             if target.get("profile", True):
                 profile_keys.update(_profile_keys_for_selector(conn, operator, agent, runtime))
-    if cascade_children and session_ids:
-        session_ids = _expand_child_sessions(conn, session_ids)
-    event_ids = _event_ids_for_sessions(conn, session_ids)
-    skill_keys.update(_skill_keys_for_sessions(conn, session_ids))
+        else:
+            continue
+        op_norm = _norm_op(operator)
+        if cascade_children and sids:
+            sids = _expand_child_sessions(conn, sids, op_norm)
+        session_ids.update(sids)
+        event_ids.update(_event_ids_for_sessions(conn, sids, op_norm))
+        skill_keys.update(_skill_keys_for_sessions(conn, sids, op_norm))
+    if plain_session_ids:
+        if cascade_children:
+            plain_session_ids = _expand_child_sessions(conn, plain_session_ids)
+        session_ids.update(plain_session_ids)
+        event_ids.update(_event_ids_for_sessions(conn, plain_session_ids))
+        skill_keys.update(_skill_keys_for_sessions(conn, plain_session_ids))
     resolved = {
         "targets": targets,
         "session_ids": set(session_ids),

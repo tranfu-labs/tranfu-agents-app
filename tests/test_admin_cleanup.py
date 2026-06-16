@@ -182,6 +182,115 @@ def test_operator_delete_clears_profiles_and_identities_but_keeps_token_by_defau
     assert table_count(app_mod, "operators", "operator='zoe'") == 1
 
 
+def _insert_event(app_mod, session_id, operator, runtime="codex", status="done",
+                  parent_session_id=None, day=None):
+    day = day or datetime.now(timezone.utc).date().isoformat()
+    ts = f"{day}T12:00:00+00:00"
+    with app_mod.db() as conn:
+        conn.execute("""INSERT INTO events(ts,recv,day,last_seen,operator,runtime,
+            session_id,parent_session_id,status,source)
+          VALUES(?,?,?,?,?,?,?,?,?,?)""",
+          (ts, ts, day, ts, operator, runtime, session_id, parent_session_id, status, "heartbeat"))
+        conn.commit()
+
+
+def _insert_skill_use(app_mod, session_id, skill, operator, mode="used", runtime="codex", day=None):
+    day = day or datetime.now(timezone.utc).date().isoformat()
+    with app_mod.db() as conn:
+        conn.execute("""INSERT INTO skill_uses(session_id,skill,mode,operator,runtime,day,first_seen)
+          VALUES(?,?,?,?,?,?,?)""",
+          (session_id, skill, mode, operator, runtime, day, f"{day}T12:00:00+00:00"))
+        conn.commit()
+
+
+def test_operator_delete_scopes_to_own_rows_in_shared_session(client, app_mod):
+    # 脏数据:一个 session 由 A、B 共用 -> 删 A 只解析出 A 的行,B 完全不动
+    enable_admin(app_mod)
+    _insert_event(app_mod, "shared", "alice")
+    _insert_event(app_mod, "shared", "bob")
+    _insert_skill_use(app_mod, "shared", "alpha", "alice")
+    _insert_skill_use(app_mod, "shared", "beta", "bob")
+
+    targets = [{"operator": "alice"}]
+    p = preview(client, targets)
+    assert p["counts"]["events"] == 1
+    assert p["counts"]["skill_uses"] == 1
+    assert p["operators"] == ["alice"]            # 预览只反映 A 自己
+
+    assert delete_from_preview(client, targets, p).status_code == 200
+    # B 的 event 与 skill_use 全部保留
+    assert table_count(app_mod, "events", "session_id='shared' AND operator='bob'") == 1
+    assert table_count(app_mod, "events", "session_id='shared' AND operator='alice'") == 0
+    assert table_count(app_mod, "skill_uses", "session_id='shared' AND operator='bob'") == 1
+    assert table_count(app_mod, "skill_uses", "session_id='shared' AND operator='alice'") == 0
+
+
+def test_sentinel_session_delete_keeps_other_operators(client, app_mod):
+    # 哨兵 session:codex-doctor 式多人共用同一 session_id -> 删一人留其余
+    enable_admin(app_mod)
+    for op in ("alice", "bob", "carol"):
+        _insert_event(app_mod, "codex-doctor", op)
+    targets = [{"operator": "bob"}]
+    p = preview(client, targets)
+    assert p["counts"]["events"] == 1
+    assert p["operators"] == ["bob"]
+    assert delete_from_preview(client, targets, p).status_code == 200
+    assert table_count(app_mod, "events", "session_id='codex-doctor'") == 2
+    assert table_count(app_mod, "events", "session_id='codex-doctor' AND operator='bob'") == 0
+
+
+def test_session_ids_delete_still_purges_whole_shared_session(client, app_mod):
+    # 回归:按 session_ids 显式删,仍整删该 session 全部行(不被 operator 过滤误伤)
+    enable_admin(app_mod)
+    _insert_event(app_mod, "shared", "alice")
+    _insert_event(app_mod, "shared", "bob")
+    _insert_skill_use(app_mod, "shared", "alpha", "alice")
+    _insert_skill_use(app_mod, "shared", "beta", "bob")
+
+    targets = [{"session_ids": ["shared"]}]
+    p = preview(client, targets)
+    assert p["counts"]["events"] == 2
+    assert p["counts"]["skill_uses"] == 2
+    # 整删共用 session 牵涉 >1 operator,过确认闸
+    assert delete_from_preview(client, targets, p, confirm_count=p["total_rows"]).status_code == 200
+    assert table_count(app_mod, "events", "session_id='shared'") == 0
+    assert table_count(app_mod, "skill_uses", "session_id='shared'") == 0
+
+
+def test_skill_selector_unchanged_on_shared_session(client, app_mod):
+    # 回归:skill 选择器行为不变,只触该 skill 的 skill_uses,不动 events、不按 operator 收口
+    enable_admin(app_mod)
+    _insert_event(app_mod, "shared", "alice")
+    _insert_event(app_mod, "shared", "bob")
+    _insert_skill_use(app_mod, "shared", "alpha", "alice")
+    _insert_skill_use(app_mod, "other", "alpha", "bob")
+
+    targets = [{"skill": "alpha"}]
+    p = preview(client, targets)
+    assert p["counts"]["events"] == 0
+    assert p["counts"]["skill_uses"] == 2         # 两个 operator 的 alpha 都触及
+    assert delete_from_preview(client, targets, p, confirm_count=p["total_rows"]).status_code == 200
+    assert table_count(app_mod, "skill_uses", "skill='alpha'") == 0
+    assert table_count(app_mod, "events", "session_id='shared'") == 2
+
+
+def test_cascade_children_scopes_to_operator(client, app_mod):
+    # 级联后代时仍按 operator 收口:父子会话各有 A、B 行,删 A 不借后代卷入 B
+    enable_admin(app_mod)
+    _insert_event(app_mod, "p", "alice")
+    _insert_event(app_mod, "p", "bob")
+    _insert_event(app_mod, "c", "alice", parent_session_id="p")
+    _insert_event(app_mod, "c", "bob", parent_session_id="p")
+
+    targets = [{"operator": "alice"}]
+    p = preview(client, targets, cascade_children=True)
+    assert p["counts"]["events"] == 2             # 父+子里 alice 各一行
+    assert p["operators"] == ["alice"]
+    assert delete_from_preview(client, targets, p, cascade_children=True).status_code == 200
+    assert table_count(app_mod, "events", "operator='alice'") == 0
+    assert table_count(app_mod, "events", "operator='bob'") == 2
+
+
 def test_inventory_and_delete_cover_orphan_skill_uses(client, app_mod):
     enable_admin(app_mod)
     day = datetime.now(timezone.utc).date().isoformat()

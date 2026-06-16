@@ -2,6 +2,7 @@
 
 - 状态:Proposed
 - 关联:ADR-0001(单容器/单文件 SQLite)、ADR-0002(写凭证仅 TF_KEY)、ADR-0014(保留期裁剪 / 存储限制)、`openspec/changes/admin-data-cleanup/`、specs/admin
+- 后续:ADR-0021 收口本文「删除全表级联」中隐含的「session 单操作员独占」假设(operator 路径删除改为按 operator 收口到本人行)
 
 ## 背景 / 问题
 生产看板会混入测试数据与同事配置错误上传的数据,污染 Pods 看板、operator 列表与 SKILLS 排行,需要在生产**安全删除**这些数据。现有 `DELETE /v1/events` 只删 events(可选 profiles),删不干净;且复用全队分发的 `TF_KEY`,人人可删;无预览、不可逆、无留痕。需要定下删除的数据模型与鉴权边界。

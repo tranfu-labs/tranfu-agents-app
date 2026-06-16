@@ -25,3 +25,4 @@
 | 0018 | OpenClaw skill 采集——装备态 `equipped`(与「使用」分语义) | Proposed |
 | 0019 | React 看板构建,同时保持单运行容器 | Accepted |
 | 0020 | 后台清理:硬删+回收站+审计(不软删);管理鉴权 TF_ADMIN_KEY 与 TF_KEY 隔离 | Proposed |
+| 0021 | 按 operator 删除收口到本人行(session 不再是 operator 路径的删除原子单位;修订 0020) | Proposed |
