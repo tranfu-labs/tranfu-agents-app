@@ -20,6 +20,10 @@ def app_mod(tmp_path):
     app._prune_state["n"] = 0
     app.REQUIRE_TOKEN = False
     app.READ_AUTH_OK = False
+    app.TRUST_PROXY = False
+    # 限流器是进程内全局状态(非每测试),显式清空避免跨测试污染/误触封锁
+    with app._rate_lock:
+        app._rate_state.clear()
     # 单测显式调用 sync_catalog_once() 时再测试 catalog；避免 TestClient
     # startup 在后台打真实网络,也避免跨测试污染内存缓存。
     app._catalog_thread_started = True

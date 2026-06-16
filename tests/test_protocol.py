@@ -146,7 +146,8 @@ def test_delete_by_session_id(client, app_mod):
     app_mod.ADMIN_KEY = "adminkey"
     ev(client, session_id="junk1", current_step="x")
     ev(client, session_id="keep1", current_step="x")
-    r = client.request("DELETE", "/v1/events", json={"session_id": "junk1"}, headers=ADMIN_HEADERS)
+    # 活跃会话需 force(遗留端点护栏已与 /api/admin/data 对齐)
+    r = client.request("DELETE", "/v1/events", json={"session_id": "junk1", "force": True}, headers=ADMIN_HEADERS)
     assert r.status_code == 200 and r.json()["deleted"] >= 1
     sids = {c["session_id"] for c in client.get("/api/state").json()["sessions"]}
     assert "junk1" not in sids and "keep1" in sids
@@ -156,7 +157,7 @@ def test_delete_by_session_ids_list(client, app_mod):
     app_mod.ADMIN_KEY = "adminkey"
     ev(client, session_id="a", current_step="x")
     ev(client, session_id="b", current_step="x")
-    r = client.request("DELETE", "/v1/events", json={"session_ids": ["a", "b"]}, headers=ADMIN_HEADERS)
+    r = client.request("DELETE", "/v1/events", json={"session_ids": ["a", "b"], "force": True}, headers=ADMIN_HEADERS)
     assert r.status_code == 200 and r.json()["deleted"] >= 2
 
 
@@ -166,7 +167,7 @@ def test_delete_by_identity_clears_profile(client, app_mod):
     ev(client, operator="zoe", runtime="claude-code", agent="赛博测试",
        session_id="s", current_step="x", skills={"local": [{"name": "k"}]})
     r = client.request("DELETE", "/v1/events",
-                       json={"operator": "zoe", "agent": "赛博测试", "profile": True},
+                       json={"operator": "zoe", "agent": "赛博测试", "profile": True, "force": True},
                        headers=ADMIN_HEADERS)
     assert r.status_code == 200
     assert r.json()["deleted"] >= 1 and r.json()["cleared_profile"] == 1

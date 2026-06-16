@@ -233,6 +233,21 @@ curl -s -XPOST https://agents.tranfu.com/v1/enroll \
 - 删除前必须先预览;删除会进入 `admin_trash` 回收站并写 `admin_audit`。回收站保留 `TF_TRASH_DAYS` 天,
   默认 30 天;审计不自动删除。
 - 单次删除超过 `TF_ADMIN_MAX_ROWS`(默认 200)或跨多个 operator 时,页面会要求手输实际行数。
+- 兼容的 `DELETE /v1/events` 现已与 `/api/admin/data` 护栏对齐:删活跃会话需 `force=true`,超
+  `TF_ADMIN_MAX_ROWS` / 跨多 operator 需带 `confirm_count`(curl 可先删一次读回 `total_rows` 再带上)。
+  该端点已标废弃,新脚本请直接用 `/api/admin/data`。
+- **整库导出**:`POST /api/admin/export`(旧的 `GET` 已移除)会把**整个数据库**(含敏感的
+  instructions/memory/input/output)打包下载、不可逆,因此要求请求体带 `{"confirm":"EXPORT"}`,
+  审计记为高危 `action=export`。看板「导出 DB」按钮会先弹二次确认。
+
+**防爆破限流(D4 续)**:管理接口(`/api/admin/*` + 兼容 `DELETE /v1/events`)与签发端点
+`/v1/enroll` 按真实客户端 IP 限流:同一来源 `TF_ADMIN_RATE_WINDOW`(默认 60s)内验钥失败超过
+`TF_ADMIN_RATE_MAX`(默认 5)次即进入封锁,封锁时长从 `TF_ADMIN_LOCK_BASE`(30s)指数翻倍、封顶
+`TF_ADMIN_LOCK_MAX`(3600s),封锁期内返回 `429 + Retry-After`。
+> ⚠ **反代场景必开 `TF_TRUST_PROXY=1`**:Traefik / Coolify 之后所有外部请求的连接 IP 都是反代 IP,
+> 不开会「一人触发、全员被封」。但 `TF_TRUST_PROXY` **仅在确认前置有可信反代时**才开 —— 否则攻击者
+> 自带 `X-Forwarded-For` 即可伪造 IP 绕过限流。限流为单进程内存态:若将来加 `uvicorn --workers N`,
+> 各 worker 计数独立、阈值实际放大 N 倍,届时需换共享存储。
 
 ---
 
@@ -292,6 +307,9 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
       `TF_READ_AUTH=1` 或 `TF_READ_KEY`(D2)——否则服务端会**丢弃**敏感字段。
       这两个会把 **prompt/代码/系统指令/记忆** 上报并展示,默认都是关的。
 - [ ] (可选)需要可信归因时开 `TF_REQUIRE_TOKEN` 并给成员 enroll 令牌(D3)。
+- [ ] `TF_ADMIN_KEY` 用 `openssl rand -hex 32` 生成(过短/常见示例值启动会告警);管理接口已默认按 IP 限流。
+- [ ] 部署在反代之后:已开 `TF_TRUST_PROXY=1`,且确认前面**确有**可信反代(否则限流可被伪造 XFF 绕过)。
+- [ ] HTTPS 生产部署:设 `TF_HSTS=1`(或经可信反代识别 https 自动发 HSTS)。
 - [ ] 定期备份 `tf.db`。
 
 > 活跃时长按 **UTC 日/周** 统计,跨天会话按当天边界自动拆分(后续可加 `TF_TZ` 改时区)。

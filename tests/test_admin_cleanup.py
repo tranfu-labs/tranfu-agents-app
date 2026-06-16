@@ -47,14 +47,16 @@ def set_skill_day(app_mod, session_id, skill, day):
         conn.commit()
 
 
-def test_admin_key_required_and_denied_is_audited(client, app_mod):
+def test_admin_key_required_and_denied_is_deduped(client, app_mod):
+    # admin 未配置时也算验钥失败,但仍 403;失败审计按来源+窗口去重 -> 同窗口多次只写一条
     assert client.get("/api/admin/inventory", headers=ADMIN_HEADERS).status_code == 403
     assert table_count(app_mod, "admin_audit", "action='denied'") == 1
 
     enable_admin(app_mod)
     bad = client.get("/api/admin/inventory", headers={"X-TF-Admin-Key": "wrong"})
     assert bad.status_code == 403
-    assert table_count(app_mod, "admin_audit", "action='denied'") == 2
+    # 同一来源同一窗口的第二次失败被降噪,不再追加审计行
+    assert table_count(app_mod, "admin_audit", "action='denied'") == 1
 
 
 def test_preview_is_dry_run_and_token_mismatch_conflicts(client, app_mod):
@@ -240,7 +242,10 @@ def test_active_force_and_confirm_count_guards(client, app_mod):
 def test_legacy_delete_routes_through_cascade_and_trash(client, app_mod):
     enable_admin(app_mod)
     ev(client, session_id="legacy", status="running", skill="alpha", current_step="x")
-    r = client.request("DELETE", "/v1/events", json={"session_id": "legacy"}, headers=ADMIN_HEADERS)
+    # 活跃会话:遗留端点现也要求 force(护栏对齐),无 force 先被拒
+    blocked = client.request("DELETE", "/v1/events", json={"session_id": "legacy"}, headers=ADMIN_HEADERS)
+    assert blocked.status_code == 400
+    r = client.request("DELETE", "/v1/events", json={"session_id": "legacy", "force": True}, headers=ADMIN_HEADERS)
     assert r.status_code == 200, r.text
     assert r.json()["deleted"] == 1
     assert r.json()["counts"]["skill_uses"] == 1
@@ -277,3 +282,133 @@ def test_trash_prune_and_retention_prune_are_audited_without_trash(client, app_m
     assert table_count(app_mod, "events", "session_id='too-old'") == 0
     assert table_count(app_mod, "admin_trash") == 0
     assert table_count(app_mod, "admin_audit", "action='retention_prune'") == 1
+
+
+# ------------------------------------------------------------ 认证加固 / 防爆破
+
+BAD = {"X-TF-Admin-Key": "wrong"}
+
+
+def _clear_block(app_mod):
+    """模拟封锁窗口到期(不真实 sleep),保留 streak 以验证退避增长。"""
+    with app_mod._rate_lock:
+        for e in app_mod._rate_state.values():
+            e["blocked_until"] = 0.0
+
+
+def test_rate_limit_locks_after_threshold(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.ADMIN_RATE_MAX = 3
+    for _ in range(3):                       # 阈值内:仍是 403
+        assert client.get("/api/admin/inventory", headers=BAD).status_code == 403
+    r = client.get("/api/admin/inventory", headers=BAD)   # 越过阈值 -> 429
+    assert r.status_code == 429
+    assert int(r.headers["retry-after"]) >= 1
+    # 封锁期内即便带正确钥匙也 429(不验钥、不写审计)
+    assert client.get("/api/admin/inventory", headers=ADMIN_HEADERS).status_code == 429
+
+
+def test_lockout_recovers_after_expiry(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.ADMIN_RATE_MAX = 1
+    assert client.get("/api/admin/inventory", headers=BAD).status_code == 403
+    assert client.get("/api/admin/inventory", headers=BAD).status_code == 429
+    with app_mod._rate_lock:                 # 模拟封锁+窗口到期
+        for e in app_mod._rate_state.values():
+            e["blocked_until"] = 0.0
+            e["win_start"] = 0.0
+    assert client.get("/api/admin/inventory", headers=ADMIN_HEADERS).status_code == 200
+
+
+def test_lockout_backoff_grows_and_caps(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.ADMIN_RATE_MAX = 0               # 任何失败立即封锁
+    app_mod.ADMIN_LOCK_BASE = 10
+    app_mod.ADMIN_LOCK_MAX = 100
+    r1 = client.get("/api/admin/inventory", headers=BAD)
+    assert r1.status_code == 429
+    first = int(r1.headers["retry-after"])
+    _clear_block(app_mod)
+    r2 = client.get("/api/admin/inventory", headers=BAD)
+    assert r2.status_code == 429
+    second = int(r2.headers["retry-after"])
+    assert second > first                     # 指数退避:第二轮更长
+    assert second <= app_mod.ADMIN_LOCK_MAX + 1
+
+
+def test_denied_audit_deduped_per_window(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.ADMIN_RATE_MAX = 100             # 不触封锁,只看降噪
+    for _ in range(8):
+        assert client.get("/api/admin/inventory", headers=BAD).status_code == 403
+    assert table_count(app_mod, "admin_audit", "action='denied'") == 1
+
+
+def test_xff_ignored_without_trust_proxy(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.TRUST_PROXY = False
+    app_mod.ADMIN_RATE_MAX = 2
+    for i in range(3):                        # 伪造各异 XFF 不改变分桶
+        client.get("/api/admin/inventory",
+                   headers={**BAD, "X-Forwarded-For": f"10.0.0.{i}"})
+    r = client.get("/api/admin/inventory", headers={**BAD, "X-Forwarded-For": "10.0.0.9"})
+    assert r.status_code == 429              # 同一连接 IP 桶已封锁
+
+
+def test_xff_buckets_separately_with_trust_proxy(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.TRUST_PROXY = True
+    app_mod.ADMIN_RATE_MAX = 1
+    a = {**BAD, "X-Forwarded-For": "1.1.1.1"}
+    b = {**BAD, "X-Forwarded-For": "2.2.2.2"}
+    assert client.get("/api/admin/inventory", headers=a).status_code == 403
+    assert client.get("/api/admin/inventory", headers=b).status_code == 403  # 独立桶
+    assert client.get("/api/admin/inventory", headers=a).status_code == 429
+    assert client.get("/api/admin/inventory", headers=b).status_code == 429
+
+
+def test_export_requires_post_and_confirm(client, app_mod):
+    enable_admin(app_mod)
+    # GET 不再暴露(只剩 POST);api 前缀被 SPA 兜底拦下 -> 404
+    assert client.get("/api/admin/export", headers=ADMIN_HEADERS).status_code in (404, 405)
+    assert client.post("/api/admin/export", headers=ADMIN_HEADERS).status_code == 400
+    r = client.post("/api/admin/export", json={"confirm": "EXPORT"}, headers=ADMIN_HEADERS)
+    assert r.status_code == 200, r.text
+    assert table_count(app_mod, "admin_audit", "action='export'") == 1
+
+
+def test_legacy_delete_enforces_max_rows_confirm(client, app_mod):
+    enable_admin(app_mod)
+    app_mod.ADMIN_MAX_ROWS = 0
+    ev(client, operator="carol", session_id="leg2", status="done", current_step="x")
+    blocked = client.request("DELETE", "/v1/events",
+                             json={"session_id": "leg2"}, headers=ADMIN_HEADERS)
+    assert blocked.status_code == 400
+    ok = client.request("DELETE", "/v1/events",
+                        json={"session_id": "leg2", "confirm_count": 1}, headers=ADMIN_HEADERS)
+    assert ok.status_code == 200, ok.text
+
+
+def test_security_headers_present(client, app_mod):
+    r = client.get("/healthz")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert "default-src 'self'" in r.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert "strict-transport-security" not in r.headers   # 非 HTTPS 不发 HSTS
+
+
+def test_enroll_is_rate_limited(client, app_mod):
+    app_mod.INGEST_KEY = "ingestkey"
+    app_mod.ADMIN_RATE_MAX = 2
+    bad = {"X-TF-Key": "nope"}
+    assert client.post("/v1/enroll", json={"operator": "x"}, headers=bad).status_code == 401
+    assert client.post("/v1/enroll", json={"operator": "x"}, headers=bad).status_code == 401
+    assert client.post("/v1/enroll", json={"operator": "x"}, headers=bad).status_code == 429
+    # 写侧高频上报路径不受影响(豁免)
+    ok = client.post("/v1/events",
+                     json={"v": "0.1", "operator": "alice", "runtime": "codex",
+                           "session_id": "s1", "status": "running"},
+                     headers={"X-TF-Key": "ingestkey"})
+    assert ok.status_code == 200, ok.text

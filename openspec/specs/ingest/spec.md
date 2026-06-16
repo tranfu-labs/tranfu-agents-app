@@ -10,7 +10,8 @@
 - 可选 profile 字段(任意子集):`models, config, mcp, skills, integrations, about, tips, cf, instructions, memory, shim_version`。
 
 ## 规则(MUST)
-1. 写入须带请求头 `X-TF-Key`,且等于服务端 `TF_KEY`(`TF_KEY` 为空时仅限本地开发)。
+1. 写入须带请求头 `X-TF-Key`,且等于服务端 `TF_KEY`(`TF_KEY` 为空时仅限本地开发)。比较须用常量时间
+   比较(`hmac.compare_digest`),与管理钥匙一致、不得短路。
 2. **去重**:仅当 `status` 或 `current_step` 相对该身份的上一行发生变化时才落新行;
    否则视为心跳,仅更新 `last_seen`,响应 `{"heartbeat": true}`,且不进活动流。
 3. 收到含 profile 字段的事件时,按身份**更新该身份最新 profile**(`profiles` 表);技能名首次出现记入 `skills_seen.first_day`。
@@ -29,6 +30,11 @@
 9. 云端运行时 `{manus, mulerun, chatgpt}` 标记 `fidelity = coarse`,其余 `full`。
 10. `input`/`output`(内容)与 `instructions`/`memory`(敏感)默认不应被上报,仅在使用者显式开启时携带。
 11. `shim_version` 只记录本机 `~/.tranfu/manifest.json` 的内容版本,用于看板判断本地 shim 是否过期。
+
+## 签发端点防爆破(SHOULD)
+- `POST /v1/enroll`(凭 `TF_KEY` 签发持久 per-operator token)应纳入与管理接口同类的按 IP 速率限制
+  (同一退避机制,独立计数桶),遏制对写侧钥匙的在线猜测;触发封锁返回 `429 + Retry-After`。
+- `POST /v1/events` 高频上报路径不纳入该限流(豁免),避免误伤正常心跳。
 
 ## 不变量
 - 不存在任何 token / 成本字段(见 ADR-0002)。

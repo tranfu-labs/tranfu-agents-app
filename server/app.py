@@ -26,7 +26,8 @@ Read:
   GET  /api/admin/trash
   POST /api/admin/restore
                          admin cleanup (X-TF-Admin-Key)
-  GET  /api/admin/export consistent SQLite snapshot download (X-TF-Admin-Key)
+  POST /api/admin/export consistent SQLite snapshot download (X-TF-Admin-Key);
+                         whole-DB export, requires body {"confirm":"EXPORT"}
   GET  /                 the dashboard
   GET  /healthz
 
@@ -86,6 +87,34 @@ if ADMIN_KEY and (len(ADMIN_KEY) < 16 or ADMIN_KEY.lower() in _WEAK_ADMIN_KEYS):
           "猜测;请用 `openssl rand -hex 32` 生成强随机值。", file=sys.stderr)
 
 app = FastAPI(title="TRANFU//AGENTS")
+
+# 锁定本源的 CSP:script 仅允许同源(挡掉注入的内联/外链脚本偷 sessionStorage
+# 里的管理钥匙);connect 仅同源(挡外传);style/font/img 放行前端实际用到的
+# Google Fonts 与品牌图床。前端无内联脚本(JSON-LD 数据块不受 script-src 管控)。
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "img-src 'self' https://tranfu.com data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    if _req_is_https(request):
+        resp.headers.setdefault("Strict-Transport-Security",
+                                "max-age=31536000; includeSubDomains")
+    return resp
+
+
 app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets"), check_dir=False), name="assets")
 _lock = threading.Lock()
 _catalog_lock = threading.Lock()
@@ -100,6 +129,18 @@ def _env_int(name, default):
 
 TRASH_DAYS = _env_int("TF_TRASH_DAYS", 30)
 ADMIN_MAX_ROWS = _env_int("TF_ADMIN_MAX_ROWS", 200)
+
+# 反代场景:仅当声明前置可信反代时,才信任 X-Forwarded-For 提取真实客户端 IP。
+# 默认关 —— XFF 可被请求方随意伪造,误信会让攻击者绕过按 IP 的限流。
+TRUST_PROXY = os.environ.get("TF_TRUST_PROXY", "0") == "1"
+# 管理接口防爆破限流(进程内,单 worker 前提;见 design.md「权衡」)。
+ADMIN_RATE_MAX = _env_int("TF_ADMIN_RATE_MAX", 5)        # 窗口内允许的验钥失败次数
+ADMIN_RATE_WINDOW = _env_int("TF_ADMIN_RATE_WINDOW", 60)  # 滑窗长度(秒)
+ADMIN_LOCK_BASE = _env_int("TF_ADMIN_LOCK_BASE", 30)     # 首次封锁时长(秒),其后翻倍
+ADMIN_LOCK_MAX = _env_int("TF_ADMIN_LOCK_MAX", 3600)     # 封锁时长封顶(秒)
+_RATE_MAX_ENTRIES = 10000                                # 来源条目硬上限,防海量来源撑爆内存
+# 生产 HTTPS 部署才发 HSTS:显式 TF_HSTS=1,或经可信反代识别到 https。
+HSTS_FORCE = os.environ.get("TF_HSTS", "0") == "1"
 CATALOG_URL = os.environ.get(
     "TF_SKILLS_CATALOG_URL",
     "https://github.com/tranfu-labs/tranfu-skills/releases/download/catalog/index.json",
@@ -326,8 +367,14 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _key_eq(given, expected):
+    """常量时间比较:避免按字符短路泄露 key 长度/前缀;编码成 bytes 兼容
+    非 ASCII 输入,且不会因输入类型异常抛 500。"""
+    return hmac.compare_digest((given or "").encode("utf-8"), (expected or "").encode("utf-8"))
+
+
 def check_auth(key):
-    if INGEST_KEY and key != INGEST_KEY:
+    if INGEST_KEY and not _key_eq(key, INGEST_KEY):
         raise HTTPException(status_code=401, detail="bad ingest key")
 
 
@@ -336,10 +383,88 @@ def _json(data):
 
 
 def _client_host(request):
+    """真实客户端 IP。反代后 request.client.host 恒为反代 IP,直接限流会
+    『一人触发、全员被封』。仅在显式声明可信反代(TRUST_PROXY)时,才取
+    X-Forwarded-For 的最右段(可信反代追加的那一跳);否则用连接对端 IP。"""
     try:
+        if TRUST_PROXY:
+            xff = request.headers.get("x-forwarded-for", "")
+            if xff:
+                parts = [p.strip() for p in xff.split(",") if p.strip()]
+                if parts:
+                    return parts[-1]
         return request.client.host or "unknown"
     except Exception:
         return "unknown"
+
+
+def _req_is_https(request):
+    if HSTS_FORCE:
+        return True
+    try:
+        if TRUST_PROXY and request.headers.get("x-forwarded-proto", "").lower() == "https":
+            return True
+        return request.url.scheme == "https"
+    except Exception:
+        return False
+
+
+# ------------------------------------------------------------ 防爆破限流(进程内)
+# bucket(如 "admin" / "enroll")× 来源 IP 为键,做滑窗失败计数 + 指数退避封锁。
+# 只碰内存与一把独立轻锁,不抢全局 DB 写锁、不引入 Redis(契合「无外部服务」)。
+_rate_lock = threading.Lock()
+_rate_state = {}   # (bucket, ip) -> {win_start, fails, audited, blocked_until, streak}
+
+
+def _rate_prune(now):
+    """惰性清理:超过硬上限时,丢弃既未封锁、窗口又已过期的陈旧条目。"""
+    if len(_rate_state) <= _RATE_MAX_ENTRIES:
+        return
+    stale = [k for k, e in _rate_state.items()
+             if e["blocked_until"] <= now and now - e["win_start"] >= ADMIN_RATE_WINDOW]
+    for k in stale:
+        _rate_state.pop(k, None)
+
+
+def _rate_retry_after(bucket, ip):
+    """命中封锁窗口则返回剩余秒数(>=1),否则 None。无副作用。"""
+    now = time.time()
+    with _rate_lock:
+        e = _rate_state.get((bucket, ip))
+        if e and e["blocked_until"] > now:
+            return int(e["blocked_until"] - now) + 1
+    return None
+
+
+def _rate_register_failure(bucket, ip):
+    """记一次验钥失败。返回 (should_audit, retry_after)。
+    should_audit:本窗口是否首次失败(降噪,每来源每窗口至多审计一条)。
+    retry_after:本次失败若触发封锁则为剩余秒数,否则 None。"""
+    now = time.time()
+    with _rate_lock:
+        e = _rate_state.get((bucket, ip))
+        if e is None or now - e["win_start"] >= ADMIN_RATE_WINDOW:
+            e = {"win_start": now, "fails": 0, "audited": False,
+                 "blocked_until": e["blocked_until"] if e else 0.0,
+                 "streak": e["streak"] if e else 0}
+            _rate_state[(bucket, ip)] = e
+        e["fails"] += 1
+        should_audit = not e["audited"]
+        e["audited"] = True
+        retry_after = None
+        if e["fails"] > ADMIN_RATE_MAX:
+            lock = min(ADMIN_LOCK_BASE * (2 ** e["streak"]), ADMIN_LOCK_MAX)
+            e["streak"] = min(e["streak"] + 1, 30)
+            e["blocked_until"] = now + lock
+            retry_after = int(lock) + 1
+        _rate_prune(now)
+        return should_audit, retry_after
+
+
+def _rate_register_success(bucket, ip):
+    """验钥成功:清除该来源的失败/封锁记录。"""
+    with _rate_lock:
+        _rate_state.pop((bucket, ip), None)
 
 
 def _admin_actor(key, request):
@@ -363,12 +488,23 @@ def _audit_denied(request, key, selector=None):
 
 
 def check_admin(key, request, selector=None):
+    ip = _client_host(request)
     actor = _admin_actor(key, request)
-    # constant-time 比较:避免按字符短路泄露 key 长度/前缀;编码成 bytes 兼容非 ASCII 输入
-    ok = bool(ADMIN_KEY) and hmac.compare_digest((key or "").encode("utf-8"), ADMIN_KEY.encode("utf-8"))
-    if not ok:
-        _audit_denied(request, key, selector)
+    # 1) 命中封锁窗口:直接 429,不验钥、不写审计(防爆破 + 写放大 DoS)
+    retry = _rate_retry_after("admin", ip)
+    if retry is not None:
+        raise HTTPException(status_code=429, detail="too many attempts",
+                            headers={"Retry-After": str(retry)})
+    # 2) 常量时间比较(见 _key_eq)
+    if not (bool(ADMIN_KEY) and _key_eq(key, ADMIN_KEY)):
+        should_audit, retry = _rate_register_failure("admin", ip)
+        if should_audit:                  # 每来源每窗口至多一条 denied 汇总(降噪)
+            _audit_denied(request, key, selector)
+        if retry is not None:             # 本次失败触发封锁 -> 429 + Retry-After
+            raise HTTPException(status_code=429, detail="too many attempts",
+                                headers={"Retry-After": str(retry)})
         raise HTTPException(status_code=403, detail="admin disabled or bad key")
+    _rate_register_success("admin", ip)   # 验钥成功:清空该来源失败计数
     return actor
 
 
@@ -612,7 +748,21 @@ def _day_cutoff(days):
 async def enroll(request: Request, x_tf_key: str = Header(default="")):
     """Admin issues a per-operator token. Guarded by the team write key.
     The plaintext token is returned ONCE; the server stores only its sha256."""
-    check_auth(x_tf_key)
+    # 签发持久 token 的写侧钥匙值得保护:与管理接口同类的按 IP 限流(独立 bucket)。
+    ip = _client_host(request)
+    retry = _rate_retry_after("enroll", ip)
+    if retry is not None:
+        raise HTTPException(status_code=429, detail="too many attempts",
+                            headers={"Retry-After": str(retry)})
+    try:
+        check_auth(x_tf_key)
+    except HTTPException:
+        _, retry = _rate_register_failure("enroll", ip)
+        if retry is not None:
+            raise HTTPException(status_code=429, detail="too many attempts",
+                                headers={"Retry-After": str(retry)})
+        raise
+    _rate_register_success("enroll", ip)
     body = await request.json()
     raw_op = (body.get("operator") or "").strip()
     if not raw_op:
@@ -1564,10 +1714,17 @@ async def admin_restore(request: Request, x_tf_admin_key: str = Header(default="
         return JSONResponse(result)
 
 
-@app.get("/api/admin/export")
-def admin_export(background_tasks: BackgroundTasks, request: Request,
-                 x_tf_admin_key: str = Header(default="")):
+@app.post("/api/admin/export")
+async def admin_export(background_tasks: BackgroundTasks, request: Request,
+                       x_tf_admin_key: str = Header(default="")):
     """Download a consistent SQLite snapshot of the whole DB.
+
+    This is the single most damaging consequence of an admin-key leak: one call
+    walks off with the ENTIRE database, including the protocol §5 sensitive
+    fields (instructions/memory/input/output), irreversibly. So it is the most
+    guarded: a POST (never a prefetchable/cacheable GET), behind the same rate
+    limiter as every other admin route, requiring an explicit `confirm=EXPORT`,
+    and audited as a high-risk action.
 
     Copying tf.db directly is unsafe in WAL mode: the live -wal file may hold
     committed-but-not-checkpointed pages, so a raw file copy can be torn or
@@ -1575,12 +1732,19 @@ def admin_export(background_tasks: BackgroundTasks, request: Request,
     writer lock, which we then stream and delete after the response is sent.
     """
     actor = check_admin(x_tf_admin_key, request, {"path": "/api/admin/export"})
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not (isinstance(body, dict) and body.get("confirm") == "EXPORT"):
+        raise HTTPException(400, "whole-DB export requires confirm=EXPORT")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     snap_path = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)) or ".",
                              f".tf-export-{stamp}-{uuid.uuid4().hex[:8]}.db")
     with _lock, closing(db()) as conn:
         conn.execute("VACUUM INTO ?", (snap_path,))
-        _audit(conn, actor, "export", {"path": "/api/admin/export"}, {"snapshot": stamp}, None)
+        _audit(conn, actor, "export", {"path": "/api/admin/export", "risk": "high"},
+               {"snapshot": stamp, "high_risk": True}, None)
         conn.commit()
     background_tasks.add_task(lambda p: os.path.exists(p) and os.remove(p), snap_path)
     return FileResponse(snap_path, media_type="application/x-sqlite3",
@@ -1589,8 +1753,13 @@ def admin_export(background_tasks: BackgroundTasks, request: Request,
 
 @app.delete("/v1/events")
 async def delete_events(request: Request, x_tf_admin_key: str = Header(default="")):
-    """Legacy cleanup kept for curl compatibility. Destructive cleanup uses the
-    same isolated admin key, cascade, trash and audit path as /api/admin/data."""
+    """Legacy cleanup kept for curl compatibility — DEPRECATED, prefer
+    /api/admin/data. It used to bypass every cleanup guardrail; it now enforces
+    the same ones that don't need a prior preview round-trip: active sessions
+    require force=true, and deletions over TF_ADMIN_MAX_ROWS (or spanning >1
+    operator) require confirm_count matching total_rows. The preview_token step
+    is intentionally NOT required so a one-shot curl can: delete -> read the
+    rejected total_rows -> delete again with confirm_count."""
     try:
         body = await request.json()
     except Exception:
@@ -1622,6 +1791,15 @@ async def delete_events(request: Request, x_tf_admin_key: str = Header(default="
         _begin_admin_write(conn)
         resolved = _resolve_admin_targets(
             conn, targets, bool(body.get("cascade_children")), bool(body.get("revoke")))
+        preview = _preview_admin_resolution(conn, resolved, bool(body.get("revoke")))
+        if preview["requires_force"] and not body.get("force"):
+            _audit(conn, actor, "denied", selector, {"reason": "active_sessions"}, None)
+            conn.commit()
+            raise HTTPException(400, "active sessions require force=true")
+        if preview["requires_confirm"] and int(body.get("confirm_count") or -1) != preview["total_rows"]:
+            _audit(conn, actor, "denied", selector, {"reason": "confirm_count", "total_rows": preview["total_rows"]}, None)
+            conn.commit()
+            raise HTTPException(400, f"confirm_count must match total_rows ({preview['total_rows']})")
         result = _purge(conn, resolved, actor, selector, bool(body.get("revoke")))
         conn.commit()
         return {"ok": True, "deleted": result["counts"]["events"],

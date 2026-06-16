@@ -71,9 +71,13 @@ export async function restoreAdminBatch(key: string, batchId: string) {
 }
 
 export async function exportAdminDb(key: string): Promise<void> {
+  // 全库导出不可逆(含敏感字段),用 POST + 显式 confirm 作二次确认,
+  // 不走可被预取/缓存的 GET。
   const response = await fetch('/api/admin/export', {
+    method: 'POST',
     cache: 'no-store',
-    headers: { 'X-TF-Admin-Key': key },
+    headers: adminHeaders(key),
+    body: JSON.stringify({ confirm: 'EXPORT' }),
   })
   if (!response.ok) throw new Error(String(response.status))
   // browser <a download> can't carry the admin header, so fetch->blob->click.

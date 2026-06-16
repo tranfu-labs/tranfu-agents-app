@@ -436,6 +436,7 @@ export function AdminView({ t }: { t: (key: string) => string }) {
   }
 
   const exportDb = async () => {
+    if (!window.confirm(t('adminExportConfirm'))) return
     setExporting(true)
     setError('')
     try {
