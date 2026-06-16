@@ -294,6 +294,14 @@ export function AdminView({ t }: { t: (key: string) => string }) {
   const [manualBeforeDay, setManualBeforeDay] = useState('')
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const fromUrl = params.get('key')?.trim()
+    if (fromUrl) {
+      window.sessionStorage.setItem(STORAGE_KEY, fromUrl)
+      setAdminKey(fromUrl)
+      window.history.replaceState({}, '', '/admin')
+      return
+    }
     const saved = window.sessionStorage.getItem(STORAGE_KEY)
     if (saved) setAdminKey(saved)
   }, [])
@@ -311,6 +319,8 @@ export function AdminView({ t }: { t: (key: string) => string }) {
       setGateError('')
       setError('')
     } catch {
+      window.sessionStorage.removeItem(STORAGE_KEY)
+      setAdminKey('')
       setGateError(t('adminBadKey'))
       setError(t('adminBadKey'))
     } finally {
