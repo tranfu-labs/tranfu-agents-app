@@ -14,6 +14,10 @@ def app_mod(tmp_path):
     # 每个测试一个独立 DB + 默认全关的开关(逐测试再按需打开)
     app.DB_PATH = str(tmp_path / "tf_test.db")
     app.INGEST_KEY = ""          # 不校验写密钥,测试免带 header
+    app.ADMIN_KEY = ""
+    app.ADMIN_MAX_ROWS = 200
+    app.TRASH_DAYS = 30
+    app._prune_state["n"] = 0
     app.REQUIRE_TOKEN = False
     app.READ_AUTH_OK = False
     # 单测显式调用 sync_catalog_once() 时再测试 catalog；避免 TestClient

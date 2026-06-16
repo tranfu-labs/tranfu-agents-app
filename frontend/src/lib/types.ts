@@ -247,3 +247,65 @@ export type Loadable<T> = {
   demo: boolean
   refresh: (force?: boolean) => Promise<void>
 }
+
+export type AdminTarget =
+  | { session_ids: string[] }
+  | { operator: string; agent?: string; runtime?: string; profile?: boolean }
+  | { before_day: string; operator: string; agent?: string; runtime?: string }
+  | { skill: string }
+
+export type AdminInventoryRow = {
+  kind: 'operator' | 'identity' | 'session' | 'skill'
+  name: string
+  operator?: string
+  agent?: string
+  runtime?: string
+  session_id?: string
+  skill?: string
+  events?: number
+  skill_uses?: number
+  profiles?: number
+  identities?: number
+  used?: number
+  equipped?: number
+  operators?: number
+  first_day?: string
+  last_seen?: string
+  active?: boolean
+}
+
+export type AdminInventory = {
+  ok: boolean
+  operators: AdminInventoryRow[]
+  identities: AdminInventoryRow[]
+  sessions: AdminInventoryRow[]
+  skills: AdminInventoryRow[]
+  limit: number
+  offset: number
+}
+
+export type AdminPreview = {
+  ok: boolean
+  preview_token: string
+  counts: Record<string, number>
+  total_rows: number
+  operators: string[]
+  active_sessions: Array<{ session_id: string; operator?: string; runtime?: string; agent?: string; status?: string; last_seen?: string }>
+  requires_force: boolean
+  requires_confirm: boolean
+  max_rows: number
+  effects?: {
+    first_day_changes?: Array<{ skill: string; from?: string | null; to?: string | null }>
+    identities_cleared?: string[]
+    profiles_cleared?: Array<{ operator: string; agent: string; runtime: string }>
+  }
+}
+
+export type AdminTrashBatch = {
+  batch_id: string
+  created: string
+  actor: string
+  selector: unknown
+  counts: Record<string, number>
+  restored: boolean
+}

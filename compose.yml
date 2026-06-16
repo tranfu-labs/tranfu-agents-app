@@ -11,6 +11,9 @@ services:
       TF_REQUIRE_TOKEN: ${TF_REQUIRE_TOKEN:-}
       TF_READ_AUTH: ${TF_READ_AUTH:-}
       TF_READ_KEY: ${TF_READ_KEY:-}
+      TF_ADMIN_KEY: ${SERVICE_PASSWORD_64_ADMIN:-}
+      TF_TRASH_DAYS: ${TF_TRASH_DAYS:-30}
+      TF_ADMIN_MAX_ROWS: ${TF_ADMIN_MAX_ROWS:-200}
     volumes:
       - tf-data:/data
     expose:

@@ -5,6 +5,8 @@
 from conftest import ev
 import hashlib
 
+ADMIN_HEADERS = {"X-TF-Admin-Key": "adminkey"}
+
 
 # ---- 核心字段校验 ----------------------------------------------------------
 def test_missing_required_fields_400(client):
@@ -140,45 +142,51 @@ def test_profile_shim_version_persisted_and_state_exposes_current(client):
 
 
 # ---- DELETE /v1/events admin 清理 ------------------------------------------
-def test_delete_by_session_id(client):
+def test_delete_by_session_id(client, app_mod):
+    app_mod.ADMIN_KEY = "adminkey"
     ev(client, session_id="junk1", current_step="x")
     ev(client, session_id="keep1", current_step="x")
-    r = client.request("DELETE", "/v1/events", json={"session_id": "junk1"})
+    r = client.request("DELETE", "/v1/events", json={"session_id": "junk1"}, headers=ADMIN_HEADERS)
     assert r.status_code == 200 and r.json()["deleted"] >= 1
     sids = {c["session_id"] for c in client.get("/api/state").json()["sessions"]}
     assert "junk1" not in sids and "keep1" in sids
 
 
-def test_delete_by_session_ids_list(client):
+def test_delete_by_session_ids_list(client, app_mod):
+    app_mod.ADMIN_KEY = "adminkey"
     ev(client, session_id="a", current_step="x")
     ev(client, session_id="b", current_step="x")
-    r = client.request("DELETE", "/v1/events", json={"session_ids": ["a", "b"]})
+    r = client.request("DELETE", "/v1/events", json={"session_ids": ["a", "b"]}, headers=ADMIN_HEADERS)
     assert r.status_code == 200 and r.json()["deleted"] >= 2
 
 
-def test_delete_by_identity_clears_profile(client):
+def test_delete_by_identity_clears_profile(client, app_mod):
+    app_mod.ADMIN_KEY = "adminkey"
     # 一个带 profile 的身份（中文 agent 名，验证 body 传参不受 URL 编码影响）
     ev(client, operator="zoe", runtime="claude-code", agent="赛博测试",
        session_id="s", current_step="x", skills={"local": [{"name": "k"}]})
     r = client.request("DELETE", "/v1/events",
-                       json={"operator": "zoe", "agent": "赛博测试", "profile": True})
+                       json={"operator": "zoe", "agent": "赛博测试", "profile": True},
+                       headers=ADMIN_HEADERS)
     assert r.status_code == 200
     assert r.json()["deleted"] >= 1 and r.json()["cleared_profile"] == 1
     cards = client.get("/api/state").json()["sessions"]
     assert not any(c["operator"] == "zoe" for c in cards)
 
 
-def test_delete_requires_target_400(client):
-    r = client.request("DELETE", "/v1/events", json={})
+def test_delete_requires_target_400(client, app_mod):
+    app_mod.ADMIN_KEY = "adminkey"
+    r = client.request("DELETE", "/v1/events", json={}, headers=ADMIN_HEADERS)
     assert r.status_code == 400
 
 
-def test_delete_requires_key_when_set(client, app_mod):
+def test_delete_requires_admin_key(client, app_mod):
     app_mod.INGEST_KEY = "secret"
-    bad = client.request("DELETE", "/v1/events", json={"session_id": "x"})
-    assert bad.status_code == 401
-    ok = client.request("DELETE", "/v1/events", json={"session_id": "x"},
-                        headers={"X-TF-Key": "secret"})
+    app_mod.ADMIN_KEY = "adminkey"
+    bad = client.request("DELETE", "/v1/events", json={"session_id": "x"},
+                         headers={"X-TF-Key": "secret"})
+    assert bad.status_code == 403
+    ok = client.request("DELETE", "/v1/events", json={"session_id": "x"}, headers=ADMIN_HEADERS)
     assert ok.status_code == 200
 
 

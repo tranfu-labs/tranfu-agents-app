@@ -12,6 +12,7 @@ import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
 import { SkillDetailView } from './views/SkillDetail'
 import { OperatorDetailView } from './views/OperatorDetail'
+import { AdminView } from './views/Admin'
 
 function SkillsRoute({ t }: { t: (key: string) => string }) {
   const [params] = useSkillQueryState()
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/skills" element={<SkillsRoute t={t} />} />
             <Route path="/skill/:name" element={<SkillDetailRoute t={t} />} />
             <Route path="/operator/:name" element={<OperatorDetailRoute t={t} />} />
+            <Route path="/admin" element={<AdminView t={t} />} />
             <Route path="*" element={<Board data={state.data} lang={lang} t={t} />} />
           </Routes>
         ) : (

@@ -36,6 +36,10 @@ openssl rand -hex 24
 **2) 填环境变量**
 - 设置 `TF_KEY=<TF_KEY>`。
 - 如需可信归因或内容捕获,再按 D 节设置 `TF_REQUIRE_TOKEN` / `TF_READ_AUTH` / `TF_READ_KEY`。
+- 后台清理台 `/admin` 使用独立 `TF_ADMIN_KEY`;根目录 `compose.yml` 已写
+  `TF_ADMIN_KEY=${SERVICE_PASSWORD_64_ADMIN}`,Coolify 会自动生成并持久化。需要进入清理台时,到 Coolify
+  Environment Variables 里复制这串值粘到 `/admin` 的钥匙框。
+- 可选调整:`TF_TRASH_DAYS=30` 控制回收站保留天数,`TF_ADMIN_MAX_ROWS=200` 控制单次删除免手输确认的最大行数。
 - 如部署环境不能访问 GitHub release,给 SKILLS 页公司库漏斗设置 `TF_SKILLS_CATALOG_URL=<内网 catalog index.json>`。
 
 **3) 配 Domain**
@@ -76,6 +80,10 @@ After=network.target
 [Service]
 Environment=TF_KEY=<TF_KEY>
 Environment=TF_DB=/var/lib/tranfu/tf.db
+# 可选:后台清理台,未设置时 /api/admin/* 一律 403
+# Environment=TF_ADMIN_KEY=<另一串随机管理钥匙>
+# Environment=TF_TRASH_DAYS=30
+# Environment=TF_ADMIN_MAX_ROWS=200
 # 可选:内网 tranfu-skills catalog 镜像,用于 SKILLS 页公司库采纳漏斗
 # Environment=TF_SKILLS_CATALOG_URL=https://agents.example.com/catalog/index.json
 WorkingDirectory=$(pwd)
@@ -216,6 +224,16 @@ curl -s -XPOST https://agents.tranfu.com/v1/enroll \
 
 开启后:令牌与 `operator` 不一致 → 403;一致 → 看板标 `verified`。不开则向后兼容(仍允许自证)。
 
+### D4. 后台清理台(可选:删除测试/错误数据)
+`/admin` 是直链进入的后台,不在顶栏导航。它用 `TF_ADMIN_KEY` 鉴权,**不要复用**团队上报用的 `TF_KEY`。
+
+- Coolify 部署:默认读取 `SERVICE_PASSWORD_64_ADMIN` 自动生成的值;需要操作时复制到 `/admin`。
+- 本地/systemd 部署:手动设置 `TF_ADMIN_KEY=<随机管理钥匙>` 后重启服务。
+- 兼容的 `DELETE /v1/events` 清理路径也要求 `X-TF-Admin-Key`;`X-TF-Key` 只用于上报/注册,不能删数据。
+- 删除前必须先预览;删除会进入 `admin_trash` 回收站并写 `admin_audit`。回收站保留 `TF_TRASH_DAYS` 天,
+  默认 30 天;审计不自动删除。
+- 单次删除超过 `TF_ADMIN_MAX_ROWS`(默认 200)或跨多个 operator 时,页面会要求手输实际行数。
+
 ---
 
 ## E. 日常运维
@@ -239,6 +257,8 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 # systemd:直接拷 /var/lib/tranfu/tf.db
 ```
 定期(如每天)拷一份到别处即可;恢复就是把文件放回原位重启。
+
+**磁盘空间回收**:清理台删除的是 SQLite 行数据,不会自动执行 `VACUUM`。如确需回收文件体积,应在低峰期停服或确认可接受锁库后单独执行 SQLite `VACUUM` 运维动作。
 
 **轮换密钥**:改 Coolify 环境变量或 `.env` 里的 `TF_KEY` → 重新部署,并通知团队用新 key 重新 `install.sh`(旧 key 立即失效)。
 

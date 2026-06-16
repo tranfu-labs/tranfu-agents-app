@@ -20,12 +20,14 @@ agent 机器                         中心服务器(单容器)                 
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
-  `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、`GET /assets/*`、
-  `GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
+  `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
+  `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
+  `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
-- **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`);
+- **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`/`admin_trash`/`admin_audit`);
   浏览器(只读快照与 Skills 聚合);使用者机器(取 install/shim)。
-- **禁止依赖**:外部数据库/缓存/消息队列;任何 token/成本计算;读取使用者敏感内容(除非事件显式带 opt-in 字段)。
+- **禁止依赖**:外部数据库/缓存/消息队列;任何 token/成本计算;读取使用者敏感内容(除非事件显式带 opt-in 字段);
+  新增删除路径不得绕过 `_purge` 的级联、回收站与审计。
 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
@@ -35,12 +37,13 @@ agent 机器                         中心服务器(单容器)                 
   最近记录显示 `first_seen` 秒级时间且不呈现可点态;
   暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
-  `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name` 及其它非 API 深链提供;数据来自
-  `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`(同源相对路径)。
+  `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
+  `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
 - **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
-- **禁止依赖**:浏览器本地存储(localStorage 等);独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
+- **禁止依赖**:浏览器本地存储(localStorage 等;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
+  独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
 
 ### M3 — 采集 shim (`shims/`)
 - **职责**:在使用者机器上把状态/档案上报给 M1。
@@ -81,7 +84,7 @@ agent 机器                         中心服务器(单容器)                 
 | 模块 | 不得依赖 |
 |---|---|
 | M1 服务端 | 外部 DB/MQ;token 成本;主动读使用者敏感内容 |
-| M2 前端 | 浏览器存储;独立前端服务/运行期 node;后端端口/绝对地址 |
+| M2 前端 | 浏览器持久存储(例外:`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
 | M3 shim | 第三方库;抛错阻塞;默认上报内容/记忆 |
 | M4 安装 | 仓库必须公开 |
 | 全部 | 把密钥写进仓库/文档正文 |

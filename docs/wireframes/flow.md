@@ -4,7 +4,7 @@
 > 按用户流程分节，每节一张字符流程图 + 一张步骤表。规则见 [AGENTS.md](AGENTS.md)「流转图」一节，画法见 [legend.md](legend.md)。
 > 节点=真实页面（实线框，内部一行指向其 `pages/<page>.md`），可跨流程复现；同页态变化用虚线框 `┄┊` 节点，不伪造成新页面。
 > 编号与步骤表一一对应、无孤儿编号。本图是流程图、不是视口，不套比例尺、不分断点。
-> 路由来源：`frontend/src/App.tsx`（6 条 Route）+ `frontend/src/components/TopBar.tsx`（顶栏三标签全局导航）。
+> 路由来源：`frontend/src/App.tsx`（含 `/admin` 直链后台 Route）+ `frontend/src/components/TopBar.tsx`（顶栏三标签全局导航）。
 
 ## 顶部导航全局切换
 
@@ -87,3 +87,33 @@
 | ③ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
 | ④ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
 | ⑤ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
+
+## 后台清理台进入与删除流程
+
+`/admin` 是受保护的独立页面，不在顶栏导航，靠直链进入；进页先过钥匙浮层，删除走「预览即承诺 → 二次确认」，同页态推进、不跳转。
+
+```
+┌─ 直链 /admin ─┐  ① 输 X-TF-Admin-Key   ┌┄ 钥匙浮层（同页态）┄┐  ② 401 ┄▶ ┊报错+denied 审计┊
+│ 浏览器地址栏  │ ─────────────────────▶ ┊ → pages/admin.md   ┊                └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+└───────────────┘                         └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+                                                   │ ③ 认证通过
+                                                   ▼
+┌─ 后台清理台 /admin ─┐ ④ 勾选→预览  ┌┄ 预览态(dry-run)┄┐ ⑤ 确认  ┌┄ 二次确认浮层 ┄┐ ⑥ 永久删除
+│ → pages/admin.md    │ ───────────▶ ┊ token+副作用    ┊ ──────▶ ┊ 超阈手输行数  ┊ ─────▶ ┐
+│                     │ ◀── ⑦ 取消/集合变 409 重看 ──┘          └┄┄┄┄┄┄┄┄┄┄┄┄┄┘        │
+│                     │ ◀──────────── ⑧ Toast 实删数 + 列表刷新 ◀────────────────────────┘
+│  回收站 Trash tab   │ ⑨ 点恢复 ──▶ 整批 restore（键冲突回报）→ 列表刷新
+└─────────────────────┘
+```
+
+| 步 | 从 | 到 | 触发 |
+|---|---|---|---|
+| ① | 直链 `/admin` | 钥匙浮层 | 输入 `X-TF-Admin-Key`（存 sessionStorage） |
+| ② | 钥匙浮层 | 同页报错态 | 401：钥匙错或 `TF_ADMIN_KEY` 未配置；写 denied 审计 |
+| ③ | 钥匙浮层 | 清理台主页面 | 认证通过 |
+| ④ | 清理台 | 预览态（同页） | 勾选对象点「预览删除影响」→ `POST /api/admin/preview` |
+| ⑤ | 预览态 | 二次确认浮层 | 点「确认删除」 |
+| ⑥ | 二次确认 | 执行删除 | 超 `TF_ADMIN_MAX_ROWS`/跨多 operator 须手输行数 → `DELETE /api/admin/data`（回带 token） |
+| ⑦ | 预览/确认 | 回清理台 | 取消，或集合变动返回 409 需重新预览 |
+| ⑧ | 删除完成 | 回清理台（刷新） | Toast 回显各表实删行数，列表自动刷新 |
+| ⑨ | 回收站 Trash | 回清理台（刷新） | 点「恢复」→ `POST /api/admin/restore` 整批回滚 |

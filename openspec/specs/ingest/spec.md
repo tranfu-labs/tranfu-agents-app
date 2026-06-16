@@ -33,6 +33,8 @@
 ## 不变量
 - 不存在任何 token / 成本字段(见 ADR-0002)。
 - 上报失败不得影响使用者 agent(客户端侧静默,见 ADR-0005)。
+- `skills_seen.first_day` 在普通采集时记录 skill 首见日;当后台清理或恢复导致某 skill 的
+  `skill_uses` 引用增减时,必须按剩余引用重算(取剩余最早 UTC day;无引用则删除该行)。
 
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。
