@@ -459,9 +459,6 @@ export function AdminView({ t }: { t: (key: string) => string }) {
         <Link className="back" to="/">
           {t('adminBack')}
         </Link>
-        <button className="btn mini" type="button" disabled={exporting} onClick={() => void exportDb()}>
-          {exporting ? t('loading') : t('adminExport')}
-        </button>
         <button className="btn mini" type="button" onClick={logout}>
           {t('adminExit')}
         </button>
@@ -470,6 +467,9 @@ export function AdminView({ t }: { t: (key: string) => string }) {
         <div className="pad">
           <b>{t('adminTitle')}</b>
           <span>{t('adminWarning')}</span>
+          <button className="btn mini admin-export" type="button" disabled={exporting} onClick={() => void exportDb()}>
+            {exporting ? t('loading') : t('adminExport')}
+          </button>
         </div>
       </section>
       <div className="admin-tabs">

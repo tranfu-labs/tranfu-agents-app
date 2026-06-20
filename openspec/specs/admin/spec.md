@@ -99,7 +99,7 @@
 - 进页输入 `X-TF-Admin-Key`,本会话用 `sessionStorage` 暂存;后续请求带同名请求头。
 - 页面包含清单(operators/identities/sessions/skills 四视角)、按 operator+before_day 的日期清理入口、预览、
   活跃会话明细、确认删除、回收站恢复。
-- 顶栏提供「导出 DB」按钮:点击先弹二次确认;因 `<a download>` 带不了请求头,走 `POST`(带
+- 警示条右端提供「导出 DB」按钮:点击先弹二次确认;因 `<a download>` 带不了请求头,走 `POST`(带
   `X-TF-Admin-Key` 与 `{"confirm":"EXPORT"}`)→ blob → 触发下载;文件名取响应 `Content-Disposition`。
 
 ## 安全响应头(MUST)
