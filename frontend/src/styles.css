@@ -228,7 +228,7 @@
   .admin-banner .pad{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--muted)}
   .admin-banner b{color:var(--err);font-size:13px}
   .admin-banner span{min-width:0;flex:1 1 260px}
-  .admin-banner .admin-export{margin-left:auto;flex:none}
+  .admin-banner .admin-export{margin-left:auto;flex:none;font-weight:700}
   .admin-tabs{display:flex;gap:6px;flex-wrap:wrap}
   .admin-tabs button{border:1px solid var(--line);border-radius:8px;padding:7px 12px;color:var(--muted);font-size:12px}
   .admin-tabs button.on,.admin-tabs button:hover{background:var(--hover);color:var(--text);border-color:var(--line2)}
