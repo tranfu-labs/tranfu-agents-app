@@ -2,9 +2,12 @@ import { extractSkillNames } from "./skill-extract.mjs";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 
 const DEFAULT_RUNTIME = "open-claw";
-const DEFAULT_MANIFEST_PATH = join(homedir(), ".tranfu", "manifest.json");
+const DEFAULT_TRANFU_HOME = join(homedir(), ".tranfu");
+const DEFAULT_MANIFEST_PATH = join(DEFAULT_TRANFU_HOME, "manifest.json");
+const DEFAULT_SELFUPDATE_PATH = join(DEFAULT_TRANFU_HOME, "tf_selfupdate.py");
 
 function readShimVersion(path) {
   try {
@@ -132,6 +135,8 @@ export function createOpenClawSkillReporter(config = {}, deps = {}) {
   const logger = deps.logger || { write() {} };
   const fetchImpl = deps.fetch || globalThis.fetch;
   const manifestPath = deps.manifestPath || DEFAULT_MANIFEST_PATH;
+  const selfupdatePath = deps.selfupdatePath || DEFAULT_SELFUPDATE_PATH;
+  const spawnImpl = deps.spawn || spawn;
   const readShim = deps.readShimVersion || readShimVersion;
   let shimVersion = readShim(manifestPath);
   const state = new Map();
@@ -140,6 +145,31 @@ export function createOpenClawSkillReporter(config = {}, deps = {}) {
   function reloadShimVersion() {
     shimVersion = readShim(manifestPath);
     return shimVersion;
+  }
+
+  function spawnSelfUpdate() {
+    // OpenClaw is long-lived, so SessionStart is the natural trigger. The
+    // Python self-updater handles throttling (~/.tranfu/.selfupdate.json) and
+    // is fully best-effort; we fire-and-forget and never let it impact the
+    // host process. shim_version itself only reflects the new bundle on the
+    // *next* OpenClaw startup, which matches the Python shim's behavior.
+    if (env.TF_AUTO_UPDATE === "0") return;
+    try {
+      const child = spawnImpl("python3", [selfupdatePath], {
+        detached: true,
+        stdio: "ignore",
+        env,
+      });
+      if (child && typeof child.unref === "function") child.unref();
+      if (child && typeof child.on === "function") {
+        child.on("error", () => {
+          // python3 missing or selfupdate script absent — silent, by design.
+        });
+      }
+    } catch {
+      // spawn itself threw (e.g. no python3 in PATH) — telemetry must never
+      // break the host agent.
+    }
   }
 
   function track(task) {
@@ -170,6 +200,7 @@ export function createOpenClawSkillReporter(config = {}, deps = {}) {
   function sessionStart(event = {}, context = {}) {
     const sessionId = sessionIdFrom(event, context);
     const stats = getStats(sessionId);
+    spawnSelfUpdate();
     logger.write("INFO", "session_start", {
       session_id: stats.sessionId,
       reportSkills: cfg.reportSkills,

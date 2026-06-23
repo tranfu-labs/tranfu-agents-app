@@ -49,7 +49,14 @@ MAP = {
 PRE_TOOL = ("PreToolUse", "pre_tool_call")
 POST_TOOL = ("PostToolUse", "post_tool_call")
 SKILL_TOOLS = {"skill", "skill_view"}
-SELFUPDATE_EVENTS = ("SessionStart", "on_session_start")
+# Self-update checks piggy-back on these hook events. SessionStart is the
+# canonical trigger; UserPromptSubmit / Stop / SessionEnd are added so that
+# *long* sessions (which never see a fresh SessionStart) still get a chance
+# to update. The 1h CHECK_INTERVAL throttle in tf_selfupdate.py shares one
+# `.selfupdate.json` across all triggers, so adding events does not increase
+# how often manifest is actually fetched.
+SELFUPDATE_EVENTS = ("SessionStart", "on_session_start",
+                     "UserPromptSubmit", "Stop", "SessionEnd")
 
 
 def _name_from(value):
