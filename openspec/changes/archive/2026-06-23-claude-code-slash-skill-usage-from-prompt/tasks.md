@@ -1,0 +1,23 @@
+# 任务：claude-code-slash-skill-usage-from-prompt
+
+- [ ] 在 `shims/tf_hook.py` 新增 `_skill_from_slash_prompt(prompt)` 函数：截前 1KB + regex 抽 `<command-name>/?([\w-]{2,80})</command-name>` + 名字校验（拒纯数字 / 首尾连字符 / 连续 `--`）。
+- [ ] 把 `_skill_name(d, ev, tool)` 重构为 case split：`TF_REPORT_SKILLS=0` → 空；`UserPromptSubmit` → 走斜杠函数；`PreToolUse + Skill tool` → 走原有 `_name_from(payload)`。
+- [ ] 在 `resolve()` 里：当抽到 skill 名且 `ev == "UserPromptSubmit"` 时，把 `step` 从 `"prompt"` 改成 `f"skill: {name}"`。
+- [ ] 在 `tests/test_hook.py` 新增 6 条测试：
+  - 斜杠命中（含 `/` 前导）→ `--skill X`、step=`skill: X`
+  - 斜杠命中（无 `/` 前导）→ 同上
+  - 不含 `<command-name>` 标记 → 无 `--skill`、step 仍为 `prompt`
+  - 异常 skill 名（纯数字 / 含 `<>` / 超长 100 字符）→ 拒绝
+  - `TF_REPORT_SKILLS=0` 时斜杠路径也不附加 `--skill`
+  - 原有 PreToolUse + Skill 工具调用不回归
+- [ ] `cd tests && python -m pytest test_hook.py -v` 全绿。
+- [ ] 反思代码符合度：对照 design.md 每个 case 在代码里都能找到对应实现，无偏差。
+- [ ] AI 验证流程（升级 hook 后人工跑）：
+  - `cp shims/tf_hook.py ~/.tranfu/tf_hook.py`
+  - 起一个新 Claude Code 会话，手敲 `/openspec-driven-development`
+  - 远端 `/api/state` 或本机 `tf.db` 查 `skill_uses` 表，应见该 session × `openspec-driven-development` 一行
+  - `events` 表对应行 `current_step` 为 `skill: openspec-driven-development`
+- [ ] 归档（按 `openspec/changes/AGENTS.md`）：
+  - 移动 `openspec/changes/claude-code-slash-skill-usage-from-prompt/` → `openspec/changes/archive/<YYYY-MM-DD>-claude-code-slash-skill-usage-from-prompt/`
+  - 把 `spec-delta/ingest/spec.md` 合并进 `openspec/specs/ingest/spec.md`
+- [ ] git commit；问用户是否 push。

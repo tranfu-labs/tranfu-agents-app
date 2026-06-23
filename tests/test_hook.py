@@ -48,6 +48,66 @@ def test_skill_reporting_can_be_disabled(monkeypatch):
     assert "--skill" not in a
 
 
+def test_claude_slash_command_in_prompt_adds_skill_arg():
+    # Claude Code writes the user's typed /<skill> into UserPromptSubmit prompt
+    # as <command-name>/<name></command-name>. The slash skill must be reported
+    # the same way a Skill-tool invocation is.
+    prompt = "<command-name>/openspec-driven-development</command-name>\n请帮我做 X"
+    a = _args({"hook_event_name": "UserPromptSubmit",
+               "prompt": prompt, "session_id": "s1"})
+    assert a[a.index("--skill") + 1] == "openspec-driven-development"
+    assert a[a.index("--step") + 1] == "skill: openspec-driven-development"
+
+
+def test_claude_slash_command_without_leading_slash_also_matches():
+    prompt = "<command-name>verify</command-name>"
+    a = _args({"hook_event_name": "UserPromptSubmit",
+               "prompt": prompt, "session_id": "s1"})
+    assert a[a.index("--skill") + 1] == "verify"
+    assert a[a.index("--step") + 1] == "skill: verify"
+
+
+def test_userpromptsubmit_without_command_marker_keeps_prompt_step():
+    a = _args({"hook_event_name": "UserPromptSubmit",
+               "prompt": "just a normal message", "session_id": "s1"})
+    assert "--skill" not in a
+    assert a[a.index("--step") + 1] == "prompt"
+
+
+def test_slash_command_rejects_malformed_names():
+    cases = [
+        "<command-name>/12345</command-name>",                     # 纯数字
+        "<command-name>/-foo</command-name>",                      # 首字符是连字符
+        "<command-name>/foo--bar</command-name>",                  # 连续 --
+        "<command-name>/" + "a" * 100 + "</command-name>",         # 超长 (>80)
+        "<command-name>/foo<bar></command-name>",                  # 含 <>
+    ]
+    for prompt in cases:
+        a = _args({"hook_event_name": "UserPromptSubmit",
+                   "prompt": prompt, "session_id": "s1"})
+        assert "--skill" not in a, f"unexpectedly accepted: {prompt}"
+        assert a[a.index("--step") + 1] == "prompt"
+
+
+def test_slash_command_respects_tf_report_skills_disabled(monkeypatch):
+    monkeypatch.setenv("TF_REPORT_SKILLS", "0")
+    prompt = "<command-name>/openspec-driven-development</command-name>"
+    a = _args({"hook_event_name": "UserPromptSubmit",
+               "prompt": prompt, "session_id": "s1"})
+    assert "--skill" not in a
+    assert a[a.index("--step") + 1] == "prompt"
+
+
+def test_pretooluse_skill_tool_path_does_not_regress():
+    # 既有 PreToolUse+Skill 工具路径必须照旧工作，与 test_claude_skill_tool_adds_skill_arg
+    # 同形态——这条是防回归冗余。
+    a = _args({"hook_event_name": "PreToolUse", "tool_name": "Skill",
+               "tool_input": {"skill": "openspec-driven-development"},
+               "session_id": "s1"})
+    assert a[a.index("--step") + 1] == "tool: Skill"
+    assert a[a.index("--skill") + 1] == "openspec-driven-development"
+
+
 def test_claude_sessionstart_has_profile():
     a = _args({"hook_event_name": "SessionStart", "session_id": "s1"})
     assert "--profile" in a and a[a.index("--status") + 1] == "started"

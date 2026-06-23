@@ -24,7 +24,7 @@ the wrapper/hook command loads from the per-runtime tf_env.<runtime>.sh file.
 session_id comes from the hook JSON, so every event in a session shares one
 identity = one card.
 """
-import sys, os, json, subprocess
+import sys, os, json, re, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -63,17 +63,45 @@ def _name_from(value):
     return ""
 
 
-def _skill_name(d, ev, tool):
-    if os.environ.get("TF_REPORT_SKILLS") == "0":
+# Claude Code 把用户手敲的 /<skill> 写进 UserPromptSubmit 的 prompt 头部，
+# 形如 <command-name>/openspec-driven-development</command-name>。前导斜杠可有可无。
+_SLASH_CMD_RE = re.compile(r"<command-name>/?([\w-]{2,80})</command-name>")
+_SLASH_PROMPT_HEAD = 1024
+
+
+def _skill_from_slash_prompt(prompt):
+    if not isinstance(prompt, str) or not prompt:
         return ""
-    if ev not in PRE_TOOL or str(tool).casefold() not in SKILL_TOOLS:
+    m = _SLASH_CMD_RE.search(prompt[:_SLASH_PROMPT_HEAD])
+    if not m:
         return ""
+    name = m.group(1)
+    if name.isdigit():
+        return ""
+    if name.startswith(("-", "_")) or name.endswith(("-", "_")):
+        return ""
+    if "--" in name:
+        return ""
+    return name
+
+
+def _skill_from_tool_input(d):
     for key in ("tool_input", "toolInput", "input", "arguments"):
         payload = d.get(key)
         if isinstance(payload, dict):
             name = _name_from(payload)
             if name:
                 return name
+    return ""
+
+
+def _skill_name(d, ev, tool):
+    if os.environ.get("TF_REPORT_SKILLS") == "0":
+        return ""
+    if ev == "UserPromptSubmit":
+        return _skill_from_slash_prompt(d.get("prompt"))
+    if ev in PRE_TOOL and str(tool).casefold() in SKILL_TOOLS:
+        return _skill_from_tool_input(d)
     return ""
 
 
@@ -118,6 +146,10 @@ def resolve(d):
         args += ["--profile"]
     skill = _skill_name(d, ev, tool)
     if skill:
+        if ev == "UserPromptSubmit":
+            # 让事件级 step 反映这是个 skill 调用，与 scan_codex_skills 输出对齐
+            step_idx = args.index("--step") + 1
+            args[step_idx] = f"skill: {skill}"
         args += ["--skill", skill]
     return args
 

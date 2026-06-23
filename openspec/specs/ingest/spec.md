@@ -30,6 +30,7 @@
 9. 云端运行时 `{manus, mulerun, chatgpt}` 标记 `fidelity = coarse`,其余 `full`。
 10. `input`/`output`(内容)与 `instructions`/`memory`(敏感)默认不应被上报,仅在使用者显式开启时携带。
 11. `shim_version` 只记录本机 `~/.tranfu/manifest.json` 的内容版本,用于看板判断本地 shim 是否过期。
+12. **Claude Code 斜杠命令也算 skill 调用。** Claude Code 把用户手敲的 `/<skill-name>` 写进 `UserPromptSubmit` 事件的 prompt 内容,标记为 `<command-name>/?<name></command-name>`。shim 侧(`tf_hook.py`)必须在 `UserPromptSubmit` 事件 prompt 头部解析此标记,命中时按 `skill` 字段上报;与既有 `PreToolUse + Skill` 工具调用同口径(会话×skill 去重,`TF_REPORT_SKILLS=0` 可关,skill 名提取失败不附加且不报错)。命中的事件其 `current_step` 必须改为 `skill: <name>`,与 `scan_codex_skills` 输出格式对齐。
 
 ## 签发端点防爆破(SHOULD)
 - `POST /v1/enroll`(凭 `TF_KEY` 签发持久 per-operator token)应纳入与管理接口同类的按 IP 速率限制
@@ -52,3 +53,7 @@
 - 两个不同 session_id 各报同一 skill → skill 使用记录 2 行。
 - 带 skill 但无 session_id 的事件 → 200,skill 使用记录 0 行。
 - 连续两个相同 status/step 的事件中第二个带 skill → 第二个命中心跳路径,skill 使用记录仍产生 1 行。
+- UserPromptSubmit + prompt 含 `<command-name>/openspec-driven-development</command-name>` → 上报含 `skill=openspec-driven-development`、`current_step=skill: openspec-driven-development`。
+- UserPromptSubmit + prompt 不含此标记 → 不附加 `skill` 字段,`current_step` 保持 `prompt`。
+- UserPromptSubmit + `TF_REPORT_SKILLS=0` → 即使标记命中也不附加 `skill`。
+- 同一会话内:用户先手敲 `/foo` 触发 UserPromptSubmit、随后模型 invoke `Skill` 工具 `foo` 触发 PreToolUse → `skill_uses` 表仍只有 `(session, foo, used)` 1 行(既有去重规则未变)。
