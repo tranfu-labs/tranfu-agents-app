@@ -97,5 +97,36 @@ def test_openclaw_label_case_insensitive(monkeypatch):
 def test_collect_includes_local_shim_version(tmp_path, monkeypatch):
     monkeypatch.setattr(tf_profile, "SHIM_DIR", tmp_path)
     (tmp_path / "manifest.json").write_text('{"version":"v-local"}', encoding="utf-8")
+    # quick-cache is process-global; reset so the test doesn't see a prior value.
+    tf_profile._QUICK_SHIM_CACHE["loaded"] = False
+    tf_profile._QUICK_SHIM_CACHE["version"] = None
     p = tf_profile.collect(runtime="codex", cwd=str(tmp_path))
     assert p["shim_version"] == "v-local"
+
+
+def test_quick_shim_version_caches_first_read(tmp_path, monkeypatch):
+    """Hot path:多次调用只读盘一次。tf_report 现在每个事件都会调它,
+    不能让短命的 hook 进程也付两次磁盘代价。"""
+    monkeypatch.setattr(tf_profile, "SHIM_DIR", tmp_path)
+    (tmp_path / "manifest.json").write_text('{"version":"v1"}', encoding="utf-8")
+    tf_profile._QUICK_SHIM_CACHE["loaded"] = False
+    tf_profile._QUICK_SHIM_CACHE["version"] = None
+
+    reads = []
+    orig_read = tf_profile._read_json
+    monkeypatch.setattr(tf_profile, "_read_json", lambda p: (reads.append(p), orig_read(p))[1])
+
+    assert tf_profile.quick_shim_version() == "v1"
+    assert tf_profile.quick_shim_version() == "v1"
+    assert tf_profile.quick_shim_version() == "v1"
+    # 改文件:缓存仍命中(只读一次)
+    (tmp_path / "manifest.json").write_text('{"version":"v2"}', encoding="utf-8")
+    assert tf_profile.quick_shim_version() == "v1"
+    assert len(reads) == 1
+
+
+def test_quick_shim_version_returns_none_when_manifest_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(tf_profile, "SHIM_DIR", tmp_path)
+    tf_profile._QUICK_SHIM_CACHE["loaded"] = False
+    tf_profile._QUICK_SHIM_CACHE["version"] = None
+    assert tf_profile.quick_shim_version() is None

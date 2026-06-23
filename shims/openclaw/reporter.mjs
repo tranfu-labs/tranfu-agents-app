@@ -1,6 +1,24 @@
 import { extractSkillNames } from "./skill-extract.mjs";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const DEFAULT_RUNTIME = "open-claw";
+const DEFAULT_MANIFEST_PATH = join(homedir(), ".tranfu", "manifest.json");
+
+function readShimVersion(path) {
+  try {
+    const raw = readFileSync(path, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.version === "string" && parsed.version.trim()) {
+      return parsed.version.trim();
+    }
+  } catch {
+    // manifest absent or unreadable -> caller will omit shim_version (server
+    // keeps the sticky value, frontend renders 'unknown' if never set).
+  }
+  return "";
+}
 
 function atPath(obj, path) {
   let cur = obj;
@@ -113,8 +131,16 @@ export function createOpenClawSkillReporter(config = {}, deps = {}) {
   const cfg = normalizeConfig(config, env);
   const logger = deps.logger || { write() {} };
   const fetchImpl = deps.fetch || globalThis.fetch;
+  const manifestPath = deps.manifestPath || DEFAULT_MANIFEST_PATH;
+  const readShim = deps.readShimVersion || readShimVersion;
+  let shimVersion = readShim(manifestPath);
   const state = new Map();
   const pending = new Set();
+
+  function reloadShimVersion() {
+    shimVersion = readShim(manifestPath);
+    return shimVersion;
+  }
 
   function track(task) {
     const tracked = Promise.resolve(task)
@@ -190,6 +216,7 @@ export function createOpenClawSkillReporter(config = {}, deps = {}) {
           skill_mode: "equipped",
         };
         if (cfg.agent) payload.agent = cfg.agent;
+        if (shimVersion) payload.shim_version = shimVersion;
         const res = await postJson(fetchImpl, cfg, payload);
         if (res.ok) summary.postOk += 1;
         else summary.postFail += 1;
@@ -229,5 +256,10 @@ export function createOpenClawSkillReporter(config = {}, deps = {}) {
     state.delete(stats.sessionId);
   }
 
-  return { sessionStart, llmInput, sessionEnd, flush, _stateSize: () => state.size };
+  return {
+    sessionStart, llmInput, sessionEnd, flush,
+    reloadShimVersion,
+    _stateSize: () => state.size,
+    _shimVersion: () => shimVersion,
+  };
 }

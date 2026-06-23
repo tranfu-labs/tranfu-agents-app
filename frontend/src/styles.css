@@ -84,6 +84,7 @@
   .coarse{font-size:10px;color:var(--wait);border:1px solid var(--wait);padding:1px 7px;border-radius:4px;opacity:.8}
   .shim{font-family:var(--mono);font-size:9px;color:var(--muted);border:1px solid var(--line);padding:1px 6px;border-radius:4px}
   .shim.old{color:var(--wait);border-color:var(--wait)}
+  .shim.unknown{color:var(--faint);border-color:var(--line);border-style:dashed;opacity:.7}
   .age{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
   .task{font-size:13.5px;font-weight:500;margin:1px 0 4px}
   .step{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -261,6 +262,7 @@
   .gv{border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
   .gv b{font-family:var(--mono);color:var(--text);font-weight:600}
   .gv.warn{border-color:var(--wait)}.gv.warn b{color:var(--wait)}.gv.ok b{color:var(--run)}
+  .gv.unknown{border-style:dashed;opacity:.7}.gv.unknown b{color:var(--faint)}
   .src{font-family:var(--mono);font-size:9px;color:var(--faint);font-weight:400;letter-spacing:0;text-transform:none}
   .acc{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}.acc:last-child{border:0}
   .acc .k{color:var(--muted)}.acc .v{font-family:var(--mono)}.acc .v.warn{color:var(--wait)}

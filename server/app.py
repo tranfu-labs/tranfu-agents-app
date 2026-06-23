@@ -65,10 +65,12 @@ _EXECUTABLE_SHIMS = {
     "wrapper/tf-run", "wrapper/tf-hermes-hook.sh", "wrapper/tf-doctor",
 }
 
-# profile keys the shim MAY include on an event (all optional, opt-in)
+# profile keys the shim MAY include on an event (all optional, opt-in).
+# NOTE: `shim_version` used to live here but was moved to its own sticky table
+# (agent_shim_versions). Keeping it in PROFILE_KEYS meant any heartbeat whose
+# profile lacked the field would erase it via the full-replace UPSERT below.
 PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
-                "about", "tips", "cf", "instructions", "memory",
-                "shim_version")
+                "about", "tips", "cf", "instructions", "memory")
 # sensitive fields gated behind read-side auth (dropped if read access is open)
 SENSITIVE_KEYS = ("input", "output", "instructions", "memory")
 
@@ -237,6 +239,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS profiles (
           operator TEXT, ak TEXT, runtime TEXT,
           json TEXT, updated TEXT,
+          PRIMARY KEY (operator, ak, runtime)
+        );
+
+        -- sticky shim version per agent identity. Separate from `profiles` so
+        -- profile full-replacement (mcp/skills/etc.) cannot accidentally erase
+        -- it on heartbeats that omit the field. Updated only when an event
+        -- carries a non-empty shim_version; never cleared by absence.
+        CREATE TABLE IF NOT EXISTS agent_shim_versions (
+          operator TEXT, ak TEXT, runtime TEXT,
+          shim_version TEXT, updated TEXT,
           PRIMARY KEY (operator, ak, runtime)
         );
 
@@ -841,6 +853,19 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
             for nm in _skill_names(profile.get("skills")):
                 conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, recv[:10]))
 
+        # OPTIONAL shim_version — sticky per identity. Top-level field on every
+        # heartbeat in the new protocol; older shims only set it inside the
+        # SessionStart profile, but tf_profile.collect() flattens it to the same
+        # top-level key, so a single read covers both. We never clear the row
+        # when the field is absent — that's the whole point of sticky.
+        sv = e.get("shim_version")
+        if isinstance(sv, str) and sv.strip():
+            conn.execute("""INSERT INTO agent_shim_versions(operator,ak,runtime,shim_version,updated)
+              VALUES(?,?,?,?,?)
+              ON CONFLICT(operator,ak,runtime) DO UPDATE SET
+                shim_version=excluded.shim_version, updated=excluded.updated""",
+              (op, ag, rt, sv.strip(), recv))
+
         # dedup key now includes session_id (§6) so concurrent sessions of one
         # identity don't swallow each other's liveness.
         last = conn.execute("""SELECT id,status,current_step FROM events
@@ -1361,6 +1386,11 @@ def _delete_profile_rows(conn, profile_keys):
     for operator, ak, runtime in sorted(profile_keys):
         deleted += conn.execute("""DELETE FROM profiles
           WHERE operator=? AND ak=? AND runtime=?""", (operator, ak, runtime)).rowcount
+        # sticky shim version is per-agent identity too; admin cleanup that
+        # removes the profile MUST drop this row alongside it, otherwise a
+        # purge-then-reregister cycle resurrects a stale shim version.
+        conn.execute("""DELETE FROM agent_shim_versions
+          WHERE operator=? AND ak=? AND runtime=?""", (operator, ak, runtime))
     return deleted
 
 
@@ -1969,6 +1999,16 @@ def load_profiles(conn):
     return out
 
 
+def load_shim_versions(conn):
+    """Sticky shim_version per (operator, agent_key). Same map key shape as
+    load_profiles so card() can merge by the same identity tuple."""
+    out = {}
+    for r in conn.execute("SELECT operator,ak,shim_version FROM agent_shim_versions"):
+        if r["shim_version"]:
+            out[r["operator"] + "\x00" + r["ak"]] = r["shim_version"]
+    return out
+
+
 def reuse_map(profiles):
     """skill name -> set(operators) ; then per identity, fraction of its skills
     that also appear in another operator's profile (cross-Pod reuse signal)."""
@@ -2397,6 +2437,7 @@ def _snapshot(conn):
       ORDER BY id DESC LIMIT 40""").fetchall()
     dur, qual = metrics(conn)
     profiles = load_profiles(conn)
+    shim_versions = load_shim_versions(conn)
     reuse = reuse_map(profiles)
 
     def card(r):
@@ -2413,6 +2454,9 @@ def _snapshot(conn):
         for k in PROFILE_KEYS:
             if k in p:
                 d[k] = p[k]
+        # sticky shim version (independent of profile full-replace; may be None
+        # when this agent has never reported it -> frontend renders 'unknown')
+        d["shim_version"] = shim_versions.get(key)
         # quality: computed + reuse, allow profile to add hints it can't compute
         q = dict(qual.get(key, {}))
         if key in reuse:

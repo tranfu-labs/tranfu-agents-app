@@ -35,5 +35,22 @@ export default definePluginEntry({
     registerHook(api, "session_start", reporter.sessionStart);
     registerHook(api, "llm_input", reporter.llmInput);
     registerHook(api, "session_end", reporter.sessionEnd);
+    // SIGUSR1 lets the self-updater nudge a long-lived OpenClaw process to
+    // re-read manifest.json without restarting — JS plugin code itself still
+    // needs a restart to load new logic, but the version label updates live.
+    if (typeof process !== "undefined" && typeof process.on === "function") {
+      try {
+        process.on("SIGUSR1", () => {
+          try {
+            const v = reporter.reloadShimVersion();
+            logger.write("INFO", "shim_version_reloaded", { shim_version: v || null });
+          } catch {
+            // signal handler must never throw
+          }
+        });
+      } catch {
+        // platforms without SIGUSR1 (e.g. Windows) silently skip
+      }
+    }
   },
 });

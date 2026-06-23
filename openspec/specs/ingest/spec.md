@@ -7,7 +7,9 @@
 - 必填:`operator`、`runtime`、`session_id`、`status`。
 - 可选:`agent`(用途标签)、`task`、`current_step`、`skill`、`skill_mode`、`ts`、`model`、`input`/`output`(opt-in)、`meta`。
 - `status` 枚举:`started / running / waiting / blocked / done / error / idle`。
-- 可选 profile 字段(任意子集):`models, config, mcp, skills, integrations, about, tips, cf, instructions, memory, shim_version`。
+- 可选 profile 字段(任意子集):`models, config, mcp, skills, integrations, about, tips, cf, instructions, memory`。
+- 事件顶层独立可选字段:`shim_version`(本机 `~/.tranfu/manifest.json` 的 `version`);
+  客户端 SHOULD 在每次心跳都附带,而不是只在 `SessionStart` 通过 profile 上报。
 
 ## 规则(MUST)
 1. 写入须带请求头 `X-TF-Key`,且等于服务端 `TF_KEY`(`TF_KEY` 为空时仅限本地开发)。比较须用常量时间
@@ -30,6 +32,10 @@
 9. 云端运行时 `{manus, mulerun, chatgpt}` 标记 `fidelity = coarse`,其余 `full`。
 10. `input`/`output`(内容)与 `instructions`/`memory`(敏感)默认不应被上报,仅在使用者显式开启时携带。
 11. `shim_version` 只记录本机 `~/.tranfu/manifest.json` 的内容版本,用于看板判断本地 shim 是否过期。
+    服务端按 `(operator, agent_key, runtime)` 粒度独立 sticky 存储:**收到非空值更新,缺失时保留旧值**;
+    profile 全量替换不得触碰该字段,后续不带 `shim_version` 的心跳不得清掉它。
+    为兼容旧 shim,通过 profile 字段携带 `shim_version` 的旧路径仍允许(`tf_profile.collect()` 顶层导出,
+    服务端读 payload 顶层一次即覆盖两种来源)。
 12. **Claude Code 斜杠命令也算 skill 调用。** Claude Code 把用户手敲的 `/<skill-name>` 写进 `UserPromptSubmit` 事件的 prompt 内容,标记为 `<command-name>/?<name></command-name>`。shim 侧(`tf_hook.py`)必须在 `UserPromptSubmit` 事件 prompt 头部解析此标记,命中时按 `skill` 字段上报;与既有 `PreToolUse + Skill` 工具调用同口径(会话×skill 去重,`TF_REPORT_SKILLS=0` 可关,skill 名提取失败不附加且不报错)。命中的事件其 `current_step` 必须改为 `skill: <name>`,与 `scan_codex_skills` 输出格式对齐。
 
 ## 签发端点防爆破(SHOULD)
@@ -46,7 +52,12 @@
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。
 - 带 `skills` 的事件后,`/api/state` 该身份 session 含 `skills`,且 leverage 资产数随之增加。
-- 带 `shim_version` 的 profile 事件后,`/api/state` 该身份 session 含同值 `shim_version`。
+- 带顶层 `shim_version` 的事件后,`/api/state` 该身份 session 含同值 `shim_version`。
+- 三连事件 `{shim_version: A}` → `{}`(无该字段)→ `{shim_version: B}` 后,/api/state 该身份的 `shim_version`
+  依次为 A、A(sticky)、B。
+- 从未上报过 `shim_version` 的 agent → `/api/state` 该 card 的 `shim_version` 为 null/缺失,
+  让前端走 unknown 灰态(不得在服务端"猜"成最新或最旧)。
+- OpenClaw 上报 payload 必须包含 `shim_version` 顶层字段(只要本机 manifest 可读)。
 - 同一 session_id + 同一 skill + 同一 mode 投递两次 → skill 使用记录 1 行;第二次响应仍 200。
 - 同一 session_id + 同一 skill 分别以 `used` 与 `equipped` 投递 → skill 使用记录 2 行。
 - 带 `skill_mode=equipped` → skill 使用记录 `mode` 为 `equipped`;非法/缺省 `skill_mode` → `used`。

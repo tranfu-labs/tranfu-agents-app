@@ -1,5 +1,5 @@
 import type { AgentSession } from '../lib/types'
-import { dur, genDays, isOldShim, shortShim } from '../lib/utils'
+import { dur, genDays, shimState, shortShim } from '../lib/utils'
 
 export function Empty({ title, hint }: { title: string; hint?: string }) {
   return (
@@ -35,10 +35,15 @@ export function SectionTitle({ title, count, live, t }: { title: string; count?:
 }
 
 export function ShimPill({ agent, latest, t }: { agent: AgentSession; latest?: string; t: (key: string) => string }) {
-  const old = isOldShim(agent, latest)
+  const state = shimState(agent, latest)
+  const label = state === 'unknown' ? t('shimUnknown') : state === 'outdated' ? t('shimOld') : t('shim')
+  const display = state === 'unknown' ? '—' : shortShim(agent.shim_version)
   return (
-    <span className={`shim ${old ? 'old' : ''}`} title={`${t('cfg_shim')}: ${shortShim(agent.shim_version)} / ${shortShim(latest)}`}>
-      {old ? t('shimOld') : t('shim')} {shortShim(agent.shim_version)}
+    <span
+      className={`shim ${state === 'outdated' ? 'old' : state === 'unknown' ? 'unknown' : ''}`}
+      title={`${t('cfg_shim')}: ${shortShim(agent.shim_version)} / ${shortShim(latest)}`}
+    >
+      {label} {display}
     </span>
   )
 }

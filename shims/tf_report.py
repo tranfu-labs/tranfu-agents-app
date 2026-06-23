@@ -124,6 +124,8 @@ def main():
     ap.add_argument("--skill", default="")
     ap.add_argument("--skill-mode", choices=("used", "equipped"), default="used")
     ap.add_argument("--profile", action="store_true", help="attach auto-detected profile")
+    ap.add_argument("--shim-version", dest="shim_version", default="",
+                    help="attach shim_version without the full profile collect()")
     ap.add_argument("--print", dest="dry", action="store_true", help="print payload, don't POST")
     a = ap.parse_args()
 
@@ -160,6 +162,21 @@ def main():
             payload.update(tf_profile.collect(runtime=rt))
         except Exception:
             pass  # detection must never break reporting
+
+    # shim_version on every event (cheap; server keeps it sticky per identity).
+    # --profile already brings it in via collect(), so respect that first;
+    # otherwise honor an explicit --shim-version, falling back to a cached
+    # read of manifest.json so hot-path hooks pay basically nothing.
+    if not payload.get("shim_version"):
+        sv = (a.shim_version or "").strip()
+        if not sv:
+            try:
+                import tf_profile
+                sv = tf_profile.quick_shim_version() or ""
+            except Exception:
+                sv = ""
+        if sv:
+            payload["shim_version"] = sv
 
     if a.dry or not server:
         print(json.dumps(payload, ensure_ascii=False, indent=2))

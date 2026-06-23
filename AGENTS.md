@@ -42,6 +42,9 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 ## 编码规范 / 约定
 - **服务端只用标准库 + FastAPI/uvicorn**;数据库是单文件 SQLite(`$TF_DB`,默认 `tf.db`),不引入外部 DB/中间件。
 - **shim 只用 Python 标准库,且绝不抛错**——上报/更新失败必须静默,不能影响使用者的 agent 运行。
+- `shim_version` 是事件**顶层可选字段**(不再是 profile 子字段),`tf_report.py` 每次心跳兜底自动注入;
+  服务端按身份 sticky(独立表 `agent_shim_versions`),profile 全量替换不得清掉它;前端三态判定
+  `current` / `outdated` / `unknown`(字段缺失 = unknown,**不能**误判为 outdated)。
 - Skill 统计口径:事件可选 `skill`(仅 Skill 名)+ 可选 `skill_mode ∈ {used,equipped}`;服务端写 `skill_uses`(一行=会话×Skill×mode,`(session_id, skill, mode)` 幂等,长期保留)。端点:`/api/state.skills`(兼容排行)、`/api/skills?days={7|30|90}`(总览,skill/operator 两套 used-only 聚合,含 UTC `today`)、`/api/skill/{name}`(used/equipped 分列,含 UTC `today`)、`/api/operator/{name}`(按人 used-only,空 operator 与 equipped 不计入)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;不得上报 Skill 参数/prompt/代码/输出。
 - 前端 React + TypeScript SPA;生产产物由 Docker/CI 构建,**仓库不提交 `frontend/dist`**。暗/亮双主题用 CSS 变量 + `body.light` 覆盖;品牌红 `--brand`(占位 `#ec1c2b`,待换精确值);logo 为内联红色 symbol。SKILLS 总览视角切换用独立 `frame` 卡片(左「视角」、右 `cnt` 说明,内容行 32px 分段按钮,选中态 `--brand`);筛选条留在 SKILLS 统计卡;可下钻表格整行可点且键盘可达,最近记录表不可点、时间列显示 `first_seen` 到秒(缺失回退 UTC 日期)。
 - 时间统一 **UTC**(活跃时长按 UTC 日/周;90 天窗口)。

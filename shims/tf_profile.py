@@ -63,11 +63,25 @@ def _read_json(p):
         return None
 
 
-def detect_shim_version():
+_QUICK_SHIM_CACHE = {"version": None, "loaded": False}
+
+
+def quick_shim_version():
+    """Cheap, hot-path read of shim_version. Process-local cached so per-hook
+    invocations can attach it on every event without re-reading manifest.json.
+    The hook process is short-lived (a fresh python per event), so the cache
+    only saves the cost of a second read inside the same invocation."""
+    if _QUICK_SHIM_CACHE["loaded"]:
+        return _QUICK_SHIM_CACHE["version"]
     d = _read_json(SHIM_DIR / "manifest.json")
-    if isinstance(d, dict) and isinstance(d.get("version"), str):
-        return d["version"]
-    return None
+    v = d["version"] if isinstance(d, dict) and isinstance(d.get("version"), str) else None
+    _QUICK_SHIM_CACHE["version"] = v
+    _QUICK_SHIM_CACHE["loaded"] = True
+    return v
+
+
+def detect_shim_version():
+    return quick_shim_version()
 
 
 def _read_toml(p):

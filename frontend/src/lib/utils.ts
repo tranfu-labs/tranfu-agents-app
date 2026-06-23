@@ -58,8 +58,16 @@ export function shortShim(version?: string) {
   return version ? String(version).slice(0, 8) : '—'
 }
 
+export type ShimState = 'current' | 'outdated' | 'unknown'
+
+export function shimState(agent: AgentSession, latest?: string): ShimState {
+  if (!agent.shim_version) return 'unknown'
+  if (!latest) return 'current'
+  return agent.shim_version === latest ? 'current' : 'outdated'
+}
+
 export function isOldShim(agent: AgentSession, latest?: string) {
-  return Boolean(latest && agent.shim_version !== latest)
+  return shimState(agent, latest) === 'outdated'
 }
 
 export function genDays(agent: AgentSession, days = 30) {

@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { Contrib, Empty, ShimPill } from '../components/Common'
 import { DEMO_CONFIG, DEMO_MEMORY } from '../lib/demo'
-import { ACT_DAYS, dur, hashHue, initials, isOldShim, keyOf, LIVE, RT, shortShim } from '../lib/utils'
+import { ACT_DAYS, dur, hashHue, initials, keyOf, LIVE, RT, shimState, shortShim } from '../lib/utils'
 import { statusName } from '../lib/i18n'
 import type { AgentConfig, AgentMemory, Lang, SkillRef, StatePayload } from '../lib/types'
 
@@ -132,10 +132,16 @@ export function AgentDetail({ data, lang, t }: { data: StatePayload; lang: Lang;
           <span className="src">{t('models')}</span>
           <b>{agent.models?.length || 0}</b>
         </span>
-        <span className={`gv ${isOldShim(agent, latestShim) ? 'warn' : 'ok'}`}>
-          <span className="src">SHIM</span>
-          <b>{shortShim(agent.shim_version)}</b>
-        </span>
+        {(() => {
+          const ss = shimState(agent, latestShim)
+          const cls = ss === 'outdated' ? 'warn' : ss === 'unknown' ? 'unknown' : 'ok'
+          return (
+            <span className={`gv ${cls}`}>
+              <span className="src">SHIM</span>
+              <b>{ss === 'unknown' ? '—' : shortShim(agent.shim_version)}</b>
+            </span>
+          )
+        })()}
         <span className={`gv ${mcp.length >= 3 ? 'warn' : ''}`}>
           <span className="src">{t('gb_reach')}</span>
           <b>{mcp.length} MCP</b>

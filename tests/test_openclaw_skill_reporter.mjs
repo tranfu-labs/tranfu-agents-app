@@ -147,6 +147,72 @@ test("reporter summary exposes the six silent failure checkpoints", async () => 
   assert.equal(missingSummary.data.missingConfig, true);
 });
 
+test("reporter attaches shim_version on every equipped post", async () => {
+  const posts = [];
+  const reporter = createOpenClawSkillReporter({
+    server: "https://tranfu.invalid/",
+    key: "secret",
+    operator: "alice",
+    agent: "copy",
+  }, {
+    env: {},
+    fetch: async (_url, options) => {
+      posts.push(JSON.parse(options.body));
+      return { ok: true, status: 200 };
+    },
+    manifestPath: "/does/not/matter",
+    readShimVersion: () => "fixed-shim-1234",
+  });
+
+  reporter.llmInput({ sessionId: "s1", systemPrompt: `<skills><skill name="alpha"/></skills>` });
+  reporter.sessionEnd({ sessionId: "s1" });
+  await reporter.flush();
+
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].shim_version, "fixed-shim-1234");
+});
+
+test("reporter omits shim_version when manifest is unreadable", async () => {
+  const posts = [];
+  const reporter = createOpenClawSkillReporter({
+    server: "https://tranfu.invalid/",
+    key: "secret",
+    operator: "alice",
+    agent: "copy",
+  }, {
+    env: {},
+    fetch: async (_url, options) => {
+      posts.push(JSON.parse(options.body));
+      return { ok: true, status: 200 };
+    },
+    readShimVersion: () => "",
+  });
+
+  reporter.llmInput({ sessionId: "s1", systemPrompt: `<skills><skill name="alpha"/></skills>` });
+  reporter.sessionEnd({ sessionId: "s1" });
+  await reporter.flush();
+
+  assert.equal(posts.length, 1);
+  assert.equal("shim_version" in posts[0], false);
+});
+
+test("reloadShimVersion picks up a refreshed manifest", () => {
+  let current = "v1";
+  const reporter = createOpenClawSkillReporter({
+    server: "https://tranfu.invalid/",
+    key: "secret",
+    operator: "alice",
+  }, {
+    env: {},
+    fetch: async () => ({ ok: true, status: 200 }),
+    readShimVersion: () => current,
+  });
+  assert.equal(reporter._shimVersion(), "v1");
+  current = "v2";
+  assert.equal(reporter.reloadShimVersion(), "v2");
+  assert.equal(reporter._shimVersion(), "v2");
+});
+
 test("logger redacts prompt-like fields and truncates oversized files", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tranfu-openclaw-"));
   const filePath = path.join(dir, "openclaw-skill.log");

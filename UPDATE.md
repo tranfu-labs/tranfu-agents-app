@@ -84,16 +84,29 @@ curl https://tranfu-agents-app.tranfu.com/api/state | head -c 200   # JSON
 ## 6. 本地 shim 自动更新升级注意
 
 本版本新增 `/shims/manifest` 与 `tf_selfupdate.py`。服务端更新后,看板会显示每个 agent 上报的
-shim 短版本,版本缺失或落后会标为"旧 shim"。现有机器还没有自更新器,需要**最后一次**通知队友重跑
-当前看板域名的 `install.sh`;重跑后安装器会按 manifest 全量下载并校验 shim,成功后保存
-`~/.tranfu/manifest.json`,之后 Claude Code / Codex / Hermes 会在会话开始时后台自动更新 shim。
+shim 短版本,按三态判定:
+- **current** —— 上报版本等于服务端 `/shims/manifest.version`,常态显示。
+- **outdated** —— 上报了一个落后的版本,显示"旧 shim"橙色角标。
+- **unknown** —— 从未上报过 `shim_version`,显示"等待客户端心跳"灰色虚线;
+  常见于 2026-06 前的旧 shim(那时只在 SessionStart 通过 profile 偶尔上报),
+  或是刚接入还没心跳过的新 agent。**unknown 不是"旧 shim"**——只要客户端一次心跳带上 `shim_version` 就会转 current。
+
+现有机器还没有自更新器,需要**最后一次**通知队友重跑当前看板域名的 `install.sh`;重跑后安装器会按
+manifest 全量下载并校验 shim,成功后保存 `~/.tranfu/manifest.json`,之后 Claude Code / Codex / Hermes
+会在会话开始时后台自动更新 shim。新 shim 起,**每条心跳事件**都会自动顶层带上 `shim_version`
+(由 `tf_report.py` 兜底注入,不再依赖 SessionStart 的 `--profile` 路径);服务端按 agent 身份
+sticky 保存,后续不带这字段的心跳不会清掉它。
 
 生效时机:
-- Claude Code / Codex / Hermes:文件替换后下一次 hook 触发即生效。
-- OpenClaw:文件会刷新到 `~/.tranfu/openclaw/`,但需要重启 OpenClaw 才加载新版插件 JS。
+- Claude Code / Codex / Hermes:文件替换后下一次 hook 触发即生效;**当前正跑着的会话仍会显示
+  unknown(进程内是旧 shim 代码)**——重启该 agent 才有新心跳带上 `shim_version`。
+- OpenClaw:文件会刷新到 `~/.tranfu/openclaw/`,但需要重启 OpenClaw 才加载新版插件 JS;
+  或者向 OpenClaw 进程发 `SIGUSR1` 让它热重读 `manifest.json`(只刷版本号,逻辑代码仍需重启)。
 
 排查:
-1. 看板卡片显示"旧 shim" → 先让该机器重跑新版 `install.sh`,再重启对应 agent。
+1. 看板卡片显示"旧 shim"(outdated)→ 先让该机器重跑新版 `install.sh`,再重启对应 agent。
+   显示"等待客户端心跳"(unknown)→ 说明该 agent 从未上报过 `shim_version`,
+   通常是旧 shim 还在跑、或新 agent 还没触发过一次 hook。让它做一次会话动作即可。
 2. 本机要关闭自动更新 → 在 `~/.tranfu/tf_env.<runtime>.sh` 写 `export TF_AUTO_UPDATE=0`。
 3. 自动更新失败不会破坏旧文件;检查是否没有写入 `~/.tranfu` 权限、或网络无法访问 `$SERVER/shims/manifest`。
 4. 本地 `manifest.json` 版本一致但缺文件时,新版自更新器会自动补齐;补不齐通常是权限或下载失败。

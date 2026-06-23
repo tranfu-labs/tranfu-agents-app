@@ -24,7 +24,11 @@
    `sessions_total`、`users_30d`、`last_day`;按 `sessions_30d` 降序,平手按 `sessions_total`。
 9. Skill 计数口径:一个会话用过/装备某 skill 的某个 mode 算一次(来源即 `skill_uses` 的会话×skill×mode 粒度,
    读侧不再去重);时间窗口按 UTC 日切,与活跃统计口径一致。`used` 与 `equipped` 必须分条呈现,不得相加。
-10. `shim.version` 为服务端当前分发的 shim 内容版本;看板用它与每张卡的 `shim_version` 比较,缺失或不一致时显示旧版提示。
+10. `shim.version` 为服务端当前分发的 shim 内容版本;看板按"三态"比较每张卡的 `shim_version`:
+    - `current` —— `agent.shim_version` 等于服务端 `shim.version`(常态显示)。
+    - `outdated` —— `agent.shim_version` 存在但不等于 `shim.version`(显示"旧 shim",橙色)。
+    - `unknown` —— `agent.shim_version` 缺失/空(显示"等待客户端心跳",灰色)。
+    **不允许把 `unknown` 误判为 `outdated`**——字段缺失只代表客户端尚未上报版本,不能代表"旧"。
 11. SKILLS 为第三个顶级视图(看板 / Agents / SKILLS),含总览与单 skill 详情(独立视图 + 返回)两级。
 12. `/api/skills` 总览页所有聚合(`daily`、`table`)只统计 `mode=used`;`equipped` 仅在 `/api/skill/{name}`
     详情页展示,并与 used 分列,任何位置不得相加。
@@ -74,7 +78,9 @@
   并跳转到对应详情;且须键盘可达(Enter / Space 触发)。整行可点与局部交互冲突时以局部交互为准,
   局部交互元素须阻止冒泡,不触发整行跳转。无下钻目标的表格(如"最近记录")不得呈现为整行可点。
 - 详情数据优先取 session 的服务端字段(`cf/skills/mcp/integrations/about/...`);演示映射仅用于独立预览。
-- 卡片/详情显示本机上报的 `shim_version` 短码;落后于服务端 `shim.version` 时标记过期。
+- 卡片/详情显示本机上报的 `shim_version` 短码,并按三态(current/outdated/unknown)切换样式:
+  current 为常态;outdated 显示"旧 shim"橙色角标;unknown 显示"等待客户端心跳"灰色虚线角标,
+  且字段位置渲染占位符(如 "—"),不显示空字符串。
 - 暗/亮双主题;手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
 - 不得使用浏览器本地存储;不得写死后端端口(同源相对路径)。
 - 前端源码在 `frontend/`;生产由 Docker/CI 构建 `frontend/dist`,运行容器不依赖 node,仓库不提交 dist。
@@ -86,7 +92,10 @@
   `mode=used` 条目 `sessions_7d=2`、`sessions_30d=2`、`sessions_total=3`、`users_30d=2`。
 - 同一 skill A 同时有 `used` 与 `equipped` → `skills` 出现两条同名不同 mode 条目,计数互不相加。
 - 空库 → `skills: []`,看板显示空态。
-- 服务端 `shim.version` 与某 agent 的 `shim_version` 不一致或缺失 → 看板显示旧版角标。
+- 服务端 `shim.version=X`,某 agent 上报 `shim_version=X` → 卡片为 current,无角标。
+- 同一 agent 上报 `shim_version=Y(≠X)` → 卡片为 outdated,显示"旧 shim"角标。
+- 某 agent 从未上报过 `shim_version` → 卡片为 unknown,显示"等待客户端心跳"灰色虚线角标(不得标"旧 shim")。
+- 已上报过的 agent 后续事件不再带 `shim_version` → 卡片仍呈现最近一次非空值,**不退回 unknown**。
 - 同名 skill 同时有 `used` 与 `equipped` → `/api/skills` 的 table 与 daily 只含 used;
   `/api/skill/{name}` 两种模式并列展示且任何字段不相加。
 - 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
