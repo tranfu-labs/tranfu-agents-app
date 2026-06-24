@@ -49,6 +49,9 @@ docker/build-push-action@v6
 ### 为什么不把 deploy.yml 拆成"test job + build job (needs: test)"
 两 job 写法在跨 job artifact / cache 共享上更费手，且仓库已经有独立的 ci.yml 在 PR 阶段强卡测试，main 上 deploy.yml 内嵌的这层 pytest 主要兜底"PR 之间漂移"或"绕过 PR 直推 main"。一个 job 串行更直观。
 
+### 为什么 pytest 之前必须先 `npm --prefix frontend run build`
+`tests/test_protocol.py::test_spa_deep_links_do_not_swallow_system_routes` 会请求 `/`、`/agents`、`/agent/...` 等 SPA 深链路由并断言 200。server 实现是把这些深链回退到 `frontend/dist/index.html`——所以 pytest 在 runner 上必须先看到 `frontend/dist` 才能通过。第一版 design 误以为"前端 build 天然在 Dockerfile 第一阶段跑、无需重复"——这只对**镜像构建**成立，对**测试卡口**不成立，pytest 跑在 docker build 之前。ci.yml 同样先 `npm run build` 再 pytest，deploy.yml 沿用这个顺序。
+
 ### 为什么用 `:latest` + `:${{ github.sha }}` 两个 tag、不用 short-sha
 GitHub 文档示例和 GHCR 工具普遍用完整 SHA；本阶段不接 Coolify 自动部署，回滚 tag 由人查 commit hash 精确指定，full SHA 更明确。短 SHA 留待后续如有需要再加。
 

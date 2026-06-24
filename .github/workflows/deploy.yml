@@ -39,6 +39,9 @@ jobs:
           pip install -r server/requirements.txt -r tests/requirements.txt
           npm ci --prefix frontend
 
+      - name: 构建前端（pytest 的 SPA 深链测试需要 frontend/dist）
+        run: npm --prefix frontend run build
+
       - name: 协议契约测试（卡口：失败则不发布镜像）
         run: python -m pytest tests/ -q
 
