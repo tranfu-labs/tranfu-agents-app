@@ -42,6 +42,7 @@ curl http://localhost:8788/healthz
 
 # b) 页面接口,必须返回 JSON(包含 sessions/feed/totals 等字段)
 curl http://localhost:8788/api/state | head -c 200
+# 注意:/api/state 默认有 1.5 秒服务端缓存,连续请求时 now 不一定每次变化。
 
 # c) 发一条测试事件(把 <TF_KEY> 换成线上用的那个密钥)
 curl -s -XPOST http://localhost:8788/v1/events \

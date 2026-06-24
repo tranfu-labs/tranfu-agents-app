@@ -17,6 +17,9 @@ def app_mod(tmp_path):
     app.ADMIN_KEY = ""
     app.ADMIN_MAX_ROWS = 200
     app.TRASH_DAYS = 30
+    app.STATE_TTL_SECONDS = app._env_float("TF_STATE_TTL", "1.5")
+    with app._state_cache_lock:
+        app._state_cache.update({"at": 0.0, "data": None})
     app._prune_state["n"] = 0
     app.REQUIRE_TOKEN = False
     app.READ_AUTH_OK = False

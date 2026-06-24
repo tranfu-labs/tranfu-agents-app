@@ -18,7 +18,8 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M1 — 服务端 collector (`server/app.py`)
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
-  提供看板 SPA 与 API、分发安装脚本与 shim。
+  提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 高频轮询快照必须经进程内 TTL 缓存复用,
+  `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
   `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
   `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、

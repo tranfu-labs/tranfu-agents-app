@@ -39,6 +39,7 @@ from contextlib import closing
 from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
@@ -123,6 +124,8 @@ async def _security_headers(request: Request, call_next):
 app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets"), check_dir=False), name="assets")
 _lock = threading.Lock()
 _catalog_lock = threading.Lock()
+_state_cache_lock = threading.Lock()
+_state_cache = {"at": 0.0, "data": None}
 
 
 def _env_int(name, default):
@@ -132,6 +135,14 @@ def _env_int(name, default):
         return default
 
 
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except Exception:
+        return float(default)
+
+
+STATE_TTL_SECONDS = _env_float("TF_STATE_TTL", "1.5")
 TRASH_DAYS = _env_int("TF_TRASH_DAYS", 30)
 ADMIN_MAX_ROWS = _env_int("TF_ADMIN_MAX_ROWS", 200)
 
@@ -2503,10 +2514,27 @@ def _snapshot(conn):
     }
 
 
-@app.get("/api/state")
-def state():
+def _state_compute_or_cache():
+    now = time.monotonic()
+    with _state_cache_lock:
+        cached = _state_cache.get("data")
+        cached_at = float(_state_cache.get("at") or 0.0)
+        if cached is not None and now - cached_at < STATE_TTL_SECONDS:
+            return cached
+
     with closing(db()) as conn:
-        return JSONResponse(_snapshot(conn))
+        data = _snapshot(conn)
+
+    with _state_cache_lock:
+        _state_cache["at"] = time.monotonic()
+        _state_cache["data"] = data
+    return data
+
+
+@app.get("/api/state")
+async def state():
+    data = await run_in_threadpool(_state_compute_or_cache)
+    return JSONResponse(data)
 
 
 @app.get("/api/skills")
@@ -2540,7 +2568,7 @@ def agent_detail(key: str):
 
 
 @app.get("/healthz")
-def healthz():
+async def healthz():
     return PlainTextResponse("ok")
 
 

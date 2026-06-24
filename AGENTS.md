@@ -41,6 +41,9 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 
 ## 编码规范 / 约定
 - **服务端只用标准库 + FastAPI/uvicorn**;数据库是单文件 SQLite(`$TF_DB`,默认 `tf.db`),不引入外部 DB/中间件。
+- `/api/state` 是高频轮询读路径,服务端必须做进程内 TTL 缓存(默认 `TF_STATE_TTL=1.5` 秒);
+  响应 `now` 表示"上次服务端计算时间",不是每次请求的当前时间。`/healthz` 必须是 async 轻量 handler,
+  固定返回 `ok`,不得打开 DB 或触发 IO,避免被 `/api/state` 聚合压力拖慢。
 - **shim 只用 Python 标准库,且绝不抛错**——上报/更新失败必须静默,不能影响使用者的 agent 运行。
 - `shim_version` 是事件**顶层可选字段**(不再是 profile 子字段),`tf_report.py` 每次心跳兜底自动注入;
   服务端按身份 sticky(独立表 `agent_shim_versions`),profile 全量替换不得清掉它;前端三态判定

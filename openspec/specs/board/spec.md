@@ -3,13 +3,16 @@
 事实来源:`server/app.py`(`/api/state`、`metrics`、`leverage`、`reuse_map`、`_snapshot`)与 `frontend/` React 看板。
 
 ## 接口
-- `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。
+- `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
+  默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
+  因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
 - `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], operator_daily[], operator_table[], funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 仅影响 daily/operator_daily,默认 30)。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
 - `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
-  `GET /assets/*` → Vite 指纹化静态资源;`GET /healthz` → `ok`。
+  `GET /assets/*` → Vite 指纹化静态资源;`GET /healthz` → `ok`。`/healthz` 必须是 async handler,
+  不打开 DB 连接、不触发 IO,在事件循环直接返回。
 
 ## 规则(MUST)
 1. **卡片按身份合并**:每个 `(operator, agent‖runtime)` 只输出**一张**卡,保留 `last_seen` 最新的 session(见 ADR-0006)。
@@ -44,6 +47,19 @@
     默认按 30 天降序,平手按累计。`days` 只影响 `operator_daily`,不影响 `operator_table`。
 17. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
+18. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
+    前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
+    可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
+    依赖"`/api/state.now` 必须是请求当下时间"的假设。
+19. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
+    `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
+
+## 部署/运维
+- `TF_STATE_TTL`:`/api/state` 缓存 TTL(秒,float),默认 `1.5`。区间建议 `0.5~3.0`。
+- Docker healthcheck 配置目标:`Timeout=10s`、`Retries=5`、`Interval=30s`、`StartPeriod=10s`。
+  配置入口取决于部署方式;根目录 `compose.yml` 托管默认值,若由 Coolify UI 覆盖,以 Coolify 配置为准。
+- uvicorn `--workers` 默认 1;启用多 worker 前必须先解决 `_catalog_loop` 多进程并发拉取与写
+  `catalog_cache` 表的潜在竞争,该事项需走独立 change。
 
 ## 前端规则(MUST)
 - 轮询 `/api/state`(约 3s),取不到时退回内置演示数据并显示"未连接服务端"。
@@ -121,3 +137,5 @@
 - 键盘聚焦某可下钻行并按 Enter → 跳转到对应详情。
 - "最近记录"表行 hover/点击 → 不跳转,指针为默认。
 - 看板页面不再渲染 skills 区块,原有卡片与轮询行为不变。
+- 同一 `TF_STATE_TTL` 窗口内连续请求 `/api/state` → 响应可完全相同,`now` 不随每次请求刷新;超过 TTL 后重新计算。
+- 100 并发 `/api/state` 期间请求 `/healthz` → 返回 `ok`,且不因 `/api/state` 聚合占用 threadpool 而排队超时。

@@ -39,7 +39,8 @@ openssl rand -hex 24
 - 后台清理台 `/admin` 使用独立 `TF_ADMIN_KEY`;根目录 `compose.yml` 已写
   `TF_ADMIN_KEY=${SERVICE_PASSWORD_64_ADMIN}`,Coolify 会自动生成并持久化。需要进入清理台时,到 Coolify
   Environment Variables 里复制这串值粘到 `/admin` 的钥匙框。
-- 可选调整:`TF_TRASH_DAYS=30` 控制回收站保留天数,`TF_ADMIN_MAX_ROWS=200` 控制单次删除免手输确认的最大行数。
+- 可选调整:`TF_TRASH_DAYS=30` 控制回收站保留天数,`TF_ADMIN_MAX_ROWS=200` 控制单次删除免手输确认的最大行数,
+  `TF_STATE_TTL=1.5` 控制 `/api/state` 高频轮询快照缓存秒数(建议 0.5~3.0)。
 - 如部署环境不能访问 GitHub release,给 SKILLS 页公司库漏斗设置 `TF_SKILLS_CATALOG_URL=<内网 catalog index.json>`。
 
 **3) 配 Domain**
@@ -84,6 +85,7 @@ Environment=TF_DB=/var/lib/tranfu/tf.db
 # Environment=TF_ADMIN_KEY=<另一串随机管理钥匙>
 # Environment=TF_TRASH_DAYS=30
 # Environment=TF_ADMIN_MAX_ROWS=200
+# Environment=TF_STATE_TTL=1.5
 # 可选:内网 tranfu-skills catalog 镜像,用于 SKILLS 页公司库采纳漏斗
 # Environment=TF_SKILLS_CATALOG_URL=https://agents.example.com/catalog/index.json
 WorkingDirectory=$(pwd)
