@@ -208,3 +208,66 @@ def test_enroll_token_verifies_across_operator_casing(client):
     # 用不同大小写上报，仍应被验证为同一 operator
     r = ev(client, operator="nezha", session_id="s9", headers={"X-TF-Token": tok})
     assert r.json()["verified"] is True
+
+
+# ---- 由 add-server-app-test-baseline 补:enroll 限流 / ingest 边角 ---------
+def test_enroll_requires_operator(client):
+    r = client.post("/v1/enroll", json={})
+    assert r.status_code == 400
+
+
+def test_enroll_rate_limit_after_failed_ingest_key(client, app_mod):
+    app_mod.INGEST_KEY = "right"
+    # 触发足够多次失败
+    for _ in range(app_mod.ADMIN_RATE_MAX + 1):
+        client.post("/v1/enroll", json={"operator": "alice"},
+                    headers={"X-TF-Key": "wrong"})
+    r = client.post("/v1/enroll", json={"operator": "alice"},
+                    headers={"X-TF-Key": "wrong"})
+    assert r.status_code == 429
+    assert "Retry-After" in r.headers
+
+
+def test_admin_rate_limit_after_failed_admin_key(client, app_mod):
+    app_mod.ADMIN_KEY = "good"
+    for _ in range(app_mod.ADMIN_RATE_MAX + 1):
+        client.request("DELETE", "/v1/events",
+                       json={"session_id": "x"},
+                       headers={"X-TF-Admin-Key": "wrong"})
+    r = client.request("DELETE", "/v1/events",
+                       json={"session_id": "x"},
+                       headers={"X-TF-Admin-Key": "wrong"})
+    assert r.status_code == 429
+
+
+def test_ingest_skill_without_session_id_is_ignored(client):
+    r = client.post("/v1/events", json={
+        "operator": "alice", "runtime": "codex", "status": "running",
+        "skill": "no-session-skill",
+    })
+    assert r.status_code == 200
+    assert r.json().get("skill_ignored") is True
+
+
+def test_ingest_missing_session_id_400_without_skill(client):
+    r = client.post("/v1/events", json={
+        "operator": "alice", "runtime": "codex", "status": "running",
+    })
+    assert r.status_code == 400
+
+
+def test_ingest_invalid_json_400(client):
+    r = client.post("/v1/events", content=b"not-json",
+                    headers={"Content-Type": "application/json"})
+    assert r.status_code == 400
+
+
+def test_admin_export_requires_explicit_confirm(client, app_mod):
+    app_mod.ADMIN_KEY = "adminkey"
+    bad = client.post("/api/admin/export", json={},
+                      headers={"X-TF-Admin-Key": "adminkey"})
+    assert bad.status_code == 400
+    ok = client.post("/api/admin/export", json={"confirm": "EXPORT"},
+                     headers={"X-TF-Admin-Key": "adminkey"})
+    assert ok.status_code == 200
+    assert ok.headers["content-type"] == "application/x-sqlite3"

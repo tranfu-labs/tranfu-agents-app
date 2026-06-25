@@ -1,0 +1,14 @@
+# coverage 配置(由 add-server-app-test-baseline 引入)
+# 测试运行:python -m coverage run -m pytest && python -m coverage report
+[run]
+source = server
+branch = False
+
+[report]
+include = server/app.py
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+fail_under = 95

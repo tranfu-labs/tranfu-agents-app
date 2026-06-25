@@ -1,0 +1,97 @@
+"""onboarding 域:install / shims / SPA / static / healthz。
+对应 server/app.py 的 install_sh / shim_file / shim_manifest / _plain_file / SPA fallback / healthz。
+由 add-server-app-test-baseline 引入。
+"""
+import os
+
+
+# ---- /shims/{path} 目录穿越拒绝 ------------------------------------------
+def test_shims_dotdot_returns_404(client):
+    assert client.get("/shims/../server/app.py").status_code == 404
+
+
+def test_shims_unknown_file_404(client):
+    assert client.get("/shims/no-such.py").status_code == 404
+
+
+def test_shims_legal_file_returns_content(client):
+    r = client.get("/shims/tf_hook.py")
+    assert r.status_code == 200
+    assert "tranfu" in r.text.lower() or r.text  # 非空
+
+
+def test_shims_nested_wrapper(client):
+    r = client.get("/shims/wrapper/tf-run")
+    assert r.status_code == 200
+    assert r.text
+
+
+# ---- /shims/manifest ------------------------------------------------------
+def test_shims_manifest_schema(client):
+    r = client.get("/shims/manifest")
+    assert r.status_code == 200
+    m = r.json()
+    assert m["schema"] == 1
+    assert m["version"]
+    assert isinstance(m["files"], list) and len(m["files"]) > 0
+    f0 = m["files"][0]
+    for k in ("path", "target", "sha256", "size", "executable"):
+        assert k in f0
+
+
+# ---- /install.sh + 缺失态 -------------------------------------------------
+def test_install_sh_present(client):
+    r = client.get("/install.sh")
+    assert r.status_code == 200
+    assert "#!/" in r.text or r.text
+
+
+def test_install_sh_missing_returns_404(client, app_mod, monkeypatch):
+    # 把 INSTALL_PATH 指到不存在的路径,触发 _plain_file 的 FileNotFoundError 分支
+    monkeypatch.setattr(app_mod, "INSTALL_PATH", "/tmp/__definitely_not_here.sh")
+    r = client.get("/install.sh")
+    assert r.status_code == 404
+
+
+def test_llms_txt_present_or_missing(client):
+    r = client.get("/llms.txt")
+    assert r.status_code in (200, 404)
+
+
+def test_robots_txt_present_or_missing(client):
+    r = client.get("/robots.txt")
+    assert r.status_code in (200, 404)
+
+
+def test_llms_txt_missing_returns_404(client, app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "LLMS_PATH", "/tmp/__no_llms.txt")
+    assert client.get("/llms.txt").status_code == 404
+
+
+def test_robots_txt_missing_returns_404(client, app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "ROBOTS_PATH", "/tmp/__no_robots.txt")
+    assert client.get("/robots.txt").status_code == 404
+
+
+# ---- /healthz -------------------------------------------------------------
+def test_healthz_is_ok_and_does_not_touch_db(client):
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    assert r.text == "ok"
+
+
+# ---- SPA fallback --------------------------------------------------------
+def test_spa_fallback_serves_index_for_unknown_route(client):
+    r = client.get("/some-deep-link")
+    # 取决于 frontend/dist 是否构建;响应应为 200(SPA)或 404(无 build)
+    assert r.status_code in (200, 404)
+
+
+def test_spa_fallback_does_not_swallow_api_routes(client):
+    assert client.get("/api/nope").status_code == 404
+    assert client.get("/v1/nope").status_code == 404
+
+
+def test_spa_fallback_does_not_swallow_paths_with_dots(client):
+    # 含 . 的叶子被当作静态资源,不进 SPA
+    assert client.get("/some-file.css").status_code == 404

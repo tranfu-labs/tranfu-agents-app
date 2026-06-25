@@ -63,7 +63,7 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 3. 读 `docs/adr/` 看是否触碰已决约束(无 token 追踪、单容器、按身份合并卡片等)。
 
 ## 修改后检查
-1. 服务端:`python -m py_compile server/app.py`;关键路径用 TestClient 自测(`/v1/events` 去重、`/api/state` 结构与卡片合并、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}` 聚合口径、`/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。契约测试在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)在 PR 自动跑;改协议行为时同步加/改用例。
+1. 服务端:`python -m py_compile server/app.py`;关键路径用 TestClient 自测(`/v1/events` 去重、`/api/state` 结构与卡片合并、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}` 聚合口径、`/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。契约测试在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)在 PR 自动跑;改协议行为时同步加/改用例。**覆盖率门槛**(由 `add-server-app-test-baseline` 引入):`python -m coverage run -m pytest && python -m coverage report` —— `server/app.py` 行覆盖必须 ≥ 95%,豁免行用 `# pragma: no cover` 标记(`.coveragerc` 见仓库根)。
 2. 前端:`npm --prefix frontend run build`;暗/亮主题与手机窄屏(≤600px)各看一眼。
 3. shim:对 fake 环境跑 `tf_profile.py` / `tf_report.py --print` 验证 payload;`bash -n` 校验 sh。
 4. 文档:涉及端口/链接/字段时同步 `DEPLOY/UPDATE/QUICKSTART/USAGE/PROTOCOL`、`docs/architecture/module-map.md` 与本文件;若影响 agent 自助安装,同步 `SKILL.md`。
