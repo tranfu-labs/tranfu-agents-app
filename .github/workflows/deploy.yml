@@ -1,19 +1,20 @@
-name: Build and Publish to GHCR
+name: Build and Publish to GHCR (dev)
 
-# push main 触发：前置检查 → 跑测试卡口 → 构建镜像 → 推 GHCR → 通知 Coolify 拉新镜像部署。
-# 配置依赖：
-#   - Org secret   COOLIFY_API_TOKEN  (tranfu-labs 组织级，全 repo 共用)
-#   - Org variable COOLIFY_BASE_URL   (tranfu-labs 组织级，全 repo 共用)
-#   - 下方 COOLIFY_APP_UUID            (每个 repo 自己写死，明文非敏感)
+# push dev 触发：前置检查 → 跑测试卡口 → 构建镜像(:dev + :dev-<sha>) → 推 GHCR → 通知 Coolify 拉新镜像部署。
+# 配置依赖（仓库级 secret，到 Settings → Secrets and variables → Actions 配）：
+#   - COOLIFY_API_TOKEN  (Coolify API token，仅 deploy 权限)
+#   - COOLIFY_BASE_URL   (例: http://120.77.223.183:8000)
+#   - 下方 COOLIFY_APP_UUID 指向 Coolify 里 dev 环境那个 service（明文非敏感）
+# prod 接入时再加 main 分支路由（tag=latest + prod 的 UUID）。
 on:
   push:
-    branches: [main]
+    branches: [dev]
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  COOLIFY_APP_UUID: zkmchkq57ovaecgpx1od5y2t
+  COOLIFY_APP_UUID: rsg5x2xurne2r2lddjfa0dro
 
 jobs:
   build-and-publish:
@@ -27,16 +28,16 @@ jobs:
       - name: 前置检查（Coolify 部署所需配置）
         env:
           TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-          BASE: ${{ vars.COOLIFY_BASE_URL }}
+          BASE: ${{ secrets.COOLIFY_BASE_URL }}
         run: |
           missing=()
-          [ -z "$TOKEN" ] && missing+=("COOLIFY_API_TOKEN (Org secret)")
-          [ -z "$BASE" ]  && missing+=("COOLIFY_BASE_URL (Org variable)")
+          [ -z "$TOKEN" ] && missing+=("COOLIFY_API_TOKEN (repo secret)")
+          [ -z "$BASE" ]  && missing+=("COOLIFY_BASE_URL (repo secret)")
           [ -z "$COOLIFY_APP_UUID" ] && missing+=("COOLIFY_APP_UUID (workflow env)")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::缺少 Coolify 部署配置，构建已中止："
             printf '  - %s\n' "${missing[@]}"
-            echo "::error::请到 https://github.com/organizations/tranfu-labs/settings/secrets/actions 配置后点 Re-run failed jobs。"
+            echo "::error::请到 https://github.com/tranfu-labs/tranfu-agents-app/settings/secrets/actions 配置后点 Re-run failed jobs。"
             exit 1
           fi
 
@@ -82,15 +83,15 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: 触发 Coolify 部署
         env:
           TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-          BASE: ${{ vars.COOLIFY_BASE_URL }}
+          BASE: ${{ secrets.COOLIFY_BASE_URL }}
         run: |
           curl -fsSL --fail-with-body -X POST \
             -H "Authorization: Bearer $TOKEN" \
