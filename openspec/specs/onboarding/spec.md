@@ -28,6 +28,27 @@
 9. Claude Code / Codex / Hermes 的新 shim 在下一次 hook 触发时生效。
    **OpenClaw 在 `session_start` 中 fire-and-forget spawn `python3 ~/.tranfu/tf_selfupdate.py`,
    shim 文件被刷新**;JS 常驻代码本身的生效仍需重启 OpenClaw(`SIGUSR1` 只重读 manifest 的版本号显示)。
+10. **Hermes 钩子链路落盘常态结构化诊断日志**。`shims/tf_hook.py` 在 `_run_report()` 内部、
+    `subprocess.run` 结束后必须为每条 **Hermes 事件**(`hook_event_name ∈ {on_session_start,
+    pre_llm_call, pre_tool_call, post_tool_call, post_llm_call, on_session_end}`)追加一行 NDJSON 到
+    `~/.tranfu/logs/hermes-hook.ndjson`,字段固定为 `{ts, ev, tool, sid, skill, argv_tail, rc, err}`
+    (类型 / 上限见 ADR-0022),并满足:
+    - **守门**:事件不在上述集合内时不写入(Claude/Codex 同一份 hook 经过时不落盘);
+      `TF_HOOK_DEBUG=0` 时不写入(逃逸口)。
+    - **隐私**:禁写 `tool_input` 非 `name` 字段、stdin 全文、shell 命令文本;`sid` 取前 8 字符脱敏。
+      隐私边界与 PROTOCOL.md §5"只名不内容"原则一致(本地一档同样严格)。
+    - **轮转**:写入前若 `~/.tranfu/logs/hermes-hook.ndjson` 大小 ≥ `5 * 1024 * 1024`(5MB),
+      必须 `os.rename` 为 `~/.tranfu/logs/hermes-hook.ndjson.1`(覆盖既有备份),然后新建 current。
+      **总磁盘占用上限 10MB**。
+    - **不阻塞主线**:任何 IO / 文件系统失败必须静默(`try/except Exception: pass`),
+      不得影响 `tf_report.py` 的调用与上报。
+    - **并发安全**:`O_APPEND` 模式 append、`os.rename` 作为原子 rotate,不引入 fcntl 锁。
+      每行硬控 < 400B,远低于 `PIPE_BUF` 4096B 原子阈。
+    - **不日志化自更新子进程**:`_spawn_selfupdate()` 是 detached 长进程,不接入本日志
+      (避免抓 returncode 阻塞 hook 热路径)。
+    - 与 `~/.tranfu/logs/hook-payload.jsonl`(`TF_DEBUG_HOOK=1` 按需 raw stdin dump,
+      由 ingest 域 spec 规定)互补共存:两者写入点独立、文件路径不同、守门条件不同,
+      各自失败不影响对方与上报主线。
 
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
@@ -39,3 +60,17 @@
 - OpenClaw `session_start` 后,若 `~/.tranfu/manifest.json` 与服务端不一致,会在 ≤ 1h 内被刷新。
 - `install.sh` 全量 manifest 安装成功后,manifest 中所有 target 都存在于 `~/.tranfu/`;安装失败时不写入 `manifest.json`。
 - 本地 manifest 版本与服务端一致但某 target 缺失 → 自更新器下载并补齐该 target。
+- Hermes `pre_tool_call` + `tool_name=skill_view` + `tool_input.name="plan"` payload 经 stdin 喂 `tf_hook.py`
+  → `~/.tranfu/logs/hermes-hook.ndjson` 末尾追加一行,`json.loads` 后 `ev=="pre_tool_call"` 且
+  `tool=="skill_view"` 且 `skill=="plan"` 且 `argv_tail` 末尾含 `"--skill plan"` 且 `rc==0`。
+- Hermes `pre_tool_call` + `tool_name=terminal` payload → 日志一行 `skill==""`、`tool=="terminal"`、
+  `argv_tail` 不含 `--skill`(证明"识别失败"在日志里看得见)。
+- Hermes `pre_tool_call` + `tool_input={"name":"x","command":"rm -rf /","secret":"k"}`
+  → 日志一行 `skill=="x"`,**不含** `"rm -rf /"` 也不含 `"k"`。
+- Hermes 任意事件 + 环境 `TF_HOOK_DEBUG=0` → 日志不追加。
+- Claude `PreToolUse` / Codex 任意 CamelCase 事件 → `hermes-hook.ndjson` 不追加(`HERMES_EVENTS` 守门)。
+- `LOG_MAX` 缩到测试值 + 连写若干条 → `hermes-hook.ndjson.1` 文件存在 + 文件大小 ≥ 阈值 + current 文件大小 < 阈值。
+- `~/.tranfu/logs/` 父目录设为只读 → `_run_report()` 仍正常调起 `tf_report.py`,无异常向 stderr 泄漏。
+- 4 进程并发各写 100 条 → 文件总行数恰好 400 且每行可独立 `json.loads`(`O_APPEND` 原子性回归)。
+- 真机 Hermes 会话执行某 skill → 日志末尾出对应 `tool=="skill_view"` 行 ↔ 远端 `tf.db.skill_uses` 出对应
+  `(session_id, skill)` 行,**形成端到端诊断闭环**。

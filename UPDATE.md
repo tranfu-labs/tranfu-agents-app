@@ -153,6 +153,41 @@ SKILLS 页会低频读取三个只读接口:
 8. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,mode,operator,day from skill_uses limit 5;'`。
 9. SKILLS 总览接口是否可读:`curl https://你的看板/api/skills?days=30 | head -c 300`。
 
+## 8. Hermes hook 诊断日志升级注意
+
+本版本起 `shims/tf_hook.py` 为 Hermes 钩子链路落一份**常态结构化诊断日志**,默认开,
+路径 `~/.tranfu/logs/hermes-hook.ndjson`。配合既有 `~/.tranfu/spool.ndjson`(只在
+上报失败时写,作为离线重发队列),Hermes 漏采 skill 的排查首次有了本地证据可查。
+
+字段一行 NDJSON,固定 8 个:
+
+| 字段 | 内容 |
+|---|---|
+| `ts` | UTC ISO8601 秒精度,如 `"2026-06-25T10:23:11Z"` |
+| `ev` | hook 事件名(`on_session_start` / `pre_llm_call` / `pre_tool_call` / `post_*` / `on_session_end`) |
+| `tool` | `tool_name` 字符串(空表示 hook 事件无工具上下文) |
+| `sid` | `session_id` 前 8 字符(脱敏) |
+| `skill` | `_skill_name()` 返回值;空表示"hook 跑了 + 工具不在 SKILL_TOOLS"或"`tool_input` 取不到 name" |
+| `argv_tail` | `tf_report.py` argv 末 80 字符 |
+| `rc` | `tf_report.py` 退出码;`-1` = 超时或 subprocess 异常 |
+| `err` | 仅 rc≠0 时填,`tf_report.py` stderr 前 80 字符或 `"timeout"` |
+
+容量上限:双文件 5MB rotate,总占用 10MB(`hermes-hook.ndjson` + `.1`),无外部依赖。
+
+排查 Hermes 漏采时按字段对照判定断点:
+
+| 现象 | 大概率根因 |
+|---|---|
+| 文件不存在 | hook 根本没触发——`~/.hermes/config.yaml` 没合并 `pre_tool_call` 注册行,或 gateway 进程没重启 |
+| 有 `pre_tool_call` 行但 `tool != skill_view` | 那次操作 Hermes 没真触发 `skill_view` 工具(或工具名字段不对) |
+| 有 `tool == skill_view` 但 `skill == ""` | `_skill_name()` 没取到——`tool_input.name` 字段可能不是这个名字,抓一条原始 stdin 比对 |
+| 有 `skill` 字段但 `rc != 0` | `tf_report.py` 上报失败,`err` 字段会给原因(网络 / `tf.db` 不可达等) |
+| 一切正常但远端没数据 | 服务端 `tf.db` 那侧未落库,看远端日志 |
+
+关闭方式:`~/.tranfu/tf_env.hermes.sh` 写 `export TF_HOOK_DEBUG=0`。
+本日志只服务 Hermes 链路;Claude/Codex 不落本日志(它们走 `~/.tranfu/logs/hook-payload.jsonl` 按需 dump,
+见 `harden-codex-skill-hook-payload` change / `TF_DEBUG_HOOK=1` 开关)。
+
 ---
 
 完整部署/运维(备份、轮换密钥、访问控制等)见仓库 `DEPLOY.md`。

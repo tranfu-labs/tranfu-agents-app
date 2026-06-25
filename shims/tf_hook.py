@@ -25,6 +25,7 @@ session_id comes from the hook JSON, so every event in a session shares one
 identity = one card.
 """
 import sys, os, json, re, subprocess
+from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,6 +58,18 @@ SKILL_TOOLS = {"skill", "skill_view"}
 # how often manifest is actually fetched.
 SELFUPDATE_EVENTS = ("SessionStart", "on_session_start",
                      "UserPromptSubmit", "Stop", "SessionEnd")
+
+# Hermes 钩子链路常态结构化诊断日志(ADR-0022 / spec onboarding §10)。
+# 默认开,`TF_HOOK_DEBUG=0` 关闭;双文件 5MB rotate,总上限 10MB;只记 ev/tool/sid/skill/rc
+# 等摘要,不写 stdin 全文 / tool_input 非 name 字段 / shell 命令文本。
+HERMES_EVENTS = {
+    "on_session_start", "pre_llm_call", "pre_tool_call",
+    "post_tool_call",   "post_llm_call", "on_session_end",
+}
+LOG_DIR = os.path.join(os.path.expanduser("~/.tranfu"), "logs")
+LOG_PATH = os.path.join(LOG_DIR, "hermes-hook.ndjson")
+LOG_BAK = LOG_PATH + ".1"
+LOG_MAX = 5 * 1024 * 1024
 
 
 def _name_from(value):
@@ -133,12 +146,61 @@ def resolve(d):
     return args
 
 
-def _run_report(rargs):
-    args = ["python3", os.path.join(HERE, "tf_report.py")] + rargs
+def _utcnow_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ensure_log_dir():
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+
+def _rotate_if_needed():
     try:
-        subprocess.run(args, timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.stat(LOG_PATH).st_size >= LOG_MAX:
+            os.rename(LOG_PATH, LOG_BAK)
+    except FileNotFoundError:
+        pass
+
+
+def _hook_log(ev, tool, sid, skill, argv, rc, err):
+    if ev not in HERMES_EVENTS:
+        return  # Claude/Codex 链路不落盘;scan_* 调用 _run_report 时 ev=None 同样被守门
+    if os.environ.get("TF_HOOK_DEBUG") == "0":
+        return  # 显式逃逸口
+    try:
+        _ensure_log_dir()
+        _rotate_if_needed()
+        record = {
+            "ts":        _utcnow_iso(),
+            "ev":        ev,
+            "tool":      (str(tool) if tool else "")[:32],
+            "sid":       (str(sid) if sid else "")[:8],
+            "skill":     (str(skill) if skill else "")[:64],
+            "argv_tail": (" ".join(map(str, argv or [])))[-80:],
+            "rc":        int(rc) if rc is not None else -1,
+            "err":       (err or "")[:80],
+        }
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception:
-        pass  # telemetry must never break the session
+        pass  # diagnostic log must never break the hook
+
+
+def _run_report(rargs, ev=None, tool=None, sid=None, skill=None):
+    args = ["python3", os.path.join(HERE, "tf_report.py")] + rargs
+    rc, err = -1, ""
+    try:
+        proc = subprocess.run(args, timeout=8,
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE)
+        rc = proc.returncode
+        if proc.stderr:
+            err = proc.stderr.decode("utf-8", errors="replace")
+    except subprocess.TimeoutExpired:
+        err = "timeout"
+    except Exception as e:
+        err = type(e).__name__
+    _hook_log(ev, tool, sid, skill, rargs, rc, err)
 
 
 def _spawn_selfupdate(d):
@@ -247,7 +309,15 @@ def main():
         pass  # self-update must never break the session
     rargs = resolve(d)
     if rargs is not None:
-        _run_report(rargs)
+        ev = _event_name(d)
+        tool = d.get("tool_name") or d.get("tool") or ""
+        if isinstance(tool, dict):
+            tool = tool.get("name") or tool.get("tool_name") or ""
+        _run_report(rargs,
+                    ev=ev,
+                    tool=str(tool) if tool else "",
+                    sid=_session_id(d),
+                    skill=_skill_name(d, ev, tool))
     try:
         scan_codex_skills(d)
     except Exception:

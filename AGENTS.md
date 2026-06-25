@@ -10,7 +10,7 @@ TRANFU//AGENTS 是**自托管、厂商中立的团队 AI Agent 可观测看板**
 - `Dockerfile`、`compose.yml`、`.env.example`、`server/requirements.txt` — 部署。
 - `.github/workflows/ci.yml` — PR/main 跑编译 + pytest;`.github/workflows/deploy.yml` — push main 跑 pytest 卡口后构建并推 `ghcr.io/tranfu-labs/tranfu-agents-app:latest` + `:<sha>`(回滚用 sha tag);Coolify 本阶段仍用 `compose.yml` build 部署,GHCR 镜像备用。
 - `frontend/` — React + TypeScript 看板 SPA(Vite 构建);FastAPI 在 `/` 与 SPA 深链提供 `frontend/dist`。
-- `shims/` — 各客户端上报工具:`tf_profile.py`(探测)、`tf_report.py`(统一发射)、`tf_client.sh`/`wrapper/tf-run`(bash 封装)、`tf_hook.py`(Claude Code 钩子分发)、`tf_selfupdate.py`(manifest 自更新)、`tf_client.py`(python 客户端)、`claude-code/`(hooks.settings.json + README)、`mcp/`(MCP reporter server.py)。
+- `shims/` — 各客户端上报工具:`tf_profile.py`(探测)、`tf_report.py`(统一发射)、`tf_client.sh`/`wrapper/tf-run`(bash 封装)、`tf_hook.py`(Claude Code / Codex / Hermes 钩子分发;Hermes 链路另落 `~/.tranfu/logs/hermes-hook.ndjson` 常态诊断日志,见 ADR-0022)、`tf_selfupdate.py`(manifest 自更新)、`tf_client.py`(python 客户端)、`claude-code/`(hooks.settings.json + README)、`mcp/`(MCP reporter server.py)。
 - `install.sh` — 一键安装:按 `$SERVER/shims/manifest` 全量拉客户端到 `~/.tranfu`,写 shell rc,装完自动注册一次。
 - 文档:`README`、`QUICKSTART`(队友 5 分钟接入)、`USAGE`(自然语言接入)、`DEPLOY`(部署)、`UPDATE`(更新现有部署)、`DEV-SETUP`(开发从零部署)、`PROTOCOL`(TATP 事件协议)、`SKILL.md`(给 agent 读的自助安装)、`llms.txt`/`robots.txt`。
 
