@@ -1,9 +1,6 @@
 services:
   server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: tranfu-agents-app:local
+    image: ghcr.io/tranfu-labs/tranfu-agents-app:latest
     environment:
       TF_DB: /data/tf.db
       PORT: "8788"
