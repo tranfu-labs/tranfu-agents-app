@@ -83,7 +83,7 @@ curl -fsSL <server>/install.sh | bash -s -- \
 安装器会(全部幂等,重跑安全):
 - 先做**预检**(python3 / curl / 看板可达 / `~/.tranfu` 可写),任一不过会**明确报错并停**——按「错误处理」转述,**不要绕过**。
 - 按 `<server>/shims/manifest` 校验 sha256 全量装 shim 到 `~/.tranfu`,清掉旧版孤儿文件,把身份 env 写进 `~/.tranfu`(key chmod 600);并往你登录 shell 的 rc 追加一段带标记的托管块(仅 `source` env + 加 `PATH`,幂等可重跑)。
-- 若 runtime 是 `claude-code`/`codex` → 幂等合并用户级 hooks(保留已有其它 hooks);`hermes` → 装 hook 脚本并打印要合并进 `~/.hermes/config.yaml` 的配置;`openclaw` → 装原生插件(装备态 Skill 统计)。
+- 若 runtime 是 `claude-code`/`codex` → 幂等合并用户级 hooks(保留已有其它 hooks);`hermes` → 装 hook 脚本并打印要合并进 `~/.hermes/config.yaml` 的配置(**合并后必须重启 Hermes gateway + Hermes 进程才生效——重要的事情见第 3 步 ⚠️**);`openclaw` → 装原生插件(装备态 Skill 统计)。
 - **当场注册**到看板,并在最后自动跑一次 `tf-doctor` 自检。
 
 ---
@@ -110,7 +110,15 @@ python3 ~/.tranfu/tf-doctor --runtime <你自己的 runtime> --json
 > ✅ 已接入。去看板你的 Pod 看「<用途> [<runtime>] 运行中」。
 > 若这次用到了 Skill,稍后 SKILLS 页会出现 used-only 排行与 7/30/90 天时间轴。
 
-`claude-code`/`codex`/`hermes` 装了 hooks 的,提示**重启对应 agent**后实时步骤才生效;Codex 首次遇到新 hook 可能要求信任,确认一次即可。
+> ⚠️ **Hermes 接入:hook 装完 ≠ 已生效**
+>
+> 👉 **必须重启 Hermes gateway 和 Hermes 进程!**
+> 👉 **必须重启 Hermes gateway 和 Hermes 进程!**
+> 👉 **必须重启 Hermes gateway 和 Hermes 进程!**
+>
+> (重要的事情说三遍)只重启其中一个,SkillUsage 都不会上报;已有的 Hermes 客户端连接需断开重连。在用户口头确认「两个都重启了」之前,**不要**宣布接入完成。
+>
+> `claude-code` / `codex`:重启对应 agent 即可,Codex 首次遇到新 hook 会要求信任,确认一次即可。
 
 ---
 
@@ -124,6 +132,7 @@ python3 ~/.tranfu/tf-doctor --runtime <你自己的 runtime> --json
 | 预检报缺 `python3` / `curl` | 让用户装好对应工具后重跑,**绝不 `sudo`**。 |
 | 写入权限 `EACCES` | 调整 `~/.tranfu` 归属/权限或 PATH,**绝不 `sudo`**。 |
 | 无法确定自己是哪个 runtime | 不传 `--runtime`,让安装器兜底;仍认不出就按 `cli` 注册并告知用户。 |
+| Hermes 装完后,看板上 Hermes runtime 长时间无 used skill / SkillUsage | 90% 是 gateway 或 Hermes 没重启(**重要的事情说三遍**:gateway 和 Hermes 两个进程都要重启)。让用户用其部署方式对应的命令分别重启后再观察,**不要**改 hook 配置去"修"。 |
 | 重试 2 次仍 fail / `detail` 不在本表 | 停止自动重装,把 fail 的 `name`+`detail` 原样转述,标记接入未完成,交还用户。 |
 
 ---
