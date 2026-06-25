@@ -1,6 +1,6 @@
 # 规格:admin(后台数据清理域)
 
-事实来源:`server/app.py` 的 `/api/admin/*`、`/admin` 前端与改造后的 `DELETE /v1/events`。
+事实来源:`server/routes/admin.py`(`/api/admin/*` 端点与清理算子族 + `DELETE /v1/events` legacy 兼容路径)、共用模块 `server/db.py`(连接 + schema)、`server/security.py`(管理钥匙鉴权 + 限流)、以及 `frontend/` 的 `/admin` 前端。
 
 ## 鉴权(MUST)
 - 所有 `/api/admin/*` 以及兼容清理路径 `DELETE /v1/events` 须带请求头 `X-TF-Admin-Key` 且等于服务端

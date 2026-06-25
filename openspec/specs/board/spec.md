@@ -1,6 +1,6 @@
 # 规格:board(看板与计算域)
 
-事实来源:`server/app.py`(`/api/state`、`metrics`、`leverage`、`reuse_map`、`_snapshot`)与 `frontend/` React 看板。
+事实来源:`server/routes/board.py`(`/api/state` / `/api/skills` / `/api/skill` / `/api/operator` / `/api/agent` 端点 + `_snapshot` / `metrics` / `leverage` / `skill_usage` / `skills_overview` / `*_payload` / `_state_compute_or_cache`)、`server/profile.py`(`load_profiles` / `load_shim_versions` / `reuse_map`)、共用模块 `server/db.py`、`server/catalog.py`(skill 来源标记)、以及 `frontend/` React 看板。缓存状态 `_state_cache` / `_state_cache_lock` 由 `server/routes/board.py` 持有,`server/app.py` re-export 给测试 monkeypatch。
 
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,

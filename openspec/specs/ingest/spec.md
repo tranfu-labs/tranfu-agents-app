@@ -1,6 +1,6 @@
 # 规格:ingest(事件采集域)
 
-事实来源:`server/app.py` 的 `POST /v1/events` 与 `PROTOCOL.md`(TATP v0.1)。
+事实来源:`server/routes/ingest.py`(`POST /v1/events` 与 `POST /v1/enroll`)、`server/identity.py`(`canon_operator` / `verify_operator` — 身份归一化与 token 校验)、共用模块 `server/db.py`(写路径 + 全局 `_lock`)、`server/security.py`(写侧鉴权)、以及 `PROTOCOL.md`(TATP v0.1)。
 
 ## 身份与字段
 - 身份 = `operator` + (`agent` 若有,否则 `runtime`)。

@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 
-from server.config import _EXECUTABLE_SHIMS
+from server.config import _EXECUTABLE_SHIMS, SHIMS_DIR
 
 
 def _shim_target(rel):
@@ -24,9 +24,8 @@ def _build_shim_manifest():
     target path here lets old clients fetch new shim files without hard-coding a
     new download list.
     """
-    from server import app  # 延迟读 SHIMS_DIR(留在 app.py 的路径常量)
     files = []
-    root = os.path.abspath(app.SHIMS_DIR)
+    root = os.path.abspath(SHIMS_DIR)
     for base, dirs, names in os.walk(root):
         dirs[:] = [d for d in dirs if d != "__pycache__" and not d.startswith(".")]
         for name in sorted(names):

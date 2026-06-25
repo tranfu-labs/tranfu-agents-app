@@ -5,7 +5,7 @@ source = server
 branch = False
 
 [report]
-include = server/app.py
+include = server/**/*.py
 show_missing = True
 skip_covered = False
 exclude_lines =

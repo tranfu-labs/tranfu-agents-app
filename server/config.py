@@ -57,6 +57,13 @@ WINDOW_DAYS = 90
 # skill mode 枚举(used / equipped)。
 SKILL_MODES = {"used", "equipped"}
 
+# 路径常量(测试不 monkeypatch 它们;FRONTEND_INDEX/INSTALL_PATH/LLMS_PATH/ROBOTS_PATH
+# 测试会改,留在 server/app.py)。
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+FRONTEND_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
+SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
+
+
 # 看板与计算域共用语义常量(admin 用 ACTIVE_ST 判活跃会话)。
 CLOUD_RUNTIMES = {"manus", "mulerun", "chatgpt"}
 STALE_SECONDS = 180                                # = 3 heartbeat periods (§1)

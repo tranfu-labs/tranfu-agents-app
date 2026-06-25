@@ -6,7 +6,7 @@ TRANFU//AGENTS 是**自托管、厂商中立的团队 AI Agent 可观测看板**
 > 业务规则事实来源是 `openspec/specs/<domain>/spec.md`;做需求/变更先在 `openspec/changes/<change-id>/` 写 proposal/design/tasks 再实现。
 
 ## 项目结构(根目录)
-- `server/app.py` — FastAPI collector + 看板服务端(单进程,既收事件又发页面与 API)。
+- `server/` — FastAPI collector + 看板服务端(单进程,既收事件又发页面与 API)。按 `openspec/specs/` 域分文件:`app.py`(组装入口 + 可变开关 + re-export)、`config.py`、`db.py`、`security.py`、`identity.py`、`profile.py`、`catalog.py`、`shim.py` + `routes/{ingest,admin,board,onboarding}.py`。详见 `server/AGENTS.md`。
 - `Dockerfile`、`compose.yml`、`.env.example`、`server/requirements.txt` — 部署。
 - `.github/workflows/ci.yml` — PR/main 跑编译 + pytest;`.github/workflows/deploy.yml` — push main 跑 pytest 卡口后构建并推 `ghcr.io/tranfu-labs/tranfu-agents-app:latest` + `:<sha>`(回滚用 sha tag);Coolify 本阶段仍用 `compose.yml` build 部署,GHCR 镜像备用。
 - `frontend/` — React + TypeScript 看板 SPA(Vite 构建);FastAPI 在 `/` 与 SPA 深链提供 `frontend/dist`。
@@ -52,7 +52,7 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - Skill 统计口径:事件可选 `skill`(仅 Skill 名)+ 可选 `skill_mode ∈ {used,equipped}`;服务端写 `skill_uses`(一行=会话×Skill×mode,`(session_id, skill, mode)` 幂等,长期保留)。端点:`/api/state.skills`(兼容排行)、`/api/skills?days={7|30|90}`(总览,skill/operator 两套 used-only 聚合,含 UTC `today`)、`/api/skill/{name}`(used/equipped 分列,含 UTC `today`)、`/api/operator/{name}`(按人 used-only,空 operator 与 equipped 不计入)。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;不得上报 Skill 参数/prompt/代码/输出。
 - 前端 React + TypeScript SPA;生产产物由 Docker/CI 构建,**仓库不提交 `frontend/dist`**。暗/亮双主题用 CSS 变量 + `body.light` 覆盖;品牌红 `--brand`(占位 `#ec1c2b`,待换精确值);logo 为内联红色 symbol。SKILLS 总览视角切换用独立 `frame` 卡片(左「视角」、右 `cnt` 说明,内容行 32px 分段按钮,选中态 `--brand`);筛选条留在 SKILLS 统计卡;可下钻表格整行可点且键盘可达,最近记录表不可点、时间列显示 `first_seen` 到秒(缺失回退 UTC 日期)。
 - 时间统一 **UTC**(活跃时长按 UTC 日/周;90 天窗口)。
-- **安全响应头 / CSP**:所有响应经 `server/app.py` 的 `_security_headers` 中间件注入 `nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy` / 锁定本源的 CSP(`_CSP`),HTTPS 部署另发 HSTS。前端**新接任何外部域名**(脚本、`fetch`/WebSocket、字体、图片、iframe)时,必须把该来源加进 `_CSP` 的对应指令(脚本→`script-src`、请求→`connect-src`、字体→`font-src`、图片→`img-src`),否则浏览器会静默拦截。能放同源就别引外部源;CSP 越窄越好。
+- **安全响应头 / CSP**:所有响应经 `server/security.py` 的 `_security_headers` 中间件注入 `nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy` / 锁定本源的 CSP(`_CSP`),HTTPS 部署另发 HSTS。前端**新接任何外部域名**(脚本、`fetch`/WebSocket、字体、图片、iframe)时,必须把该来源加进 `_CSP` 的对应指令(脚本→`script-src`、请求→`connect-src`、字体→`font-src`、图片→`img-src`),否则浏览器会静默拦截。能放同源就别引外部源;CSP 越窄越好。
 - **管理接口认证**:管理钥匙与写侧 `TF_KEY` 均用常量时间比较(`_key_eq`);`/api/admin/*`、`/api/admin/export`、兼容 `DELETE /v1/events`、`/v1/enroll` 经 IP 限流 + 指数退避(`TF_ADMIN_RATE_*`/`TF_ADMIN_LOCK_*`,反代须开 `TF_TRUST_PROXY`);整库导出走 `POST` 且需 `confirm=EXPORT`。
 - 不追踪 token / 成本(已彻底移除);写凭证只有 `TF_KEY`,请求头 `X-TF-Key`。
 - 仓库 owner/库名统一 `tranfu-labs/tranfu-agents-app`;raw/clone/install 链接都指它。
@@ -63,7 +63,7 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 3. 读 `docs/adr/` 看是否触碰已决约束(无 token 追踪、单容器、按身份合并卡片等)。
 
 ## 修改后检查
-1. 服务端:`python -m py_compile server/app.py`;关键路径用 TestClient 自测(`/v1/events` 去重、`/api/state` 结构与卡片合并、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}` 聚合口径、`/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。契约测试在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)在 PR 自动跑;改协议行为时同步加/改用例。**覆盖率门槛**(由 `add-server-app-test-baseline` 引入):`python -m coverage run -m pytest && python -m coverage report` —— `server/app.py` 行覆盖必须 ≥ 95%,豁免行用 `# pragma: no cover` 标记(`.coveragerc` 见仓库根)。
+1. 服务端:`python -m py_compile server/*.py server/routes/*.py`;关键路径用 TestClient 自测(`/v1/events` 去重、`/api/state` 结构与卡片合并、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}` 聚合口径、`/install.sh`、`/shims/manifest` 与 `/shims/<f>` 可取、目录穿越被拒)。契约测试在 `tests/`(`pytest tests/`),CI(`.github/workflows/ci.yml`)在 PR 自动跑;改协议行为时同步加/改用例。**覆盖率门槛**(由 `add-server-app-test-baseline` 引入,`refactor-server-app-by-domain` 拓宽到 `server/**/*.py`):`python -m coverage run -m pytest && python -m coverage report --include='server/**/*.py'` —— 整体行覆盖必须 ≥ 95%,豁免行用 `# pragma: no cover` 标记(`.coveragerc` 见仓库根)。子模块边界守门见 `tests/test_module_boundary.py`,详细约定见 `server/AGENTS.md`。
 2. 前端:`npm --prefix frontend run build`;暗/亮主题与手机窄屏(≤600px)各看一眼。
 3. shim:对 fake 环境跑 `tf_profile.py` / `tf_report.py --print` 验证 payload;`bash -n` 校验 sh。
 4. 文档:涉及端口/链接/字段时同步 `DEPLOY/UPDATE/QUICKSTART/USAGE/PROTOCOL`、`docs/architecture/module-map.md` 与本文件;若影响 agent 自助安装,同步 `SKILL.md`。

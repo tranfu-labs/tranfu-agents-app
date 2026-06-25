@@ -1,6 +1,6 @@
 # 规格:onboarding(安装与接入域)
 
-事实来源:`install.sh`、`server/app.py`(`/install.sh`、`/shims/{path}`、`/shims/manifest`)、`shims/*`、`QUICKSTART.md`/`USAGE.md`。
+事实来源:`install.sh`、`server/routes/onboarding.py`(`/install.sh` / `/shims/{path}` / `/shims/manifest` / `/llms.txt` / `/robots.txt` / `/healthz` / SPA 路由)、`server/shim.py`(`_build_shim_manifest` / `_SHIM_MANIFEST` — 内容版本与文件清单)、`shims/*`、`QUICKSTART.md` / `USAGE.md`。
 
 ## 规则(MUST)
 1. 安装一律从**看板域名**:`curl -fsSL $SERVER/install.sh | bash -s -- --server $SERVER --key K --operator OP --runtime RT [--agent A --role R --about .. --tips ..]`。

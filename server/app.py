@@ -63,11 +63,11 @@ REQUIRE_TOKEN = os.environ.get("TF_REQUIRE_TOKEN", "0") == "1"
 # the operator asserts an edge gate (Cloudflare Access / Caddy) via TF_READ_AUTH=1.
 READ_AUTH_OK = bool(os.environ.get("TF_READ_KEY")) or os.environ.get("TF_READ_AUTH", "0") == "1"
 
-# ---- 路径常量(测试 monkeypatch FRONTEND_INDEX/INSTALL_PATH/LLMS_PATH/ROBOTS_PATH;留在本文件)----
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-FRONTEND_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
+# ---- 路径常量 ----
+# REPO_ROOT/FRONTEND_DIST/SHIMS_DIR 已搬到 server.config(测试不 monkeypatch);
+# FRONTEND_INDEX/INSTALL_PATH/LLMS_PATH/ROBOTS_PATH 留在本文件(测试通过 monkeypatch 改它们)。
+from server.config import REPO_ROOT, FRONTEND_DIST, SHIMS_DIR  # noqa: E402
 FRONTEND_INDEX = os.path.join(FRONTEND_DIST, "index.html")
-SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
 INSTALL_PATH = os.path.join(REPO_ROOT, "install.sh")
 LLMS_PATH = os.path.join(REPO_ROOT, "llms.txt")
 ROBOTS_PATH = os.path.join(REPO_ROOT, "robots.txt")
