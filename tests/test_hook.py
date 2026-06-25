@@ -48,59 +48,18 @@ def test_skill_reporting_can_be_disabled(monkeypatch):
     assert "--skill" not in a
 
 
-def test_claude_slash_command_in_prompt_adds_skill_arg():
-    # Claude Code writes the user's typed /<skill> into UserPromptSubmit prompt
-    # as <command-name>/<name></command-name>. The slash skill must be reported
-    # the same way a Skill-tool invocation is.
-    prompt = "<command-name>/openspec-driven-development</command-name>\n请帮我做 X"
+def test_userpromptsubmit_does_not_try_to_extract_skill():
+    # Claude Desktop 在 hook 调完之后才把 /<skill> 展开成 <command-name>...,
+    # hook stdin 上的 prompt 是裸文本无 markup。所以 UserPromptSubmit 这条路径
+    # 不再尝试解析 skill —— 走 Stop/SessionEnd 扫 transcript 那条 (scan_claude_skills)。
     a = _args({"hook_event_name": "UserPromptSubmit",
-               "prompt": prompt, "session_id": "s1"})
-    assert a[a.index("--skill") + 1] == "openspec-driven-development"
-    assert a[a.index("--step") + 1] == "skill: openspec-driven-development"
-
-
-def test_claude_slash_command_without_leading_slash_also_matches():
-    prompt = "<command-name>verify</command-name>"
-    a = _args({"hook_event_name": "UserPromptSubmit",
-               "prompt": prompt, "session_id": "s1"})
-    assert a[a.index("--skill") + 1] == "verify"
-    assert a[a.index("--step") + 1] == "skill: verify"
-
-
-def test_userpromptsubmit_without_command_marker_keeps_prompt_step():
-    a = _args({"hook_event_name": "UserPromptSubmit",
-               "prompt": "just a normal message", "session_id": "s1"})
-    assert "--skill" not in a
-    assert a[a.index("--step") + 1] == "prompt"
-
-
-def test_slash_command_rejects_malformed_names():
-    cases = [
-        "<command-name>/12345</command-name>",                     # 纯数字
-        "<command-name>/-foo</command-name>",                      # 首字符是连字符
-        "<command-name>/foo--bar</command-name>",                  # 连续 --
-        "<command-name>/" + "a" * 100 + "</command-name>",         # 超长 (>80)
-        "<command-name>/foo<bar></command-name>",                  # 含 <>
-    ]
-    for prompt in cases:
-        a = _args({"hook_event_name": "UserPromptSubmit",
-                   "prompt": prompt, "session_id": "s1"})
-        assert "--skill" not in a, f"unexpectedly accepted: {prompt}"
-        assert a[a.index("--step") + 1] == "prompt"
-
-
-def test_slash_command_respects_tf_report_skills_disabled(monkeypatch):
-    monkeypatch.setenv("TF_REPORT_SKILLS", "0")
-    prompt = "<command-name>/openspec-driven-development</command-name>"
-    a = _args({"hook_event_name": "UserPromptSubmit",
-               "prompt": prompt, "session_id": "s1"})
+               "prompt": "/openspec-driven-development  测试一下", "session_id": "s1"})
     assert "--skill" not in a
     assert a[a.index("--step") + 1] == "prompt"
 
 
 def test_pretooluse_skill_tool_path_does_not_regress():
-    # 既有 PreToolUse+Skill 工具路径必须照旧工作，与 test_claude_skill_tool_adds_skill_arg
-    # 同形态——这条是防回归冗余。
+    # 既有 PreToolUse+Skill 工具路径必须照旧工作 —— 模型 invoke skill 走这条,实时上报。
     a = _args({"hook_event_name": "PreToolUse", "tool_name": "Skill",
                "tool_input": {"skill": "openspec-driven-development"},
                "session_id": "s1"})
@@ -213,3 +172,149 @@ def test_main_reports_hermes_skill_view_argv(monkeypatch):
 
     assert reported
     assert reported[0][reported[0].index("--skill") + 1] == "lark-base"
+
+
+# ---------- scan_claude_skills (Claude Code 斜杠 skill 从 transcript jsonl 兜底) ----------
+
+def _write_transcript(tmp_path, lines):
+    p = tmp_path / "session.jsonl"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(p)
+
+
+def _make_payload(transcript, event="Stop", sid="s-claude-1"):
+    return {"hook_event_name": event, "session_id": sid,
+            "transcript_path": transcript}
+
+
+def test_scan_claude_skills_hit_single(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    reported = []
+    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+
+    transcript = _write_transcript(tmp_path, [
+        '{"role":"user","content":"<command-message>openspec-driven-development</command-message>\\n'
+        '<command-name>/openspec-driven-development</command-name>\\n<command-args>x</command-args>"}',
+    ])
+    tf_hook.scan_claude_skills(_make_payload(transcript))
+
+    assert len(reported) == 1
+    argv = reported[0]
+    assert argv[argv.index("--skill") + 1] == "openspec-driven-development"
+    assert argv[argv.index("--status") + 1] == "done"
+    assert argv[argv.index("--step") + 1] == "skill: openspec-driven-development"
+    assert argv[argv.index("--session") + 1] == "s-claude-1"
+
+
+def test_scan_claude_skills_multi_skills_deduped(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    reported = []
+    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+
+    transcript = _write_transcript(tmp_path, [
+        '{"x":"<command-name>/openspec-driven-development</command-name>"}',
+        '{"x":"<command-name>/openspec-driven-development</command-name>"}',  # 重复同 skill
+        '{"x":"<command-name>verify</command-name>"}',  # 无前导 / 也算
+    ])
+    tf_hook.scan_claude_skills(_make_payload(transcript))
+
+    names = {argv[argv.index("--skill") + 1] for argv in reported}
+    assert names == {"openspec-driven-development", "verify"}
+    assert len(reported) == 2  # 同 skill 在同次扫描里只发一次
+
+
+def test_scan_claude_skills_disabled_by_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.setenv("TF_REPORT_SKILLS", "0")
+    monkeypatch.setattr(tf_hook, "_run_report",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no report")))
+
+    transcript = _write_transcript(tmp_path,
+        ['{"x":"<command-name>/openspec-driven-development</command-name>"}'])
+    tf_hook.scan_claude_skills(_make_payload(transcript))  # 不触发即通过
+
+
+def test_scan_claude_skills_wrong_runtime_noop(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "codex")  # 不是 claude-code
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    monkeypatch.setattr(tf_hook, "_run_report",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no report")))
+
+    transcript = _write_transcript(tmp_path,
+        ['{"x":"<command-name>/openspec-driven-development</command-name>"}'])
+    tf_hook.scan_claude_skills(_make_payload(transcript))
+
+
+def test_scan_claude_skills_transcript_missing_silent(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    monkeypatch.setattr(tf_hook, "_run_report",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no report")))
+
+    # transcript_path 字段缺失
+    tf_hook.scan_claude_skills({"hook_event_name": "Stop", "session_id": "s1"})
+    # transcript_path 指向不存在的路径
+    tf_hook.scan_claude_skills(_make_payload(str(tmp_path / "nope.jsonl")))
+    # session_id 缺失
+    tf_hook.scan_claude_skills({"hook_event_name": "Stop",
+                                 "transcript_path": str(tmp_path)})
+
+
+def test_scan_claude_skills_malformed_names_filtered(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    reported = []
+    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+
+    transcript = _write_transcript(tmp_path, [
+        '{"x":"<command-name>/12345</command-name>"}',          # 纯数字
+        '{"x":"<command-name>/-foo</command-name>"}',           # 首字符是连字符
+        '{"x":"<command-name>/foo--bar</command-name>"}',       # 连续 --
+        '{"x":"<command-name>/foo_</command-name>"}',           # 尾部下划线
+        '{"x":"<command-name>/openspec-driven-development</command-name>"}',  # 这条应通过
+    ])
+    tf_hook.scan_claude_skills(_make_payload(transcript))
+
+    names = [argv[argv.index("--skill") + 1] for argv in reported]
+    assert names == ["openspec-driven-development"]
+
+
+def test_scan_claude_skills_only_on_stop_and_session_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    monkeypatch.setattr(tf_hook, "_run_report",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no report")))
+
+    transcript = _write_transcript(tmp_path,
+        ['{"x":"<command-name>/openspec-driven-development</command-name>"}'])
+
+    # 这些事件不应触发扫描
+    for ev in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"):
+        tf_hook.scan_claude_skills(_make_payload(transcript, event=ev))
+
+
+def test_main_invokes_scan_claude_skills_on_stop(tmp_path, monkeypatch):
+    """main() 末尾必须调 scan_claude_skills,且与 _run_report 串通起来。"""
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
+    reported = []
+    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+
+    transcript = _write_transcript(tmp_path,
+        ['{"x":"<command-name>/openspec-driven-development</command-name>"}'])
+    payload = {"hook_event_name": "Stop", "session_id": "s-end",
+               "transcript_path": transcript}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    # 让 selfupdate 子进程不要真起
+    monkeypatch.setattr(tf_hook, "_spawn_selfupdate", lambda d: None)
+
+    tf_hook.main()
+
+    # main 会先 resolve() 出 Stop 自己的 ["--status","done",...] 一条,然后 scan_claude_skills 再追一条
+    skill_reports = [a for a in reported if "--skill" in a]
+    assert len(skill_reports) == 1
+    argv = skill_reports[0]
+    assert argv[argv.index("--skill") + 1] == "openspec-driven-development"
+    assert argv[argv.index("--session") + 1] == "s-end"

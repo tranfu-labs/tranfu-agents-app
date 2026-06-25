@@ -70,28 +70,6 @@ def _name_from(value):
     return ""
 
 
-# Claude Code 把用户手敲的 /<skill> 写进 UserPromptSubmit 的 prompt 头部，
-# 形如 <command-name>/openspec-driven-development</command-name>。前导斜杠可有可无。
-_SLASH_CMD_RE = re.compile(r"<command-name>/?([\w-]{2,80})</command-name>")
-_SLASH_PROMPT_HEAD = 1024
-
-
-def _skill_from_slash_prompt(prompt):
-    if not isinstance(prompt, str) or not prompt:
-        return ""
-    m = _SLASH_CMD_RE.search(prompt[:_SLASH_PROMPT_HEAD])
-    if not m:
-        return ""
-    name = m.group(1)
-    if name.isdigit():
-        return ""
-    if name.startswith(("-", "_")) or name.endswith(("-", "_")):
-        return ""
-    if "--" in name:
-        return ""
-    return name
-
-
 def _skill_from_tool_input(d):
     for key in ("tool_input", "toolInput", "input", "arguments"):
         payload = d.get(key)
@@ -105,8 +83,6 @@ def _skill_from_tool_input(d):
 def _skill_name(d, ev, tool):
     if os.environ.get("TF_REPORT_SKILLS") == "0":
         return ""
-    if ev == "UserPromptSubmit":
-        return _skill_from_slash_prompt(d.get("prompt"))
     if ev in PRE_TOOL and str(tool).casefold() in SKILL_TOOLS:
         return _skill_from_tool_input(d)
     return ""
@@ -153,10 +129,6 @@ def resolve(d):
         args += ["--profile"]
     skill = _skill_name(d, ev, tool)
     if skill:
-        if ev == "UserPromptSubmit":
-            # 让事件级 step 反映这是个 skill 调用，与 scan_codex_skills 输出对齐
-            step_idx = args.index("--step") + 1
-            args[step_idx] = f"skill: {skill}"
         args += ["--skill", skill]
     return args
 
@@ -218,6 +190,51 @@ def scan_codex_skills(d):
                      "--session", str(sid), "--skill", nm])
 
 
+# Claude Code 用户手敲的 /<skill> 不走 Skill 工具,而是被 Claude 在 hook 之后
+# 展开成 <command-name>/<name></command-name> 写进 transcript jsonl。hook stdin 上的
+# prompt 字段是裸文本无 markup,所以必须在 Stop/SessionEnd 时去扫 transcript_path
+# 指向的那份 jsonl —— 与 scan_codex_skills 同构,只是来源不同。
+CLAUDE_SCAN_EVENTS = ("Stop", "SessionEnd")
+_CLAUDE_SLASH_RE = re.compile(r"<command-name>/?([\w-]{2,80})</command-name>")
+
+
+def scan_claude_skills(d):
+    """Stop/SessionEnd 时扫 transcript jsonl 抓 <command-name> 标记。
+    任何失败视为'无数据',静默退出,永远不阻塞主线程。"""
+    if os.environ.get("TF_REPORT_SKILLS") == "0":
+        return
+    if os.environ.get("TF_RUNTIME") != "claude-code":
+        return
+    if _event_name(d) not in CLAUDE_SCAN_EVENTS:
+        return
+    if not isinstance(d, dict):
+        return
+    transcript = d.get("transcript_path")
+    if not transcript or not os.path.exists(transcript):
+        return
+    sid = _session_id(d)
+    if not sid:
+        return
+    names = set()
+    try:
+        with open(transcript, errors="replace") as f:
+            for line in f:
+                for m in _CLAUDE_SLASH_RE.finditer(line):
+                    nm = m.group(1)
+                    if nm.isdigit():
+                        continue
+                    if nm.startswith(("-", "_")) or nm.endswith(("-", "_")):
+                        continue
+                    if "--" in nm:
+                        continue
+                    names.add(nm)
+    except Exception:
+        return
+    for nm in names:
+        _run_report(["--status", "done", "--step", f"skill: {nm}",
+                     "--session", str(sid), "--skill", nm])
+
+
 def main():
     try:
         raw = sys.stdin.read()
@@ -233,6 +250,10 @@ def main():
         _run_report(rargs)
     try:
         scan_codex_skills(d)
+    except Exception:
+        pass  # telemetry must never break the session
+    try:
+        scan_claude_skills(d)
     except Exception:
         pass  # telemetry must never break the session
 
