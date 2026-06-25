@@ -57,6 +57,14 @@ WINDOW_DAYS = 90
 # skill mode 枚举(used / equipped)。
 SKILL_MODES = {"used", "equipped"}
 
+# 看板与计算域共用语义常量(admin 用 ACTIVE_ST 判活跃会话)。
+CLOUD_RUNTIMES = {"manus", "mulerun", "chatgpt"}
+STALE_SECONDS = 180                                # = 3 heartbeat periods (§1)
+# §1: blocked is a LIVE status — it still occupies a run, so it counts as active
+# time and does not flip to idle. quality also surfaces a separate blocked count.
+ACTIVE_ST = ("running", "started", "waiting", "blocked")
+LIVE_ST = ACTIVE_ST
+
 # 限流器来源条目硬上限,防海量来源撑爆内存。
 _RATE_MAX_ENTRIES = 10000
 

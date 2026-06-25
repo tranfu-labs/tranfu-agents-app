@@ -36,6 +36,26 @@ def _clip(s, n):
     return s
 
 
+# ---- 时间窗口工具(admin 与 board 共享)----------------------------------
+import time as _time
+
+
+def _age(ts):
+    try:
+        return _time.time() - datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:  # pragma: no cover  — 历史脏数据 ts 解析失败兜底
+        return 1e9
+
+
+def _parse(ts):
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _day_cutoff(days):
+    from server import app  # 延迟读 datetime(可被 monkeypatch)
+    return (app.datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
+
+
 # ---- 连接 -----------------------------------------------------------------
 def db():
     from server import app  # 延迟读取可变 DB_PATH

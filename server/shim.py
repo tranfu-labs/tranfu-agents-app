@@ -52,3 +52,7 @@ def _build_shim_manifest():
         }, sort_keys=True, separators=(",", ":")).encode())
         h.update(b"\n")
     return {"schema": 1, "version": h.hexdigest(), "files": files}
+
+
+# 模块加载时立即扫盘并固化 manifest(与原 app.py 顶层行为一致)。
+_SHIM_MANIFEST = _build_shim_manifest()
