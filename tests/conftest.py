@@ -5,12 +5,12 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 @pytest.fixture
 def app_mod(tmp_path):
-    import app
+    from server import app
     # 每个测试一个独立 DB + 默认全关的开关(逐测试再按需打开)
     app.DB_PATH = str(tmp_path / "tf_test.db")
     app.INGEST_KEY = ""          # 不校验写密钥,测试免带 header

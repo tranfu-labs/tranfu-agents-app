@@ -41,6 +41,17 @@ from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, Fil
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+# 不变常量 + 工具函数集中在 server.config(由 refactor-server-app-by-domain 引入)。
+from server.config import (
+    _env_int, _env_float,
+    _MEDIA, _EXECUTABLE_SHIMS, _WEAK_ADMIN_KEYS, _RATE_MAX_ENTRIES,
+    PROFILE_KEYS, SENSITIVE_KEYS,
+    MAX_BODY, MAX_CONTENT, MAX_META, MAX_SKILL_NAME, WINDOW_DAYS, SKILL_MODES,
+    CATALOG_URL, CATALOG_TTL_SECONDS, CATALOG_FETCH_TIMEOUT,
+    CATALOG_COMPANY_TYPES, CATALOG_SOURCE_UNKNOWN,
+)
+
+# ---- 可变开关(测试通过 monkeypatch 改;留在本文件)----
 DB_PATH = os.environ.get("TF_DB", "tf.db")
 INGEST_KEY = os.environ.get("TF_KEY", "")          # "" = no auth (dev only)
 ADMIN_KEY = os.environ.get("TF_ADMIN_KEY", "")     # "" = admin endpoints disabled
@@ -51,6 +62,8 @@ REQUIRE_TOKEN = os.environ.get("TF_REQUIRE_TOKEN", "0") == "1"
 # stored ONLY when read access is protected: either the app read-key is set, or
 # the operator asserts an edge gate (Cloudflare Access / Caddy) via TF_READ_AUTH=1.
 READ_AUTH_OK = bool(os.environ.get("TF_READ_KEY")) or os.environ.get("TF_READ_AUTH", "0") == "1"
+
+# ---- 路径常量(测试 monkeypatch FRONTEND_INDEX/INSTALL_PATH/LLMS_PATH/ROBOTS_PATH;留在本文件)----
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 FRONTEND_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
 FRONTEND_INDEX = os.path.join(FRONTEND_DIST, "index.html")
@@ -58,33 +71,8 @@ SHIMS_DIR = os.path.join(REPO_ROOT, "shims")
 INSTALL_PATH = os.path.join(REPO_ROOT, "install.sh")
 LLMS_PATH = os.path.join(REPO_ROOT, "llms.txt")
 ROBOTS_PATH = os.path.join(REPO_ROOT, "robots.txt")
-_MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
-          ".js": "text/javascript", ".mjs": "text/javascript",
-          ".json": "application/json", ".md": "text/markdown"}
-_EXECUTABLE_SHIMS = {
-    "tf_client.sh", "tf_hooks.py", "tf_claude_hooks.py",
-    "wrapper/tf-run", "wrapper/tf-hermes-hook.sh", "wrapper/tf-doctor",
-}
-
-# profile keys the shim MAY include on an event (all optional, opt-in).
-# NOTE: `shim_version` used to live here but was moved to its own sticky table
-# (agent_shim_versions). Keeping it in PROFILE_KEYS meant any heartbeat whose
-# profile lacked the field would erase it via the full-replace UPSERT below.
-PROFILE_KEYS = ("models", "config", "mcp", "skills", "integrations",
-                "about", "tips", "cf", "instructions", "memory")
-# sensitive fields gated behind read-side auth (dropped if read access is open)
-SENSITIVE_KEYS = ("input", "output", "instructions", "memory")
-
-# §8 size limits
-MAX_BODY = 256 * 1024          # reject the whole POST above this -> 413
-MAX_CONTENT = 16 * 1024        # stored input/output, each
-MAX_META = 4 * 1024            # stored meta json
-MAX_SKILL_NAME = 160           # skill usage metadata, bounded like other strings
-WINDOW_DAYS = 90               # retention + read window
-SKILL_MODES = {"used", "equipped"}
 
 # 启动自检:管理钥匙若过短或为常见示例值,在线猜测成本极低 —— 打印告警(不阻断)。
-_WEAK_ADMIN_KEYS = {"devadmin", "admin", "password", "changeme", "test", "secret"}
 if ADMIN_KEY and (len(ADMIN_KEY) < 16 or ADMIN_KEY.lower() in _WEAK_ADMIN_KEYS):  # pragma: no cover
     print("[tranfu] WARNING: TF_ADMIN_KEY 偏弱(过短或为常见示例值),管理接口可被在线"
           "猜测;请用 `openssl rand -hex 32` 生成强随机值。", file=sys.stderr)
@@ -128,20 +116,6 @@ _state_cache_lock = threading.Lock()
 _state_cache = {"at": 0.0, "data": None}
 
 
-def _env_int(name, default):
-    try:
-        return int(os.environ.get(name, default))
-    except Exception:
-        return default
-
-
-def _env_float(name, default):
-    try:
-        return float(os.environ.get(name, default))
-    except Exception:
-        return float(default)
-
-
 STATE_TTL_SECONDS = _env_float("TF_STATE_TTL", "1.5")
 TRASH_DAYS = _env_int("TF_TRASH_DAYS", 30)
 ADMIN_MAX_ROWS = _env_int("TF_ADMIN_MAX_ROWS", 200)
@@ -154,23 +128,10 @@ ADMIN_RATE_MAX = _env_int("TF_ADMIN_RATE_MAX", 5)        # 窗口内允许的验
 ADMIN_RATE_WINDOW = _env_int("TF_ADMIN_RATE_WINDOW", 60)  # 滑窗长度(秒)
 ADMIN_LOCK_BASE = _env_int("TF_ADMIN_LOCK_BASE", 30)     # 首次封锁时长(秒),其后翻倍
 ADMIN_LOCK_MAX = _env_int("TF_ADMIN_LOCK_MAX", 3600)     # 封锁时长封顶(秒)
-_RATE_MAX_ENTRIES = 10000                                # 来源条目硬上限,防海量来源撑爆内存
 # 生产 HTTPS 部署才发 HSTS:显式 TF_HSTS=1,或经可信反代识别到 https。
 HSTS_FORCE = os.environ.get("TF_HSTS", "0") == "1"
-CATALOG_URL = os.environ.get(
-    "TF_SKILLS_CATALOG_URL",
-    "https://github.com/tranfu-labs/tranfu-skills/releases/download/catalog/index.json",
-)
-CATALOG_TTL_SECONDS = _env_int("TF_SKILLS_CATALOG_TTL", 3600)
-CATALOG_FETCH_TIMEOUT = _env_int("TF_SKILLS_CATALOG_TIMEOUT", 6)
-CATALOG_COMPANY_TYPES = {"own", "meta"}
-CATALOG_SOURCE_UNKNOWN = "非公司库"
 _catalog_state = {"items": None, "fetched_at": None, "error": None, "last_attempt": None}
 _catalog_thread_started = False
-
-
-def _sha(s):
-    return hashlib.sha256(s.encode()).hexdigest()
 
 
 def _shim_target(rel):
@@ -216,181 +177,13 @@ def _build_shim_manifest():
     return {"schema": 1, "version": h.hexdigest(), "files": files}
 
 
-def _clip(s, n):
-    """Truncate an over-long string for storage, marking the cut."""
-    if isinstance(s, str) and len(s) > n:
-        return s[:n] + "…[truncated]"
-    return s
-
-
-def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")      # readers don't block the writer
-    conn.execute("PRAGMA busy_timeout=4000")
-    return conn
-
-
-def init_db():
-    with closing(db()) as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts TEXT, recv TEXT, day TEXT,          -- ts=client(display), recv=server(authoritative)
-          v TEXT, operator TEXT, agent TEXT, runtime TEXT,
-          session_id TEXT, parent_session_id TEXT, verified INTEGER DEFAULT 0,
-          status TEXT, task TEXT, current_step TEXT,
-          model TEXT, last_seen TEXT,
-          input TEXT, output TEXT, meta TEXT, source TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_ev_session ON events(operator, runtime, session_id, id);
-        CREATE INDEX IF NOT EXISTS idx_ev_day ON events(day, operator, runtime);
-
-        -- latest reported profile per agent identity (operator + agent_key + runtime)
-        CREATE TABLE IF NOT EXISTS profiles (
-          operator TEXT, ak TEXT, runtime TEXT,
-          json TEXT, updated TEXT,
-          PRIMARY KEY (operator, ak, runtime)
-        );
-
-        -- sticky shim version per agent identity. Separate from `profiles` so
-        -- profile full-replacement (mcp/skills/etc.) cannot accidentally erase
-        -- it on heartbeats that omit the field. Updated only when an event
-        -- carries a non-empty shim_version; never cleared by absence.
-        CREATE TABLE IF NOT EXISTS agent_shim_versions (
-          operator TEXT, ak TEXT, runtime TEXT,
-          shim_version TEXT, updated TEXT,
-          PRIMARY KEY (operator, ak, runtime)
-        );
-
-        -- first time each skill name was seen (leverage: cumulative assets / new-this-week)
-        CREATE TABLE IF NOT EXISTS skills_seen (
-          name TEXT PRIMARY KEY, first_day TEXT
-        );
-
-        -- one row = one session × skill × semantic mode. "used" is the normal
-        -- tool-boundary signal; "equipped" is OpenClaw prompt-injection presence.
-        CREATE TABLE IF NOT EXISTS skill_uses (
-          session_id TEXT NOT NULL,
-          skill TEXT NOT NULL,
-          mode TEXT NOT NULL DEFAULT 'used',
-          operator TEXT,
-          runtime TEXT,
-          day TEXT,
-          first_seen TEXT,
-          PRIMARY KEY (session_id, skill, mode)
-        );
-        -- per-operator token bindings (TATP v0.1 §4). Stores sha256(token) only.
-        CREATE TABLE IF NOT EXISTS operators (
-          operator TEXT PRIMARY KEY, token_hash TEXT, created TEXT
-        );
-
-        -- operator identity: case/space-insensitive key -> first-seen display
-        -- casing. Lets NEZHA / nezha / " NeZhA " resolve to ONE dispatcher.
-        CREATE TABLE IF NOT EXISTS identities (
-          norm TEXT PRIMARY KEY, display TEXT, created TEXT
-        );
-
-        -- cached tranfu-skills catalog for the SKILLS stats page. One row only.
-        CREATE TABLE IF NOT EXISTS catalog_cache (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
-          json TEXT NOT NULL,
-          fetched_at TEXT NOT NULL
-        );
-
-        -- destructive admin cleanup: hard-delete with reversible source-row
-        -- snapshots plus append-only audit.
-        CREATE TABLE IF NOT EXISTS admin_trash (
-          batch_id TEXT PRIMARY KEY,
-          created TEXT,
-          actor TEXT,
-          selector TEXT,
-          payload TEXT,
-          counts TEXT,
-          restored INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS admin_audit (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts TEXT,
-          actor TEXT,
-          action TEXT,
-          selector TEXT,
-          counts TEXT,
-          batch_id TEXT
-        );
-        """)
-        # tolerate upgrades from an older schema (add columns if missing)
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
-        for col, decl in (("recv", "TEXT"), ("v", "TEXT"),
-                          ("parent_session_id", "TEXT"), ("verified", "INTEGER DEFAULT 0")):
-            if col not in cols:  # pragma: no cover  — 老 schema 升级路径,init_db 在空 DB 不进
-                conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
-        _ensure_skill_uses_schema(conn)
-
-        # --- identity normalization migration (idempotent) ---
-        # Merge case/space variants of operator (NEZHA/nezha) and lowercase
-        # runtime (Hermes/hermes), so one human/agent = one Pod/card. Safe to
-        # re-run: operators converge to first-seen display; lower() is stable.
-        conn.execute("""INSERT OR IGNORE INTO identities(norm,display,created)
-          SELECT lower(trim(operator)), trim(operator), MIN(COALESCE(recv,ts,''))
-          FROM events WHERE trim(COALESCE(operator,'')) <> ''
-          GROUP BY lower(trim(operator))""")
-        conn.execute("""UPDATE events SET operator = COALESCE(
-          (SELECT display FROM identities WHERE norm = lower(trim(events.operator))),
-          operator)""")
-        conn.execute("UPDATE events SET runtime = lower(trim(runtime)) WHERE runtime IS NOT NULL")
-        # profiles PK is (operator,ak,runtime); canonicalizing can collide ->
-        # rebuild keeping the latest 'updated' per canonical key.
-        prof = conn.execute("SELECT operator,ak,runtime,json,updated FROM profiles").fetchall()
-        if prof:  # pragma: no cover  — 历史 profiles 身份归一化迁移,空 DB 不进
-            best = {}
-            for r in prof:
-                row = conn.execute("SELECT display FROM identities WHERE norm=?",
-                                   ((r["operator"] or "").strip().casefold(),)).fetchone()
-                opd = row["display"] if row else r["operator"]
-                k = (opd, r["ak"], (r["runtime"] or "").strip().lower())
-                if k not in best or (r["updated"] or "") > (best[k]["updated"] or ""):
-                    best[k] = {"json": r["json"], "updated": r["updated"]}
-            conn.execute("DELETE FROM profiles")
-            for (opd, ak, rt), v in best.items():
-                conn.execute("INSERT INTO profiles(operator,ak,runtime,json,updated) VALUES(?,?,?,?,?)",
-                             (opd, ak, rt, v["json"], v["updated"]))
-        conn.commit()
-
-
-def _ensure_skill_uses_schema(conn):
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(skill_uses)")}
-    if "mode" not in cols:
-        conn.execute("ALTER TABLE skill_uses ADD COLUMN mode TEXT NOT NULL DEFAULT 'used'")
-    info = conn.execute("PRAGMA table_info(skill_uses)").fetchall()
-    pk = [r["name"] for r in sorted((r for r in info if r["pk"]), key=lambda r: r["pk"])]
-    if pk != ["session_id", "skill", "mode"]:
-        conn.execute("ALTER TABLE skill_uses RENAME TO skill_uses_old")
-        conn.execute("""
-        CREATE TABLE skill_uses (
-          session_id TEXT NOT NULL,
-          skill TEXT NOT NULL,
-          mode TEXT NOT NULL DEFAULT 'used',
-          operator TEXT,
-          runtime TEXT,
-          day TEXT,
-          first_seen TEXT,
-          PRIMARY KEY (session_id, skill, mode)
-        )""")
-        old_cols = {r["name"] for r in conn.execute("PRAGMA table_info(skill_uses_old)")}
-        mode_expr = "CASE WHEN mode IN ('used','equipped') THEN mode ELSE 'used' END" if "mode" in old_cols else "'used'"
-        conn.execute(f"""INSERT OR IGNORE INTO skill_uses
-          (session_id,skill,mode,operator,runtime,day,first_seen)
-          SELECT session_id,skill,{mode_expr},operator,runtime,day,first_seen
-          FROM skill_uses_old""")
-        conn.execute("DROP TABLE skill_uses_old")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill ON skill_uses(skill)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill_mode ON skill_uses(skill, mode)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_day ON skill_uses(day)")
-
-
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+# DB schema / 迁移 / 共用工具(now_iso/_sha/_json/_clip/db/init_db)与保留策略
+# (_maybe_prune/_maybe_prune_trash)+ _audit 全部搬到 server.db。
+from server.db import (
+    now_iso, _sha, _json, _clip,
+    db, init_db, _ensure_skill_uses_schema,
+    _audit, _maybe_prune, _maybe_prune_trash, _prune_state,
+)
 
 
 def _key_eq(given, expected):
@@ -402,10 +195,6 @@ def _key_eq(given, expected):
 def check_auth(key):
     if INGEST_KEY and not _key_eq(key, INGEST_KEY):
         raise HTTPException(status_code=401, detail="bad ingest key")
-
-
-def _json(data):
-    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _client_host(request):
@@ -496,12 +285,6 @@ def _rate_register_success(bucket, ip):
 def _admin_actor(key, request):
     kid = _sha(key or "")[:10] if key else "missing"
     return f"admin:{kid}@{_client_host(request)}"
-
-
-def _audit(conn, actor, action, selector=None, counts=None, batch_id=None):
-    conn.execute("""INSERT INTO admin_audit(ts,actor,action,selector,counts,batch_id)
-      VALUES(?,?,?,?,?,?)""",
-      (now_iso(), actor or "", action, _json(selector or {}), _json(counts or {}), batch_id))
 
 
 def _audit_denied(request, key, selector=None):
@@ -1489,16 +1272,6 @@ def _restore_admin_batch(conn, batch_id, actor):
     return {"ok": True, "batch_id": batch_id, "restored": report}
 
 
-def _maybe_prune_trash(conn):
-    if TRASH_DAYS <= 0:
-        return 0
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=TRASH_DAYS)).isoformat()
-    deleted = conn.execute("DELETE FROM admin_trash WHERE created < ?", (cutoff,)).rowcount
-    if deleted:
-        _audit(conn, "system", "purge_trash", {"cutoff": cutoff}, {"admin_trash": deleted}, None)
-    return deleted
-
-
 def _admin_inventory(conn, q="", limit=200, offset=0):
     needle = (q or "").strip().casefold()
     limit = max(1, min(int(limit or 200), 500))
@@ -1877,20 +1650,6 @@ async def delete_events(request: Request, x_tf_admin_key: str = Header(default="
         return {"ok": True, "deleted": result["counts"]["events"],
                 "cleared_profile": result["counts"]["profiles"], "by": by,
                 "counts": result["counts"], "batch_id": result["batch_id"]}
-
-
-_prune_state = {"n": 0}
-
-
-def _maybe_prune(conn):
-    """Retention (§6): every ~200 inserts, drop events older than the window."""
-    _prune_state["n"] += 1
-    if _prune_state["n"] % 200 != 1:
-        return
-    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=WINDOW_DAYS - 1)).isoformat()
-    deleted = conn.execute("DELETE FROM events WHERE day < ?", (cutoff,)).rowcount
-    if deleted:
-        _audit(conn, "system", "retention_prune", {"cutoff": cutoff}, {"events": deleted}, None)
 
 
 # ---------------------------------------------------------------- read helpers
