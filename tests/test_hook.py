@@ -1,12 +1,34 @@
 """tf_hook.resolve 契约测试：Claude/Codex 与 Hermes 事件都映射到正确的上报参数。"""
 import io
 import json
+import multiprocessing
 import os
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shims"))
 
 import tf_hook
+
+
+def _concurrent_writer(log_path, worker_id, n):
+    """multiprocessing 子进程入口:重置 LOG_* 指向同一份临时文件后连写 n 条 hook 日志。
+    顶层定义以确保 macOS spawn-mode 下可 pickle。"""
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "shims"))
+    import tf_hook as h
+    h.LOG_PATH = log_path
+    h.LOG_DIR = _os.path.dirname(log_path)
+    h.LOG_BAK = log_path + ".1"
+    _os.environ.pop("TF_HOOK_DEBUG", None)
+    for i in range(n):
+        h._hook_log(
+            ev="pre_tool_call", tool="t",
+            sid=f"w{worker_id}", skill=f"s{i:03d}",
+            argv=["--status", "running", "--step", "tool: t",
+                  "--session", f"w{worker_id}"],
+            rc=0, err="")
 
 
 def _args(d):
@@ -166,7 +188,8 @@ def test_main_reports_hermes_skill_view_argv(monkeypatch):
     payload = {"hook_event_name": "pre_tool_call", "tool_name": "skill_view",
                "tool_input": {"name": "lark-base"}, "session_id": "s1"}
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
-    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+    monkeypatch.setattr(tf_hook, "_run_report",
+                        lambda rargs, **kw: reported.append(rargs))
 
     tf_hook.main()
 
@@ -300,7 +323,8 @@ def test_main_invokes_scan_claude_skills_on_stop(tmp_path, monkeypatch):
     monkeypatch.setenv("TF_RUNTIME", "claude-code")
     monkeypatch.delenv("TF_REPORT_SKILLS", raising=False)
     reported = []
-    monkeypatch.setattr(tf_hook, "_run_report", reported.append)
+    monkeypatch.setattr(tf_hook, "_run_report",
+                        lambda rargs, **kw: reported.append(rargs))
 
     transcript = _write_transcript(tmp_path,
         ['{"x":"<command-name>/openspec-driven-development</command-name>"}'])
@@ -318,3 +342,182 @@ def test_main_invokes_scan_claude_skills_on_stop(tmp_path, monkeypatch):
     argv = skill_reports[0]
     assert argv[argv.index("--skill") + 1] == "openspec-driven-development"
     assert argv[argv.index("--session") + 1] == "s-end"
+
+
+# ============= _hook_log Hermes 钩子链路常态结构化诊断日志 (ADR-0022) =============
+
+@pytest.fixture
+def hook_log_tmp(tmp_path, monkeypatch):
+    """把 LOG_DIR/LOG_PATH/LOG_BAK 重定向到 tmp_path,确保 TF_HOOK_DEBUG 默认未设。"""
+    log_dir = str(tmp_path / "logs")
+    log_path = os.path.join(log_dir, "hermes-hook.ndjson")
+    log_bak = log_path + ".1"
+    monkeypatch.setattr(tf_hook, "LOG_DIR", log_dir)
+    monkeypatch.setattr(tf_hook, "LOG_PATH", log_path)
+    monkeypatch.setattr(tf_hook, "LOG_BAK", log_bak)
+    monkeypatch.delenv("TF_HOOK_DEBUG", raising=False)
+    return log_path, log_bak
+
+
+def _read_log(log_path):
+    with open(log_path, encoding="utf-8") as f:
+        return [json.loads(ln) for ln in f if ln.strip()]
+
+
+def test_hook_log_fields_complete(hook_log_tmp):
+    """(a) 字段完整:pre_tool_call + skill_view(name='plan')"""
+    log_path, _ = hook_log_tmp
+    tf_hook._hook_log(
+        ev="pre_tool_call", tool="skill_view",
+        sid="sess_abcdef0123", skill="plan",
+        argv=["--status", "running", "--step", "tool: skill_view",
+              "--session", "sess_abcdef0123", "--skill", "plan"],
+        rc=0, err="")
+    rows = _read_log(log_path)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["ev"] == "pre_tool_call"
+    assert r["tool"] == "skill_view"
+    assert r["sid"] == "sess_abc"  # 前 8 字符脱敏
+    assert r["skill"] == "plan"
+    assert r["argv_tail"].endswith("--skill plan")
+    assert r["rc"] == 0
+    assert r["err"] == ""
+    assert r["ts"].endswith("Z") and len(r["ts"]) == 20  # UTC ISO8601 秒精度
+
+
+def test_hook_log_records_empty_skill(hook_log_tmp):
+    """(b) 空 skill 也记:pre_tool_call + tool_name=terminal → 'hook 跑了但未识别 skill' 可被看见"""
+    log_path, _ = hook_log_tmp
+    tf_hook._hook_log(
+        ev="pre_tool_call", tool="terminal",
+        sid="s1", skill="",
+        argv=["--status", "running", "--step", "tool: terminal", "--session", "s1"],
+        rc=0, err="")
+    rows = _read_log(log_path)
+    assert len(rows) == 1
+    assert rows[0]["skill"] == ""
+    assert rows[0]["tool"] == "terminal"
+    assert "--skill" not in rows[0]["argv_tail"]
+
+
+def test_hook_log_records_skills_list_and_skill_manage(hook_log_tmp):
+    """(c) skills_list / skill_manage 也记 —— 区分'hook 跑了 + 被过滤' vs 'hook 没跑'"""
+    log_path, _ = hook_log_tmp
+    for tool in ("skills_list", "skill_manage"):
+        tf_hook._hook_log(
+            ev="pre_tool_call", tool=tool, sid="s1", skill="",
+            argv=["--status", "running", "--step", f"tool: {tool}", "--session", "s1"],
+            rc=0, err="")
+    rows = _read_log(log_path)
+    assert [r["tool"] for r in rows] == ["skills_list", "skill_manage"]
+    assert all(r["skill"] == "" for r in rows)
+
+
+def test_hook_log_privacy_omits_tool_input_payload(hook_log_tmp):
+    """(d) 隐私守门:tool_input 含 command/secret → 日志只含识别出的 skill 名,不含原 payload"""
+    log_path, _ = hook_log_tmp
+    sensitive = {"name": "x", "command": "rm -rf /", "secret": "k"}
+    extracted = tf_hook._skill_from_tool_input({"tool_input": sensitive})
+    assert extracted == "x"
+    tf_hook._hook_log(
+        ev="pre_tool_call", tool="skill_view",
+        sid="s1", skill=extracted,
+        argv=["--status", "running", "--step", "tool: skill_view",
+              "--session", "s1", "--skill", "x"],
+        rc=0, err="")
+    raw = open(log_path, encoding="utf-8").read()
+    assert "rm -rf /" not in raw
+    assert "secret" not in raw
+    assert '"skill": "x"' in raw
+
+
+def test_hook_log_rotates_at_max_size(hook_log_tmp, monkeypatch):
+    """(e) 轮转:LOG_MAX 缩到 500,连写 5 条 → .1 文件出现 + bak ≥ 阈值 + current 在阈值内(没无限膨胀)"""
+    log_path, log_bak = hook_log_tmp
+    monkeypatch.setattr(tf_hook, "LOG_MAX", 500)
+    for i in range(5):
+        tf_hook._hook_log(
+            ev="pre_tool_call", tool="skill_view",
+            sid=f"s{i:04d}xx", skill="plan",
+            argv=["--status", "running", "--step", "tool: skill_view",
+                  "--session", f"s{i:04d}xx", "--skill", "plan"],
+            rc=0, err="")
+    assert os.path.exists(log_bak)
+    assert os.path.exists(log_path)
+    # rotate 真的发生过 → bak 收下了那段超阈值的内容
+    assert os.stat(log_bak).st_size >= tf_hook.LOG_MAX
+    # current 自 rotate 后重新累积,大小受 LOG_MAX 守门,不会无限膨胀
+    assert os.stat(log_path).st_size < tf_hook.LOG_MAX
+
+
+def test_hook_log_gates_claude_codex_events(hook_log_tmp):
+    """(f) Claude/Codex 守门:PreToolUse (CamelCase) 经 _hook_log 不落"""
+    log_path, _ = hook_log_tmp
+    tf_hook._hook_log(
+        ev="PreToolUse", tool="Skill", sid="s1", skill="x",
+        argv=["--status", "running", "--step", "tool: Skill",
+              "--session", "s1", "--skill", "x"],
+        rc=0, err="")
+    assert not os.path.exists(log_path)
+
+
+def test_hook_log_disabled_by_env(hook_log_tmp, monkeypatch):
+    """(g) TF_HOOK_DEBUG=0 关闭逃逸口"""
+    log_path, _ = hook_log_tmp
+    monkeypatch.setenv("TF_HOOK_DEBUG", "0")
+    tf_hook._hook_log(
+        ev="pre_tool_call", tool="skill_view",
+        sid="s1", skill="plan",
+        argv=["--status", "running", "--step", "tool: skill_view",
+              "--session", "s1", "--skill", "plan"],
+        rc=0, err="")
+    assert not os.path.exists(log_path)
+
+
+def test_hook_log_failure_does_not_break_run_report(hook_log_tmp, monkeypatch):
+    """(h) 写失败静默:makedirs 抛异常,_run_report 仍正常完成 + tf_report.py 被调起"""
+    monkeypatch.setattr(tf_hook.os, "makedirs",
+                        lambda *a, **k: (_ for _ in ()).throw(PermissionError("readonly")))
+    seen = {}
+
+    class FakeProc:
+        returncode = 0
+        stderr = b""
+
+    def fake_run(args, **kw):
+        seen["args"] = args
+        return FakeProc()
+
+    monkeypatch.setattr(tf_hook.subprocess, "run", fake_run)
+    tf_hook._run_report(["--status", "running", "--step", "tool: skill_view",
+                         "--session", "s1", "--skill", "plan"],
+                        ev="pre_tool_call", tool="skill_view",
+                        sid="s1", skill="plan")
+    assert seen["args"][-1] == "plan"  # tf_report.py 仍被调起到末参数
+
+
+def test_hook_log_concurrent_appends_are_atomic(tmp_path, monkeypatch):
+    """(j) 并发 4 进程 × 100 条:总行数恰好 400 + 每行可独立 json.loads(O_APPEND 原子性回归)"""
+    log_dir = str(tmp_path / "logs")
+    log_path = os.path.join(log_dir, "hermes-hook.ndjson")
+    log_bak = log_path + ".1"
+    monkeypatch.setattr(tf_hook, "LOG_DIR", log_dir)
+    monkeypatch.setattr(tf_hook, "LOG_PATH", log_path)
+    monkeypatch.setattr(tf_hook, "LOG_BAK", log_bak)
+    monkeypatch.delenv("TF_HOOK_DEBUG", raising=False)
+    os.makedirs(log_dir, exist_ok=True)
+
+    procs = [multiprocessing.Process(target=_concurrent_writer, args=(log_path, i, 100))
+             for i in range(4)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=30)
+        assert p.exitcode == 0
+
+    with open(log_path, encoding="utf-8") as f:
+        lines = [ln for ln in f if ln.strip()]
+    assert len(lines) == 400
+    for ln in lines:
+        json.loads(ln)  # 不抛 = 行未交错
