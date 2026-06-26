@@ -7,7 +7,7 @@
 ```
 agent 机器                         中心服务器(单容器)                 浏览器
 ┌───────────────┐  POST /v1/events ┌──────────────────────────┐  GET /  ┌──────────────┐
-│ shim:         │ ───────────────▶ │ server/app.py             │ ──────▶ │ React SPA    │
+│ shim:         │ ───────────────▶ │ server/ (FastAPI 域拆分)   │ ──────▶ │ React SPA    │
 │ tf_report /   │  X-TF-Key=TF_KEY │  ingest → SQLite           │ /api/state │ dist/assets │
 │ tf_hook / ... │                  │  compute → snapshot        │ ◀────── │ (轮询)       │
 │ tf_profile    │ ◀─ /install.sh,/shims/manifest,<f> ─ 分发自身 ─│            └──────────────┘
@@ -16,14 +16,24 @@ agent 机器                         中心服务器(单容器)                 
 
 ## 模块
 
-### M1 — 服务端 collector (`server/app.py`)
+### M1 — 服务端 collector (`server/`)
+- **目录结构(按 `openspec/specs/` 域拆分,详见 `server/AGENTS.md`)**:
+  - `app.py` — 组装入口(挂中间件、注册 routers、re-export 可变开关供测试 monkeypatch);
+  - `config.py` — 环境变量与全局开关(`TF_KEY` / `TF_ADMIN_*` / `STATE_TTL_SECONDS` 等);
+  - `db.py` — SQLite 连接与建表(`events` / `profiles` / `skills_seen` / `skill_uses` / `admin_trash` / `admin_audit`);
+  - `security.py` — `_security_headers` 中间件 + CSP/HSTS + 常量时间 key 比较 + IP 限流/退避;
+  - `identity.py` — 身份合并、按身份聚合的 leverage/质量/复用计算;
+  - `profile.py` — profile 写入与读取;
+  - `catalog.py` — 公司库/Skill 目录同步与采纳统计;
+  - `shim.py` — `_build_shim_manifest` / `_SHIM_MANIFEST` 内容版本与文件清单;
+  - `routes/ingest.py` — `POST /v1/events` 写入 + 兼容 `DELETE /v1/events` + `/v1/enroll`;
+  - `routes/admin.py` — `/api/admin/inventory` / `preview` / `data` / `trash` / `restore` / `export`;
+  - `routes/board.py` — `/api/state` / `/api/skills` / `/api/skill/{name}` / `/api/operator/{name}` / `/api/agent/{key}` + `/healthz` + SPA 静态托管;
+  - `routes/onboarding.py` — `/install.sh` / `/shims/manifest` / `/shims/{path}` + `/llms.txt` / `/robots.txt`。
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 高频轮询快照必须经进程内 TTL 缓存复用,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
-- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
-  `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
-  `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
-  `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
+- **入口(路由)**:见上方目录结构 `routes/*` 一栏。子模块禁止跨层互调,边界由 `tests/test_module_boundary.py` 守门。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`/`admin_trash`/`admin_audit`);
   浏览器(只读快照与 Skills 聚合);使用者机器(取 install/shim)。

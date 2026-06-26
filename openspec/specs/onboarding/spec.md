@@ -47,8 +47,8 @@
     - **不日志化自更新子进程**:`_spawn_selfupdate()` 是 detached 长进程,不接入本日志
       (避免抓 returncode 阻塞 hook 热路径)。
     - 与 `~/.tranfu/logs/hook-payload.jsonl`(`TF_DEBUG_HOOK=1` 按需 raw stdin dump,
-      由 ingest 域 spec 规定)互补共存:两者写入点独立、文件路径不同、守门条件不同,
-      各自失败不影响对方与上报主线。
+      当前由 `shims/tf_hook.py` 内部实现,尚未成 spec)互补共存:两者写入点独立、文件路径不同、
+      守门条件不同,各自失败不影响对方与上报主线。
 
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
