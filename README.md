@@ -25,6 +25,7 @@ Engineering and operations teams whose members run **multiple, different AI agen
 - See **who is running what, right now**: operator → agent → current step → status.
 - Track **active time per agent**: today, this week, and a 7-day trend.
 - Understand **which Skills are actually adopted, and by whom**: a dedicated SKILLS page switches between skill and operator views, with continuous 7/30/90-day UTC timelines, hover breakdowns, used-only rankings, per-skill/per-operator drilldowns, and company catalog adoption.
+- Monitor **optional downstream KEY token cost**: a separate Token Usage tab can read an existing distribution platform and show KEY spend ranking, usage trend, model mix, risk alerts, and health metrics.
 - Support **one person with many agents**: each agent is labelled by purpose (for example, "copy" vs "code").
 - Stay **heterogeneous by design**: local CLI agents (Claude Code, Codex, Open Claw, Hermes) report step-level detail; cloud agents (Manus, MuleRun, ChatGPT) report at start/end granularity.
 
@@ -59,6 +60,38 @@ cp .env.example .env      # set TF_KEY (the access key)
 
 In Coolify, deploy the root `compose.yml`, set `TF_KEY`, and configure the `server` service Domain as `https://your-domain.example:8788`.
 The `:8788` is the container's internal port; public traffic still uses HTTPS on 443. Full instructions are in `DEPLOY.md`.
+
+### Optional: enable Token Usage with real distribution data
+
+The **Token 用量** tab is isolated from the existing Pods, Agents, SKILLS, and Admin tabs. Deploying this version does not change the agent event protocol or the local SQLite telemetry store.
+
+By default the Token Usage tab does not read your distribution platform. To show real KEY usage, set these server-side environment variables in Coolify or your runtime environment, then redeploy:
+
+```bash
+TF_TOKEN_USAGE_BASE_URL=https://api.tranfu.com
+TF_TOKEN_USAGE_PATH=/api/data/keys
+TF_TOKEN_USAGE_USER_ID=<distribution-platform-user-id>
+TF_TOKEN_USAGE_ACCESS_TOKEN=<long-lived-read-token>
+TF_TOKEN_USAGE_DEMO=0
+```
+
+If your distribution platform does not provide a long-lived read token yet, you can temporarily use a login cookie instead:
+
+```bash
+TF_TOKEN_USAGE_COOKIE=<distribution-platform-login-cookie>
+TF_TOKEN_USAGE_DEMO=0
+```
+
+For production, prefer `TF_TOKEN_USAGE_ACCESS_TOKEN` or a dedicated service account token. Cookies can expire and should not be committed to GitHub, Docker images, README examples, or frontend code.
+
+Optional tuning:
+
+```bash
+TF_TOKEN_USAGE_TIMEOUT=15
+TF_TOKEN_USAGE_CACHE_TTL=90
+```
+
+After deploy, open `/token-usage`. If credentials are missing or expired, the rest of the dashboard still works; only the Token Usage tab will be unable to show real distribution usage.
 
 ## How a teammate connects an agent (natural language)
 
@@ -95,7 +128,7 @@ No. A small shim reports a tiny status event, so heterogeneous agents are first-
 Yes. Each agent is labelled by purpose (for example "copy" or "code") under the same operator (person).
 
 **Does it track tokens or cost?**
-No. It tracks status, active time, profile metadata, and privacy-bounded Skill names only. Token/cost tracking is deliberately out of scope.
+Core agent telemetry does not collect token or cost data. The optional Token Usage tab can display downstream KEY token cost only when you configure read-only distribution-platform credentials on the server.
 
 **How is it deployed?**
 As a single container that serves both the API and the dashboard. No external services are required.

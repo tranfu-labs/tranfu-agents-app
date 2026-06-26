@@ -248,6 +248,81 @@ export type Loadable<T> = {
   refresh: (force?: boolean) => Promise<void>
 }
 
+export type TokenUsageSummary = {
+  token_id: number
+  token_name: string
+  username?: string
+  user_id?: number
+  status?: number
+  group?: string
+  remain_quota?: number
+  used_quota?: number
+  unlimited_quota?: boolean
+  created_time?: number
+  accessed_time?: number
+  expired_time?: number
+  request_count?: number
+  error_count?: number
+  quota?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  token_used?: number
+  avg_use_time?: number
+  last_used_at?: number
+  top_model?: string
+  model_count?: number
+}
+
+export type TokenUsageTrend = {
+  token_id: number
+  token_name: string
+  username?: string
+  user_id?: number
+  created_at: number
+  count?: number
+  error_count?: number
+  quota?: number
+  token_used?: number
+}
+
+export type TokenModelUsage = {
+  token_id: number
+  token_name: string
+  username?: string
+  user_id?: number
+  model_name: string
+  count?: number
+  quota?: number
+  token_used?: number
+}
+
+export type TokenUsagePayload = {
+  ok: boolean
+  source: 'upstream' | 'demo' | string
+  configured?: boolean
+  warning?: string
+  fetched_at?: string
+  range?: {
+    start_timestamp?: number
+    end_timestamp?: number
+    days?: number
+    time_granularity?: string
+    timezone_offset_minutes?: number
+  }
+  data: {
+    summary: TokenUsageSummary[]
+    trend: TokenUsageTrend[]
+    models: TokenModelUsage[]
+  }
+}
+
+export type TokenUsageQuery = {
+  preset: string
+  startTimestamp: number
+  endTimestamp: number
+  timeGranularity: 'hour' | 'four_hour' | 'day' | 'week' | 'month'
+}
+
 export type AdminTarget =
   | { session_ids: string[] }
   | { operator: string; agent?: string; runtime?: string; profile?: boolean }

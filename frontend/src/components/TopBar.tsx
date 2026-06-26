@@ -17,9 +17,10 @@ type Props = {
 export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props) {
   const [clock, setClock] = useState('--:--:--')
   const location = useLocation()
-  const active = (name: 'board' | 'agents' | 'skills') => {
+  const active = (name: 'board' | 'agents' | 'skills' | 'token') => {
     if (name === 'board') return location.pathname === '/'
     if (name === 'agents') return location.pathname === '/agents' || location.pathname.startsWith('/agent/')
+    if (name === 'token') return location.pathname === '/token-usage'
     return location.pathname === '/skills' || location.pathname.startsWith('/skill/') || location.pathname.startsWith('/operator/')
   }
 
@@ -45,6 +46,9 @@ export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props
         </NavLink>
         <NavLink to="/skills" className={active('skills') ? 'on' : ''}>
           {t('skillsNav')}
+        </NavLink>
+        <NavLink to="/token-usage" className={active('token') ? 'on' : ''}>
+          {t('tokenUsageNav')}
         </NavLink>
       </nav>
       <div className="readouts">

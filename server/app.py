@@ -20,6 +20,7 @@ Read:
   GET  /api/operator/{name}
                          single operator skill-usage detail
   GET  /api/agent/{key}  single agent detail (key = "operator::agentOrRuntime")
+  GET  /api/token-usage  read-only external token usage mirror
   GET  /api/admin/inventory
   POST /api/admin/preview
   DELETE /api/admin/data
@@ -166,9 +167,11 @@ from server.routes import ingest as _ingest_routes  # noqa: E402
 from server.routes import admin as _admin_routes  # noqa: E402
 from server.routes import board as _board_routes  # noqa: E402
 from server.routes import onboarding as _onboarding_routes  # noqa: E402
+from server.routes import token_usage as _token_usage_routes  # noqa: E402
 app.include_router(_ingest_routes.router)
 app.include_router(_admin_routes.router)
 app.include_router(_board_routes.router)
+app.include_router(_token_usage_routes.router)
 app.include_router(_onboarding_routes.router)
 
 # onboarding 命名空间 re-export(tests/test_onboarding.py 通过 _spa_index / spa_fallback 等读)。

@@ -10,6 +10,8 @@ import type {
   SkillDetail,
   SkillsOverview,
   StatePayload,
+  TokenUsageQuery,
+  TokenUsagePayload,
 } from './types'
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -20,6 +22,31 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 function adminHeaders(key: string) {
   return { 'content-type': 'application/json', 'X-TF-Admin-Key': key }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+const TOKEN_USAGE_GRANULARITIES: TokenUsageQuery['timeGranularity'][] = ['hour', 'four_hour', 'day', 'week', 'month']
+
+function tokenUsageQueryKey(query: TokenUsageQuery) {
+  return `${query.startTimestamp}:${query.endTimestamp}:${query.timeGranularity}`
+}
+
+function tokenUsageUrl(query: TokenUsageQuery) {
+  const timezoneOffsetMinutes = -new Date().getTimezoneOffset()
+  const params = new URLSearchParams({
+    start_timestamp: String(query.startTimestamp),
+    end_timestamp: String(query.endTimestamp),
+    time_granularity: query.timeGranularity,
+    timezone_offset_minutes: String(timezoneOffsetMinutes),
+  })
+  return `/api/token-usage?${params.toString()}`
+}
+
+async function fetchTokenUsagePayload(query: TokenUsageQuery, signal?: AbortSignal) {
+  return fetchJson<TokenUsagePayload>(tokenUsageUrl(query), signal ? { signal } : undefined)
 }
 
 export async function fetchAdminInventory(key: string, q: string, limit = 200): Promise<AdminInventory> {
@@ -258,4 +285,98 @@ export function useOperatorDetail(enabled: boolean, name: string | undefined, fa
   const visibleData = name && data?.operator !== name ? null : data
   const visibleLoading = loading || Boolean(name && data && data.operator !== name)
   return { data: visibleData, loading: visibleLoading, error, demo, refresh }
+}
+
+export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadable<TokenUsagePayload> {
+  const [data, setData] = useState<TokenUsagePayload | null>(null)
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  const [demo, setDemo] = useState(false)
+  const cacheRef = useRef(new Map<string, { data: TokenUsagePayload; ts: number }>())
+  const prefetchingRef = useRef(new Set<string>())
+  const requestSeq = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  const queryKey = tokenUsageQueryKey(query)
+
+  const prefetchPeerGranularities = useCallback(
+    (baseQuery: TokenUsageQuery) => {
+      TOKEN_USAGE_GRANULARITIES.forEach((timeGranularity, index) => {
+        if (timeGranularity === baseQuery.timeGranularity) return
+        const nextQuery = { ...baseQuery, timeGranularity }
+        const nextKey = tokenUsageQueryKey(nextQuery)
+        if (cacheRef.current.has(nextKey) || prefetchingRef.current.has(nextKey)) return
+        prefetchingRef.current.add(nextKey)
+        window.setTimeout(() => {
+          void fetchTokenUsagePayload(nextQuery)
+            .then((next) => {
+              cacheRef.current.set(nextKey, { data: next, ts: Date.now() })
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              prefetchingRef.current.delete(nextKey)
+            })
+        }, 200 + index * 120)
+      })
+    },
+    [],
+  )
+
+  const refresh = useCallback(
+    async (force = false) => {
+      const now = Date.now()
+      if (!enabled) return
+      const cached = cacheRef.current.get(queryKey)
+      if (cached) {
+        setData(cached.data)
+        setError('')
+        setDemo(cached.data.source === 'demo')
+        prefetchPeerGranularities(query)
+        if (!force && now - cached.ts < 55000) return
+      }
+      const seq = requestSeq.current + 1
+      requestSeq.current = seq
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      setLoading(true)
+      try {
+        let next: TokenUsagePayload | null = null
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            next = await fetchTokenUsagePayload(query, controller.signal)
+            break
+          } catch (err) {
+            if ((err as Error)?.name === 'AbortError' || attempt === 1) throw err
+            await wait(700)
+          }
+        }
+        if (requestSeq.current !== seq) return
+        if (!next) throw new Error('empty response')
+        cacheRef.current.set(queryKey, { data: next, ts: Date.now() })
+        setData(next)
+        setError('')
+        setDemo(next.source === 'demo')
+        prefetchPeerGranularities(query)
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+        if (requestSeq.current !== seq) return
+        setError('loadError')
+        setDemo(false)
+      } finally {
+        if (requestSeq.current === seq) setLoading(false)
+      }
+    },
+    [enabled, prefetchPeerGranularities, query, queryKey],
+  )
+  useEffect(() => {
+    if (!enabled) return
+    const first = window.setTimeout(() => void refresh(false), 120)
+    const timer = window.setInterval(() => void refresh(false), 60000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+      abortRef.current?.abort()
+    }
+  }, [enabled, queryKey, refresh])
+  return { data, loading, error, demo, refresh }
 }
