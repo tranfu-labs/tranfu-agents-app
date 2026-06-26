@@ -1,0 +1,25 @@
+{
+  "name": "TRANFU//AGENTS",
+  "short_name": "TF Agents",
+  "description": "Real-time AI agent telemetry for teams — see what every teammate's AI agent is doing across Claude Code, Codex, Open Claw, Hermes, Manus, MuleRun and ChatGPT.",
+  "start_url": "https://tranfu-agents-app.tranfu.com/",
+  "scope": "https://tranfu-agents-app.tranfu.com/",
+  "display": "standalone",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "https://tranfu-agents-app.tranfu.com/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://tranfu-agents-app.tranfu.com/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
