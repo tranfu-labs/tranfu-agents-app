@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo } from './Logo'
 import type { Lang, StatePayload } from '../lib/types'
 import { locale } from '../lib/utils'
@@ -36,7 +36,9 @@ export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props
 
   return (
     <header>
-      <Logo />
+      <Link className="logo-link" to="/" aria-label="TRANFU//AGENTS home">
+        <Logo />
+      </Link>
       <nav className="tabs">
         <NavLink to="/" className={active('board') ? 'on' : ''} end>
           {t('board')}

@@ -28,6 +28,8 @@
   /* header (上个版本的紧凑样式:读数内联在右侧) */
   header{display:flex;align-items:center;gap:16px;padding:13px 22px;border-bottom:1px solid var(--line);
     background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(6px);position:sticky;top:0;z-index:30;flex-wrap:wrap}
+  .logo-link{display:inline-flex;align-items:center;border-radius:7px}
+  .logo-link:hover .wm{color:var(--text)}
   .logo{display:inline-flex;align-items:center;gap:10px}
   .logo-fb{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--brand),#a60f1a);transform:skewX(-11deg)}
   .logo-tile{display:inline-flex;align-items:center;padding:4px;border-radius:6px}
