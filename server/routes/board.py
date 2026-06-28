@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from server.catalog import _catalog_context, _catalog_list, _installed_skill_names, _skill_source
 from server.config import (
-    ACTIVE_ST, CATALOG_COMPANY_TYPES, CLOUD_RUNTIMES, LIVE_ST,
+    ACTIVE_ST, CATALOG_COMPANY_TYPES, CATALOG_SOURCE_UNKNOWN, CLOUD_RUNTIMES, LIVE_ST,
     PROFILE_KEYS, SKILL_MODES, STALE_SECONDS, WINDOW_DAYS,
 )
 from server.db import _age, _day_cutoff, _parse, db, now_iso
@@ -159,6 +159,71 @@ def skill_usage(conn):
         "users_30d": int(r["users_30d"] or 0),
         "last_day": r["last_day"],
     } for r in rows]
+
+
+def _skills_governance_untracked(conn, daily_start, d30, trend_days, catalog_by):
+    total = conn.execute("""
+      SELECT COUNT(*) c FROM skill_uses
+      WHERE mode='used' AND day >= ?
+    """, (daily_start,)).fetchone()["c"] or 0
+    window_rows = conn.execute("""
+      SELECT skill,
+        COUNT(*) sessions,
+        COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
+        MAX(day) last_day
+      FROM skill_uses
+      WHERE mode='used' AND day >= ?
+      GROUP BY skill
+    """, (d30, daily_start)).fetchall()
+    runtime_counts = {}
+    for r in conn.execute("""
+      SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND day >= ?
+      GROUP BY skill, runtime
+    """, (daily_start,)):
+        runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
+    trend = {}
+    if trend_days:
+        for r in conn.execute("""
+          SELECT skill, day, COUNT(*) sessions
+          FROM skill_uses
+          WHERE mode='used' AND day >= ?
+          GROUP BY skill, day
+        """, (trend_days[0],)):
+            trend.setdefault(r["skill"], {})[r["day"]] = int(r["sessions"] or 0)
+
+    top = []
+    used_sessions = 0
+    for r in window_rows:
+        skill = r["skill"]
+        if _skill_source(skill, catalog_by) != CATALOG_SOURCE_UNKNOWN:
+            continue
+        sessions = int(r["sessions"] or 0)
+        used_sessions += sessions
+        top.append({
+            "name": skill,
+            "source": CATALOG_SOURCE_UNKNOWN,
+            "sessions": sessions,
+            "share": (sessions / total) if total else 0,
+            "users_30d": int(r["users_30d"] or 0),
+            "runtime_counts": runtime_counts.get(skill, {}),
+            "trend_14d": [trend.get(skill, {}).get(day, 0) for day in trend_days],
+            "trend_days": trend_days,
+            "last_day": r["last_day"],
+        })
+
+    def _day_num(item):
+        return int((item.get("last_day") or "0000-00-00").replace("-", ""))
+
+    top.sort(key=lambda item: (-item["sessions"], -_day_num(item), item["name"]))
+    return {
+        "ratio": (used_sessions / total) if total else 0,
+        "used_sessions": used_sessions,
+        "total_sessions": int(total),
+        "skill_count": len(top),
+        "top": top,
+    }
 
 
 def skills_overview(conn, days):
@@ -324,6 +389,9 @@ def skills_overview(conn, days):
         "used_30d": _catalog_list(used_30d_names, catalog_by),
         "idle": _catalog_list(installed_names - used_30d_names, catalog_by),
     }
+    governance = {
+        "untracked_usage": _skills_governance_untracked(conn, daily_start, d30, trend_days, catalog_by),
+    }
     return {
         "days": days,
         "today": today.isoformat(),
@@ -331,6 +399,7 @@ def skills_overview(conn, days):
         "table": table,
         "operator_daily": operator_daily,
         "operator_table": operator_table,
+        "governance": governance,
         "funnel": funnel,
         "catalog": catalog_meta,
     }
@@ -655,5 +724,4 @@ def agent_detail(key: str):
         if (c["operator"] + "\x00" + ((c.get("agent") or c["runtime"]))) == want:
             return JSONResponse(c)
     raise HTTPException(404, "agent not found")
-
 

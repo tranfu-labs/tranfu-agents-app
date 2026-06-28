@@ -137,6 +137,18 @@ export type SkillTableRow = {
   last_day?: string
 }
 
+export type GovernanceUntrackedSkill = {
+  name: string
+  source?: string
+  sessions: number
+  share: number
+  users_30d: number
+  runtime_counts?: Record<string, number>
+  trend_14d?: number[]
+  trend_days?: string[]
+  last_day?: string
+}
+
 export type OperatorTableRow = {
   operator: string
   sessions_7d: number
@@ -163,6 +175,15 @@ export type SkillsOverview = {
   table: SkillTableRow[]
   operator_daily?: OperatorDailyRow[]
   operator_table?: OperatorTableRow[]
+  governance?: {
+    untracked_usage?: {
+      ratio: number
+      used_sessions: number
+      total_sessions: number
+      skill_count: number
+      top: GovernanceUntrackedSkill[]
+    }
+  }
   funnel?: {
     available: boolean
     catalog?: CatalogSkill[]

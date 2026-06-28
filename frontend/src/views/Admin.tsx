@@ -272,7 +272,7 @@ function TrashTable({ batches, onRestore, restoring, t }: { batches: AdminTrashB
 }
 
 export function AdminView({ t }: { t: (key: string) => string }) {
-  const [adminKey, setAdminKey] = useState('')
+  const [adminKey, setAdminKey] = useState(() => window.sessionStorage.getItem(STORAGE_KEY) || '')
   const [gateError, setGateError] = useState('')
   const [tab, setTab] = useState<AdminTab>('operators')
   const [query, setQuery] = useState('')
@@ -302,8 +302,6 @@ export function AdminView({ t }: { t: (key: string) => string }) {
     if (params.has('key')) {
       window.history.replaceState({}, '', '/admin')
     }
-    const saved = window.sessionStorage.getItem(STORAGE_KEY)
-    if (saved) setAdminKey(saved)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -329,16 +327,20 @@ export function AdminView({ t }: { t: (key: string) => string }) {
   }, [adminKey, query, t])
 
   useEffect(() => {
-    void refresh()
+    const id = window.setTimeout(() => void refresh(), 0)
+    return () => window.clearTimeout(id)
   }, [refresh])
 
   useEffect(() => {
-    setSelected(new Set())
-    setPreviewData(null)
-    setPreviewTargets([])
-    setPreviewOptions({})
-    setForce(false)
-    setConfirmCount('')
+    const id = window.setTimeout(() => {
+      setSelected(new Set())
+      setPreviewData(null)
+      setPreviewTargets([])
+      setPreviewOptions({})
+      setForce(false)
+      setConfirmCount('')
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [tab, query])
 
   const rows = useMemo(() => {

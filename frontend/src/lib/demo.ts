@@ -252,6 +252,25 @@ export function demoSkillsOverview(): SkillsOverview {
     table,
     operator_daily: operatorDaily,
     operator_table: operatorTable,
+    governance: {
+      untracked_usage: {
+        ratio: 14 / 59,
+        used_sessions: 14,
+        total_sessions: 59,
+        skill_count: 1,
+        top: [{
+          name: 'pytest 脚手架',
+          source: '非公司库',
+          sessions: 14,
+          share: 14 / 59,
+          users_30d: 2,
+          runtime_counts: { codex: 11, 'claude-desktop': 3 },
+          trend_14d: [1, 0, 0, 2, 1, 0, 1, 1, 0, 2, 1, 1, 2, 1],
+          trend_days: days.slice(-14),
+          last_day: days[28],
+        }],
+      },
+    },
     funnel: {
       available: true,
       catalog: [{ name: '组件命名规范', source: 'own' }, { name: '品牌语气库', source: 'own' }, { name: '落地页模板', source: 'own' }],

@@ -6,7 +6,7 @@
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
-- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], operator_daily[], operator_table[], funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 仅影响 daily/operator_daily,默认 30)。
+- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], operator_daily[], operator_table[], governance, funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 影响 daily/operator_daily 与 governance 窗口,默认 30)。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
@@ -36,22 +36,27 @@
 12. `/api/skills` 总览页所有聚合(`daily`、`table`)只统计 `mode=used`;`equipped` 仅在 `/api/skill/{name}`
     详情页展示,并与 used 分列,任何位置不得相加。
 13. `/api/skills.table` 每行含来源字段,取值 own / meta / external / 非公司库;来源由服务端 catalog 缓存按名字映射。
-14. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
+14. `/api/skills.governance.untracked_usage` 输出"未收录使用占比"管理口径:当前 `days` 窗口内
+    `source=非公司库` 且 `mode=used` 的会话×skill 记录数 / 当前窗口全部 `mode=used` 记录数;空分母为 0。
+    catalog 中 `external` 不算未收录;`equipped` 不得进入分母、分子或 Top 列表。`top[]` 按窗口内
+    used 会话数降序(平手按最近使用日、再按名称),每项含 `name/source/sessions/share/users_30d/runtime_counts/trend_14d/trend_days/last_day`;
+    `users_30d` 固定保持近 30 天用户数语义。
+15. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
     已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、30 天有人使用名单(UTC 日切);
     并返回闲置名单 = 已安装 − 30 天使用。三层均返回名单而非仅数字。
-15. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
+16. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
     从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
-16. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
+17. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
     会话×skill 去重使用次数(一行 `skill_uses` used 记录),语义为"此人在多少个会话里用过 skill",非真实调用次数。
     `operator_table` 固定输出 7 天 / 30 天 / 累计、用过 skill 数、会话数、runtime 计数、来源计数、近 14 天趋势和最近使用日;
     默认按 30 天降序,平手按累计。`days` 只影响 `operator_daily`,不影响 `operator_table`。
-17. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
+18. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
-18. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
+19. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
     前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
     可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
     依赖"`/api/state.now` 必须是请求当下时间"的假设。
-19. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
+20. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
 
 ## 部署/运维
@@ -66,7 +71,7 @@
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
-- SKILLS 总览筛选绑定到 URL search params:`win`(7/30/90)、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`);
+- SKILLS 总览筛选绑定到 URL search params:`win`(7/30/90)、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`lens`(`all`/`untracked`);
   筛选变化使用 replace,不污染浏览器历史;详情跳转使用 push。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 UTC 日窗口逐日铺满:
@@ -78,6 +83,10 @@
   筛选条复用同一套 query,搜索框提示语随视角变;切换视角不重置 `win`。公司库漏斗常驻且始终使用 skill/catalog 口径。
   视角切换须呈现为页面顶部的独立标准 `frame` 卡片,与筛选条分离;标题栏左侧为"视角"、右侧 `cnt`
   随当前视角给出说明文案,内容行使用 32px 高分段按钮,选中态使用品牌色 `--brand`。
+- SKILLS 总览在按 Skill 视角的"使用排行"卡片内部展示管理者筛选 Lens:
+  `[全部 Skill] [未收录使用占比 X% · used/total]`。默认 `lens=all`,显示现有完整 Skill 主榜;
+  `lens=untracked` 只把该排行表切为未收录占比列表,不得影响每日趋势图、全局过滤条或公司库漏斗。
+  按人视角不展示该 Lens;若 URL 保留 `lens=untracked`,切回按 Skill 视角时可恢复该 Lens。
 - SKILLS 柱状图悬停某日列时,该列高亮、其余列降透明,并显示锚定柱子的明细浮窗(日期、当天各 skill 降序明细、
   Top8 外并"其它"、合计);浮窗锚定柱子几何而非光标——默认贴柱子右侧、顶部对齐图表绘图区顶,
   碰视口右边界翻到柱子左侧、碰下边界上移贴视口底。今日列作为最后一格,以进行中视觉区分并在浮窗标注。
@@ -114,6 +123,10 @@
 - 已上报过的 agent 后续事件不再带 `shim_version` → 卡片仍呈现最近一次非空值,**不退回 unknown**。
 - 同名 skill 同时有 `used` 与 `equipped` → `/api/skills` 的 table 与 daily 只含 used;
   `/api/skill/{name}` 两种模式并列展示且任何字段不相加。
+- 造数据:7 天内 own used 6、external used 2、非公司库 used 4、非公司库 equipped 3 →
+  `/api/skills?days=7` 的 `governance.untracked_usage.total_sessions=12`、`used_sessions=4`、
+  `ratio≈0.333`,Top 不含 external/equipped。
+- `days=30` 包含更多历史非公司库 used 时,`governance.untracked_usage` 的分母、分子、Top 列表随窗口扩大更新。
 - 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
 - catalog 拉取失败 → `/api/skills` 返回 200,funnel 带过期标记与旧名单。
 - `days=7` → daily 仅含最近 7 个 UTC 日;`days` 变化不影响 table 与 funnel;`days=0` 返回 400。
@@ -131,6 +144,9 @@
 - 进入某操作员详情 → 左侧为 runtime 分布、右侧为「使用 Skill 排行」,排行默认按 7 天列降序。
 - /skills 视角切换位于独立卡片,标题栏显示"视角"与当前视角说明,内容行按钮为 32px 高分段控件;
   切换后整页换主语且说明文案随之变化,时间窗不重置。
+- `/skills?view=skill&lens=all` 显示完整 Skill 主榜;`lens=untracked` 显示未收录占比列表,
+  且每日趋势图与公司库漏斗不随 Lens 改变。
+- `/skills?view=operator&lens=untracked` 不显示管理者 Lens,操作员排行行为不变。
 - 操作员详情/skill 详情"最近记录"首列显示到秒;构造仅有 `day` 无 `first_seen` 的记录 → 回退显示日期。
 - 在总览技能主表、操作员主表、操作员详情 skill 排行表中,点击行内非标题位置(如数字列空白处)
   → 正确跳转到对应详情;点击可排序表头 → 仅排序、不跳转。

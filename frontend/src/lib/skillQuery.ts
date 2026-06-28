@@ -8,6 +8,7 @@ const queryParsers = {
   sort: parseAsString.withDefault('sessions_30d'),
   dir: parseAsString.withDefault('desc'),
   view: parseAsString.withDefault('skill'),
+  lens: parseAsString.withDefault('all'),
 }
 
 export function useSkillQueryState() {

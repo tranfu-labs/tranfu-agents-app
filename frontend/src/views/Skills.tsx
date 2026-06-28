@@ -4,7 +4,7 @@ import { RuntimeBars, MiniTrend, StackedSkillChart } from '../components/Charts'
 import { Empty, SectionTitle } from '../components/Common'
 import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
-import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
+import type { GovernanceUntrackedSkill, OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
 type FilterableSkill = { name?: string; skill?: string; runtime?: string; source?: string; runtime_counts?: Record<string, number> }
@@ -51,6 +51,10 @@ function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
   if (event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
   go()
+}
+
+function pct(value?: number) {
+  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 function FilterBar({ data, t, params, setParams, view }: { data: SkillsOverview | null; t: (key: string) => string; params: SkillQueryState; setParams: SetSkillQueryState; view: 'skill' | 'operator' }) {
@@ -192,6 +196,71 @@ function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; pa
   )
 }
 
+function GovernanceLens({ data, lens, setParams, t }: { data: SkillsOverview | null; lens: 'all' | 'untracked'; setParams: SetSkillQueryState; t: (key: string) => string }) {
+  const stats = data?.governance?.untracked_usage
+  const setLens = (next: 'all' | 'untracked') => {
+    if (next === lens) return
+    void setParams({ lens: next })
+  }
+  return (
+    <div className="governance-lens">
+      <div className="lens-title">{t('governanceLens')}</div>
+      <div className="seg lens-seg">
+        <button type="button" aria-pressed={lens === 'all'} className={lens === 'all' ? 'on' : ''} onClick={() => setLens('all')}>
+          {t('lensAllSkills')}
+        </button>
+        <button type="button" aria-pressed={lens === 'untracked'} className={lens === 'untracked' ? 'on' : ''} onClick={() => setLens('untracked')}>
+          {t('lensUntrackedUsage')} {pct(stats?.ratio)} · {stats?.used_sessions || 0}/{stats?.total_sessions || 0}
+        </button>
+      </div>
+      <div className="lens-note">{t('untrackedUsageNote')}</div>
+    </div>
+  )
+}
+
+function GovernanceSkillTable({ rows, t }: { rows: GovernanceUntrackedSkill[]; t: (key: string) => string }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const openSkill = (name: string) => navigate(`/skill/${encodePathParam(name)}${location.search}`)
+  if (!rows.length) return <Empty title={t('noUntrackedSkills')} hint={t('noUntrackedSkillsH')} />
+  return (
+    <div className="skills-wrap">
+      <table className="skill-table">
+        <thead>
+          <tr>
+            <th>{t('skillName')}</th>
+            <th className="num">{t('usageShare')}</th>
+            <th className="num">{t('usedSessions')}</th>
+            <th className="num">{t('skillUsers30')}</th>
+            <th>{t('runtimeFilter')}</th>
+            <th>{t('trend')}</th>
+            <th>{t('skillLast')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
+              <td>
+                <b>{row.name}</b>
+              </td>
+              <td className="num">{pct(row.share)}</td>
+              <td className="num">{row.sessions}</td>
+              <td className="num">{row.users_30d}</td>
+              <td>
+                <RuntimeBars counts={row.runtime_counts} />
+              </td>
+              <td>
+                <MiniTrend values={row.trend_14d} />
+              </td>
+              <td className="q">{row.last_day || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; t: (key: string) => string }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -295,11 +364,14 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const [params, setParams] = useSkillQueryState()
   const days = [7, 30, 90].includes(params.win) ? params.win : 30
   const view = params.view === 'operator' ? 'operator' : 'skill'
+  const lens = params.lens === 'untracked' ? 'untracked' : 'all'
   const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
   const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorPass({ operator: row.operator, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
   const skillRows = sortedRows((data?.table || []).filter((row) => skillPass(row, params.q, params.rt, params.src)), params.sort, params.dir) as SkillTableRow[]
+  const governanceRows = (data?.governance?.untracked_usage?.top || []).filter((row) => skillPass(row, params.q, params.rt, params.src))
   const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorPass(row, params.q, params.rt, params.src)), params.sort, params.dir) as OperatorTableRow[]
   const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
+  const rankCount = view === 'operator' ? operatorRows.length : lens === 'untracked' ? governanceRows.length : skillRows.length
 
   if (loading && !data) {
     return (
@@ -337,14 +409,17 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
       </section>
       <div className="split" style={{ marginTop: 16 }}>
         <section className="frame">
-          <SectionTitle title={view === 'operator' ? t('operatorRank') : t('mainRank')} count={view === 'operator' ? operatorRows.length : skillRows.length} />
+          <SectionTitle title={view === 'operator' ? t('operatorRank') : t('mainRank')} count={rankCount} />
           {view === 'operator' ? (
             <>
               <div className="usage-note">{t('operatorMetricNote')}</div>
               <OperatorTable rows={operatorRows} params={params} setParams={setParams} t={t} />
             </>
           ) : (
-            <SkillsTable rows={skillRows} params={params} setParams={setParams} t={t} />
+            <>
+              <GovernanceLens data={data} lens={lens} setParams={setParams} t={t} />
+              {lens === 'untracked' ? <GovernanceSkillTable rows={governanceRows} t={t} /> : <SkillsTable rows={skillRows} params={params} setParams={setParams} t={t} />}
+            </>
           )}
         </section>
         <section className="frame">

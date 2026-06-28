@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
-import type { OperatorDailyRow, SkillDailyRow, SkillDetail, SkillsOverview } from '../lib/types'
+import type { SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
 type TipItem = { name: string; value: number; color: string }

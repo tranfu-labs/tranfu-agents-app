@@ -87,6 +87,19 @@ def test_spa_fallback_serves_index_for_unknown_route(client):
     assert r.status_code in (200, 404)
 
 
+def test_spa_fallback_serves_skills_deep_links(client, app_mod):
+    expected = 200 if os.path.exists(os.path.abspath(app_mod.FRONTEND_INDEX)) else 404
+    for path in (
+        "/skills?view=skill&lens=untracked",
+        "/skill/ghost-skill?lens=untracked",
+        "/operator/alice?view=operator&lens=untracked",
+    ):
+        r = client.get(path)
+        assert r.status_code == expected
+        if expected == 200:
+            assert '<div id="root"></div>' in r.text
+
+
 def test_spa_fallback_does_not_swallow_api_routes(client):
     assert client.get("/api/nope").status_code == 404
     assert client.get("/v1/nope").status_code == 404

@@ -1,5 +1,7 @@
 from datetime import datetime, timezone, timedelta
 
+import pytest
+
 from conftest import ev
 
 
@@ -138,6 +140,76 @@ def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_
         "bob": 1,
         "chen": 1,
     }
+
+
+def test_skills_overview_governance_untracked_usage_is_windowed_used_only(client, app_mod):
+    _set_catalog(app_mod)
+
+    def report_many(skill, count, prefix, days_ago=1, mode="used", operators=None, runtimes=None):
+        operators = operators or ["alice"]
+        runtimes = runtimes or ["codex"]
+        for i in range(count):
+            sid = f"{prefix}-{i}"
+            ev(client, operator=operators[i % len(operators)], runtime=runtimes[i % len(runtimes)],
+               session_id=sid, skill=skill, skill_mode=mode, current_step=sid)
+            _set_skill_day(app_mod, sid, skill, days_ago, mode=mode)
+
+    report_many("alpha", 6, "own")                      # own catalog skill
+    report_many("beta", 2, "external")                  # catalog external, not untracked
+    report_many("ghost-a", 3, "ghost-a", operators=["alice", "bob", "chen"],
+                runtimes=["codex", "claude-code"])
+    report_many("ghost-b", 1, "ghost-b")
+    report_many("ghost-equipped", 3, "ghost-equipped", mode="equipped")
+    report_many("ghost-old", 2, "ghost-old", days_ago=20)
+
+    data7 = client.get("/api/skills?days=7").json()["governance"]["untracked_usage"]
+    assert data7["total_sessions"] == 12
+    assert data7["used_sessions"] == 4
+    assert data7["skill_count"] == 2
+    assert data7["ratio"] == pytest.approx(4 / 12)
+    assert [row["name"] for row in data7["top"]] == ["ghost-a", "ghost-b"]
+    assert data7["top"][0]["source"] == "非公司库"
+    assert data7["top"][0]["sessions"] == 3
+    assert data7["top"][0]["share"] == pytest.approx(3 / 12)
+    assert data7["top"][0]["users_30d"] == 3
+    assert data7["top"][0]["runtime_counts"] == {"claude-code": 1, "codex": 2}
+    assert len(data7["top"][0]["trend_days"]) == 14
+    assert len(data7["top"][0]["trend_14d"]) == 14
+    assert sum(data7["top"][0]["trend_14d"]) == 3
+    assert "beta" not in {row["name"] for row in data7["top"]}
+    assert "ghost-equipped" not in {row["name"] for row in data7["top"]}
+
+    data30 = client.get("/api/skills?days=30").json()["governance"]["untracked_usage"]
+    assert data30["total_sessions"] == 14
+    assert data30["used_sessions"] == 6
+    assert data30["ratio"] == pytest.approx(6 / 14)
+    assert [row["name"] for row in data30["top"]] == ["ghost-a", "ghost-old", "ghost-b"]
+
+
+def test_skills_overview_governance_empty_and_tie_sort(client, app_mod):
+    _set_catalog(app_mod)
+    empty = client.get("/api/skills?days=7").json()["governance"]["untracked_usage"]
+    assert empty == {
+        "ratio": 0,
+        "used_sessions": 0,
+        "total_sessions": 0,
+        "skill_count": 0,
+        "top": [],
+    }
+
+    ev(client, operator="alice", runtime="codex", session_id="older", skill="ghost-older", current_step="older")
+    ev(client, operator="alice", runtime="codex", session_id="newer", skill="ghost-newer", current_step="newer")
+    old_day = _set_skill_day(app_mod, "older", "ghost-older", 2)
+    new_day = _set_skill_day(app_mod, "newer", "ghost-newer", 0)
+
+    data = client.get("/api/skills?days=7").json()["governance"]["untracked_usage"]
+    assert data["total_sessions"] == 2
+    assert data["used_sessions"] == 2
+    assert data["ratio"] == 1
+    assert [(row["name"], row["last_day"]) for row in data["top"]] == [
+        ("ghost-newer", new_day),
+        ("ghost-older", old_day),
+    ]
 
 
 def test_skills_overview_today_and_daily_window_use_server_utc(client, app_mod, monkeypatch):

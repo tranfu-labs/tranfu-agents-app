@@ -35,7 +35,8 @@ agent 机器                         中心服务器(单容器)                 
   `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 图表按服务端 UTC `today`
   铺满 7/30/90 天或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
   SKILLS 总览的按 Skill/按人视角切换使用独立标准 `frame` 卡片(标题栏说明 + 内容行 32px 分段按钮),可下钻表格整行跳转,
-  最近记录显示 `first_seen` 秒级时间且不呈现可点态;
+  最近记录显示 `first_seen` 秒级时间且不呈现可点态;按 Skill 视角的使用排行内部提供管理者筛选 Lens(`all`/`untracked`),
+  `untracked` 只切换该排行表为未收录使用占比列表,不改变趋势图、全局过滤条或公司库漏斗;
   暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
