@@ -26,26 +26,26 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
   const backQuery = back.includes('?') ? back.slice(back.indexOf('?')) : ''
   if (loading && !data) {
     return (
-      <>
+      <div className="operator-detail-page">
         <Link className="back" to={back}>
           ← {t('skillsNav')}
         </Link>
         <section className="frame">
           <Empty title={t('loading')} />
         </section>
-      </>
+      </div>
     )
   }
   if (!data) {
     return (
-      <>
+      <div className="operator-detail-page">
         <Link className="back" to={back}>
           ← {t('skillsNav')}
         </Link>
         <section className="frame">
           <Empty title={error ? t(error) : t('operatorNotFound')} hint={params.name ? decodeURIComponent(params.name) : ''} />
         </section>
-      </>
+      </div>
     )
   }
 
@@ -69,7 +69,7 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
   const openSkill = (name: string) => navigate(`/skill/${encodePathParam(name)}${backQuery}`)
 
   return (
-    <>
+    <div className="operator-detail-page">
       <Link className="back" to={back}>
         ← {t('skillsNav')}
       </Link>
@@ -116,7 +116,7 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
             </span>
           </h2>
           <div className="skills-wrap">
-            <table className="skill-table">
+            <table className="skill-table mobile-card-table">
               <thead>
                 <tr>
                   <th>{t('skillName')}</th>
@@ -131,19 +131,19 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
               <tbody>
                 {skillRows.map((row) => (
                   <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
-                    <td>
+                    <td className="mobile-main" data-label={t('skillName')}>
                       <b>{row.name}</b>
                     </td>
-                    <td>
+                    <td data-label={t('sourceFilter')}>
                       <span className="source-pill">{sourceLabel(row.source, t)}</span>
                     </td>
-                    <td className="num">{row.sessions_7d || 0}</td>
-                    <td className="num">{row.sessions_30d || 0}</td>
-                    <td className="num">{row.sessions_total || 0}</td>
-                    <td>
+                    <td className="num" data-label={t('skill7')}>{row.sessions_7d || 0}</td>
+                    <td className="num" data-label={t('skill30')}>{row.sessions_30d || 0}</td>
+                    <td className="num" data-label={t('skillTotal')}>{row.sessions_total || 0}</td>
+                    <td data-label={t('runtimeFilter')}>
                       <RuntimeBars counts={row.runtime_counts} />
                     </td>
-                    <td className="q">{row.last_day || '—'}</td>
+                    <td className="q" data-label={t('skillLast')}>{row.last_day || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -158,7 +158,7 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
             {t('recentRecords')}
           </span>
         </h2>
-        <table className="records-table">
+        <table className="records-table mobile-card-table">
           <thead>
             <tr>
               <th>{t('skillLast')}</th>
@@ -170,15 +170,15 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
           <tbody>
             {(data.records || []).map((record) => (
               <tr key={`${record.session_id}-${record.skill}-${record.day}`}>
-                <td className="q">{fmtTs(record.first_seen) || record.day || ''}</td>
-                <td>{record.skill || ''}</td>
-                <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
-                <td className="q">{(record.session_id || '').slice(0, 12)}</td>
+                <td className="q mobile-main" data-label={t('skillLast')}>{fmtTs(record.first_seen) || record.day || ''}</td>
+                <td data-label={t('skillName')}>{record.skill || ''}</td>
+                <td data-label={t('th_rt')}>{RT[record.runtime || ''] || record.runtime || ''}</td>
+                <td className="q" data-label={t('session')}>{(record.session_id || '').slice(0, 12)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </section>
-    </>
+    </div>
   )
 }
