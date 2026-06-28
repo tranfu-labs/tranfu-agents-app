@@ -2,8 +2,9 @@ import type { KeyboardEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Distribution, RuntimeBars, StackedSkillChart } from '../components/Charts'
 import { Empty } from '../components/Common'
-import type { OperatorDetail } from '../lib/types'
-import { encodePathParam, fmtTs, RT, sourceLabel } from '../lib/utils'
+import { formatRecentRecordTime } from '../lib/timeFormat'
+import type { Lang, OperatorDetail } from '../lib/types'
+import { encodePathParam, RT, sourceLabel } from '../lib/utils'
 
 function operatorBack(search: string) {
   const params = new URLSearchParams(search)
@@ -18,7 +19,7 @@ function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
   go()
 }
 
-export function OperatorDetailView({ data, loading, error, t }: { data: OperatorDetail | null; loading: boolean; error: string; t: (key: string) => string }) {
+export function OperatorDetailView({ data, loading, error, lang, t }: { data: OperatorDetail | null; loading: boolean; error: string; lang: Lang; t: (key: string) => string }) {
   const params = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -168,14 +169,17 @@ export function OperatorDetailView({ data, loading, error, t }: { data: Operator
             </tr>
           </thead>
           <tbody>
-            {(data.records || []).map((record) => (
-              <tr key={`${record.session_id}-${record.skill}-${record.day}`}>
-                <td className="q">{fmtTs(record.first_seen) || record.day || ''}</td>
-                <td>{record.skill || ''}</td>
-                <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
-                <td className="q">{(record.session_id || '').slice(0, 12)}</td>
-              </tr>
-            ))}
+            {(data.records || []).map((record) => {
+              const time = formatRecentRecordTime(record.first_seen, record.day || '', lang)
+              return (
+                <tr key={`${record.session_id}-${record.skill}-${record.day}`}>
+                  <td className="q" title={time.title}>{time.label}</td>
+                  <td>{record.skill || ''}</td>
+                  <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
+                  <td className="q">{(record.session_id || '').slice(0, 12)}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </section>

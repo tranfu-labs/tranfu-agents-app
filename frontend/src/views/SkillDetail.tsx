@@ -1,10 +1,11 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { DetailTrend, Distribution } from '../components/Charts'
 import { Empty } from '../components/Common'
-import type { SkillDetail as SkillDetailPayload } from '../lib/types'
-import { fmtTs, RT, sourceLabel } from '../lib/utils'
+import { formatRecentRecordTime } from '../lib/timeFormat'
+import type { Lang, SkillDetail as SkillDetailPayload } from '../lib/types'
+import { RT, sourceLabel } from '../lib/utils'
 
-export function SkillDetailView({ data, loading, error, t }: { data: SkillDetailPayload | null; loading: boolean; error: string; t: (key: string) => string }) {
+export function SkillDetailView({ data, loading, error, lang, t }: { data: SkillDetailPayload | null; loading: boolean; error: string; lang: Lang; t: (key: string) => string }) {
   const params = useParams()
   const location = useLocation()
   const back = `/skills${location.search}`
@@ -115,17 +116,20 @@ export function SkillDetailView({ data, loading, error, t }: { data: SkillDetail
             </tr>
           </thead>
           <tbody>
-            {(data.records || []).map((record) => (
-              <tr key={`${record.session_id}-${record.mode}-${record.day}`}>
-                <td className="q">{fmtTs(record.first_seen) || record.day || ''}</td>
-                <td>{record.operator || ''}</td>
-                <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
-                <td>
-                  <span className="source-pill">{record.mode || 'used'}</span>
-                </td>
-                <td className="q">{(record.session_id || '').slice(0, 12)}</td>
-              </tr>
-            ))}
+            {(data.records || []).map((record) => {
+              const time = formatRecentRecordTime(record.first_seen, record.day || '', lang)
+              return (
+                <tr key={`${record.session_id}-${record.mode}-${record.day}`}>
+                  <td className="q" title={time.title}>{time.label}</td>
+                  <td>{record.operator || ''}</td>
+                  <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
+                  <td>
+                    <span className="source-pill">{record.mode || 'used'}</span>
+                  </td>
+                  <td className="q">{(record.session_id || '').slice(0, 12)}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </section>

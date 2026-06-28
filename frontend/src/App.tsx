@@ -23,22 +23,22 @@ function SkillsRoute({ t }: { t: (key: string) => string }) {
   return <SkillsView data={overview.data} loading={overview.loading} error={overview.error} t={t} />
 }
 
-function SkillDetailRoute({ t }: { t: (key: string) => string }) {
+function SkillDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const { name } = useParams()
   const [params] = useSkillQueryState()
   const days = [7, 30, 90].includes(params.win) ? params.win : 30
   const overview = useSkillsOverview(false, days)
   const detail = useSkillDetail(true, name ? decodeURIComponent(name) : undefined, overview.data)
-  return <SkillDetailView data={detail.data} loading={detail.loading} error={detail.error} t={t} />
+  return <SkillDetailView data={detail.data} loading={detail.loading} error={detail.error} lang={lang} t={t} />
 }
 
-function OperatorDetailRoute({ t }: { t: (key: string) => string }) {
+function OperatorDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const { name } = useParams()
   const [params] = useSkillQueryState()
   const days = [7, 30, 90].includes(params.win) ? params.win : 30
   const overview = useSkillsOverview(false, days)
   const detail = useOperatorDetail(true, name ? decodeURIComponent(name) : undefined, overview.data)
-  return <OperatorDetailView data={detail.data} loading={detail.loading} error={detail.error} t={t} />
+  return <OperatorDetailView data={detail.data} loading={detail.loading} error={detail.error} lang={lang} t={t} />
 }
 
 function TokenUsageRoute({ t }: { t: (key: string) => string }) {
@@ -84,8 +84,8 @@ export default function App() {
             <Route path="/agent/:key" element={<AgentDetail data={state.data} lang={lang} t={t} />} />
             <Route path="/skills" element={<SkillsRoute t={t} />} />
             <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
-            <Route path="/skill/:name" element={<SkillDetailRoute t={t} />} />
-            <Route path="/operator/:name" element={<OperatorDetailRoute t={t} />} />
+            <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
+            <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
             <Route path="/admin" element={<AdminView t={t} />} />
             <Route path="*" element={<Board data={state.data} lang={lang} t={t} />} />
           </Routes>
