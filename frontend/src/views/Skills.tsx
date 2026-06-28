@@ -154,7 +154,7 @@ function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; pa
   if (!rows.length) return <Empty title={t('noSkills')} hint={t('noSkillsH')} />
   return (
     <div className="skills-wrap">
-      <table className="skill-table">
+      <table className="skill-table mobile-card-table">
         <thead>
           <tr>
             {head('name', t('skillName'))}
@@ -171,23 +171,23 @@ function SkillsTable({ rows, params, setParams, t }: { rows: SkillTableRow[]; pa
         <tbody>
           {rows.map((row) => (
             <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
-              <td>
+              <td className="mobile-main" data-label={t('skillName')}>
                 <b>{row.name}</b>
               </td>
-              <td>
+              <td data-label={t('sourceFilter')}>
                 <span className="source-pill">{sourceLabel(row.source, t)}</span>
               </td>
-              <td className="num">{row.sessions_7d}</td>
-              <td className="num">{row.sessions_30d}</td>
-              <td className="num">{row.sessions_total}</td>
-              <td className="num">{row.users_30d}</td>
-              <td>
+              <td className="num" data-label={t('skill7')}>{row.sessions_7d}</td>
+              <td className="num" data-label={t('skill30')}>{row.sessions_30d}</td>
+              <td className="num" data-label={t('skillTotal')}>{row.sessions_total}</td>
+              <td className="num" data-label={t('skillUsers30')}>{row.users_30d}</td>
+              <td data-label={t('runtimeFilter')}>
                 <RuntimeBars counts={row.runtime_counts} />
               </td>
-              <td>
+              <td data-label={t('trend')}>
                 <MiniTrend values={row.trend_14d} />
               </td>
-              <td className="q">{row.last_day || '—'}</td>
+              <td className="q" data-label={t('skillLast')}>{row.last_day || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -225,7 +225,7 @@ function GovernanceSkillTable({ rows, t }: { rows: GovernanceUntrackedSkill[]; t
   if (!rows.length) return <Empty title={t('noUntrackedSkills')} hint={t('noUntrackedSkillsH')} />
   return (
     <div className="skills-wrap">
-      <table className="skill-table">
+      <table className="skill-table mobile-card-table">
         <thead>
           <tr>
             <th>{t('skillName')}</th>
@@ -240,19 +240,19 @@ function GovernanceSkillTable({ rows, t }: { rows: GovernanceUntrackedSkill[]; t
         <tbody>
           {rows.map((row) => (
             <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
-              <td>
+              <td className="mobile-main" data-label={t('skillName')}>
                 <b>{row.name}</b>
               </td>
-              <td className="num">{pct(row.share)}</td>
-              <td className="num">{row.sessions}</td>
-              <td className="num">{row.users_30d}</td>
-              <td>
+              <td className="num" data-label={t('usageShare')}>{pct(row.share)}</td>
+              <td className="num" data-label={t('usedSessions')}>{row.sessions}</td>
+              <td className="num" data-label={t('skillUsers30')}>{row.users_30d}</td>
+              <td data-label={t('runtimeFilter')}>
                 <RuntimeBars counts={row.runtime_counts} />
               </td>
-              <td>
+              <td data-label={t('trend')}>
                 <MiniTrend values={row.trend_14d} />
               </td>
-              <td className="q">{row.last_day || '—'}</td>
+              <td className="q" data-label={t('skillLast')}>{row.last_day || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -281,7 +281,7 @@ function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[
   if (!rows.length) return <Empty title={t('noOperators')} hint={t('noOperatorsH')} />
   return (
     <div className="skills-wrap">
-      <table className="skill-table">
+      <table className="skill-table mobile-card-table">
         <thead>
           <tr>
             {head('operator', t('operatorName'))}
@@ -298,21 +298,21 @@ function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[
         <tbody>
           {rows.map((row) => (
             <tr key={row.operator} role="link" tabIndex={0} onClick={() => openOperator(row.operator)} onKeyDown={(event) => rowKey(event, () => openOperator(row.operator))}>
-              <td>
+              <td className="mobile-main" data-label={t('operatorName')}>
                 <b>{row.operator}</b>
               </td>
-              <td className="num">{row.sessions_7d}</td>
-              <td className="num">{row.sessions_30d}</td>
-              <td className="num">{row.sessions_total}</td>
-              <td className="num">{row.skill_count}</td>
-              <td className="num">{row.session_count}</td>
-              <td>
+              <td className="num" data-label={t('skill7')}>{row.sessions_7d}</td>
+              <td className="num" data-label={t('skill30')}>{row.sessions_30d}</td>
+              <td className="num" data-label={t('skillTotal')}>{row.sessions_total}</td>
+              <td className="num" data-label={t('skillsUsed')}>{row.skill_count}</td>
+              <td className="num" data-label={t('sessionCount')}>{row.session_count}</td>
+              <td data-label={t('runtimeFilter')}>
                 <RuntimeBars counts={row.runtime_counts} />
               </td>
-              <td>
+              <td data-label={t('trend')}>
                 <MiniTrend values={row.trend_14d} />
               </td>
-              <td className="q">{row.last_day || '—'}</td>
+              <td className="q" data-label={t('skillLast')}>{row.last_day || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -375,17 +375,17 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
 
   if (loading && !data) {
     return (
-      <>
+      <div className="skills-page">
         <ViewSwitch view={view} setParams={setParams} t={t} />
         <section className="frame">
           <Empty title={t('loading')} />
         </section>
-      </>
+      </div>
     )
   }
 
   return (
-    <>
+    <div className="skills-page">
       <ViewSwitch view={view} setParams={setParams} t={t} />
       <section className="frame">
         <h2>
@@ -427,6 +427,6 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           <Funnel data={data} t={t} />
         </section>
       </div>
-    </>
+    </div>
   )
 }

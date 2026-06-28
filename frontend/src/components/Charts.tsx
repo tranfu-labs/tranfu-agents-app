@@ -156,7 +156,8 @@ export function StackedSkillChart({
   }
 
   const max = Math.max(...model.totals, 1)
-  const w = Math.max(680, model.axis.length * 28 + 50)
+  const compactWindow = days <= 7
+  const w = compactWindow ? Math.max(300, model.axis.length * 34 + 50) : Math.max(680, model.axis.length * 28 + 50)
   const h = 220
   const base = 190
   const bh = 165
