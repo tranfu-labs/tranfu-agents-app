@@ -11,26 +11,26 @@ export function SkillDetailView({ data, loading, error, lang, t }: { data: Skill
   const back = `/skills${location.search}`
   if (loading && !data) {
     return (
-      <>
+      <div className="skill-detail-page">
         <Link className="back" to={back}>
           ← {t('skillsNav')}
         </Link>
         <section className="frame">
           <Empty title={t('loading')} />
         </section>
-      </>
+      </div>
     )
   }
   if (!data) {
     return (
-      <>
+      <div className="skill-detail-page">
         <Link className="back" to={back}>
           ← {t('skillsNav')}
         </Link>
         <section className="frame">
           <Empty title={error ? t(error) : t('skillNotFound')} hint={params.name ? decodeURIComponent(params.name) : ''} />
         </section>
-      </>
+      </div>
     )
   }
 
@@ -44,7 +44,7 @@ export function SkillDetailView({ data, loading, error, lang, t }: { data: Skill
     ['skillLast', metrics.last_day || '—'],
   ]
   return (
-    <>
+    <div className="skill-detail-page">
       <Link className="back" to={back}>
         ← {t('skillsNav')}
       </Link>
@@ -105,7 +105,7 @@ export function SkillDetailView({ data, loading, error, lang, t }: { data: Skill
             {t('recentRecords')}
           </span>
         </h2>
-        <table className="records-table">
+        <table className="records-table mobile-card-table">
           <thead>
             <tr>
               <th>{t('skillLast')}</th>
@@ -120,19 +120,19 @@ export function SkillDetailView({ data, loading, error, lang, t }: { data: Skill
               const time = formatRecentRecordTime(record.first_seen, record.day || '', lang)
               return (
                 <tr key={`${record.session_id}-${record.mode}-${record.day}`}>
-                  <td className="q" title={time.title}>{time.label}</td>
-                  <td>{record.operator || ''}</td>
-                  <td>{RT[record.runtime || ''] || record.runtime || ''}</td>
-                  <td>
+                  <td className="q mobile-main" data-label={t('skillLast')} title={time.title}>{time.label}</td>
+                  <td data-label={t('th_disp')}>{record.operator || ''}</td>
+                  <td data-label={t('th_rt')}>{RT[record.runtime || ''] || record.runtime || ''}</td>
+                  <td data-label={t('mode')}>
                     <span className="source-pill">{record.mode || 'used'}</span>
                   </td>
-                  <td className="q">{(record.session_id || '').slice(0, 12)}</td>
+                  <td className="q" data-label={t('session')}>{(record.session_id || '').slice(0, 12)}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       </section>
-    </>
+    </div>
   )
 }

@@ -73,7 +73,7 @@
 │                       │ ◀── ⑤ ←SKILLS(view)  │                                  │
 └───────────────────────┘                       └──────────────────────────────────┘
         │  ▲
-        ① 改过滤条或视角（搜索/runtime/来源/时间窗/view）
+        ① 改过滤条/视角/Lens（搜索/runtime/来源/时间窗/view/lens）
         ▼  │
 ┌┄ 同页态：query 写入 URL，表格/图表原地重筛 ┄┐
 ┊（无跳转）                                    ┊
@@ -82,7 +82,7 @@
 
 | 步 | 从 | 到 | 触发 |
 |---|---|---|---|
-| ① | SKILLS `/skills` | 同页（query 变化） | 改过滤条或视角（搜索框 / runtime / 来源 / 时间窗 / 按 skill / 按人） |
+| ① | SKILLS `/skills` | 同页（query 变化） | 改过滤条、视角或管理者 Lens（搜索框 / runtime / 来源 / 时间窗 / 按 skill / 按人 / 未收录使用占比） |
 | ② | SKILLS `/skills` | Skill 详情 `/skill/:name` | 在按 Skill 视角点排行表任意行（整行跳转，附带 `location.search`） |
 | ③ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
 | ④ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |

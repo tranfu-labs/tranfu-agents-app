@@ -167,6 +167,9 @@
   .lens-seg button{display:inline-flex;align-items:center;justify-content:center;font-family:var(--sans);letter-spacing:0;text-transform:none;font-size:12px;font-weight:600;line-height:1;padding:0 11px;border-radius:5px;white-space:nowrap}
   .lens-seg button:hover{color:var(--text);background:var(--hover)}
   .lens-seg button.on{background:var(--brand);color:#fff}
+  .skills-page,.skill-detail-page,.operator-detail-page{min-width:0;max-width:100%}
+  .skills-page>.frame,.skills-page>.split,.skill-detail-page>.frame,.skill-detail-page>.dist,.operator-detail-page>.frame,.operator-detail-page>.dist-mirror{min-width:0;max-width:100%}
+  .skills-page .skills-wrap,.skill-detail-page .skills-wrap,.operator-detail-page .skills-wrap,.skills-page .chart-box,.skill-detail-page .chart-box,.operator-detail-page .chart-box{min-width:0;max-width:100%}
 
   /* token usage */
   .token-page{display:grid;gap:16px;min-width:0;max-width:100%;overflow-x:hidden}
@@ -345,6 +348,14 @@
   .empty{padding:30px 18px;text-align:center}.empty .t{color:var(--muted);font-size:13px}.empty .h{color:var(--faint);font-size:12px;margin-top:5px;font-family:var(--mono)}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:.25s;z-index:60}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media(max-width:1080px) and (min-width:601px){
+    .skills-page .split{grid-template-columns:1fr}
+    .skills-page .toolbar .field{flex:1 1 190px;min-width:0}
+    .skills-page .toolbar .field input,.skills-page .toolbar .field select{width:100%;min-width:0}
+    .skill-detail-page .statgrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .operator-detail-page .statgrid.operator-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .skill-detail-page .dist,.operator-detail-page .dist-mirror{grid-template-columns:1fr}
+  }
   @media(max-width:600px){
     html,body{overflow-x:hidden}
     header{gap:8px 10px;padding:10px 14px}
@@ -386,5 +397,35 @@
     .admin-effects div{grid-template-columns:1fr}
     .admin-counts{align-items:flex-start;flex-direction:column}
     .admin-active-row{grid-template-columns:1fr}
+    .skills-page h2 .cnt{display:block;line-height:1.35;text-align:left;white-space:normal}
+    .skills-page .viewcard h2{align-items:flex-start;flex-direction:column}
+    .skills-page .viewbody{gap:10px}
+    .skills-page .viewbody .seg{height:34px}
+    .skills-page .toolbar{gap:9px}
+    .skills-page .governance-lens{align-items:stretch;flex-direction:column;gap:9px;padding:12px 14px}
+    .skills-page .lens-note{margin-left:0}
+    .skills-page .lens-seg{height:auto;flex-wrap:wrap;width:100%}
+    .skills-page .lens-seg button{flex:1 1 130px;min-height:30px}
+    .skills-page .chart-box,.skill-detail-page .chart-box,.operator-detail-page .chart-box{padding:12px}
+    .skills-page .legend2,.skill-detail-page .legend2,.operator-detail-page .legend2{gap:6px}
+    .skills-page .funnel{padding:14px}
+    .skill-detail-page .statgrid,.operator-detail-page .statgrid,.operator-detail-page .statgrid.operator-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .skill-detail-page .stat,.operator-detail-page .stat{min-width:0;padding:10px}
+    .skill-detail-page .stat .v,.operator-detail-page .stat .v{font-size:17px;overflow-wrap:anywhere}
+    .skill-detail-page .dist,.operator-detail-page .dist-mirror{grid-template-columns:1fr}
+    .skill-detail-page .dhead .alabel,.operator-detail-page .dhead .alabel{font-size:18px;overflow-wrap:anywhere}
+    .skills-page .skills-wrap table.mobile-card-table,.skill-detail-page table.mobile-card-table,.operator-detail-page table.mobile-card-table{display:block;min-width:0;width:100%;overflow:visible;white-space:normal}
+    .skills-page .mobile-card-table thead,.skill-detail-page .mobile-card-table thead,.operator-detail-page .mobile-card-table thead{display:none}
+    .skills-page .mobile-card-table tbody,.skill-detail-page .mobile-card-table tbody,.operator-detail-page .mobile-card-table tbody{display:grid;gap:10px;padding:10px 0}
+    .skills-page .mobile-card-table tr,.skill-detail-page .mobile-card-table tr,.operator-detail-page .mobile-card-table tr{display:grid;border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:hidden}
+    .skills-page .mobile-card-table td,.skill-detail-page .mobile-card-table td,.operator-detail-page .mobile-card-table td{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:6px 12px;border-bottom:0;white-space:normal;text-align:right}
+    .skills-page .mobile-card-table td::before,.skill-detail-page .mobile-card-table td::before,.operator-detail-page .mobile-card-table td::before{content:attr(data-label);flex:0 0 auto;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;text-align:left}
+    .skills-page .mobile-card-table td.mobile-main,.skill-detail-page .mobile-card-table td.mobile-main,.operator-detail-page .mobile-card-table td.mobile-main{display:block;text-align:left;font-size:14px;padding:10px 12px 8px;border-bottom:1px solid var(--line)}
+    .skills-page .mobile-card-table td.mobile-main::before,.skill-detail-page .mobile-card-table td.mobile-main::before,.operator-detail-page .mobile-card-table td.mobile-main::before{display:none}
+    .skills-page .mobile-card-table td.mobile-main b,.operator-detail-page .mobile-card-table td.mobile-main b{overflow-wrap:anywhere}
+    .skills-page .mobile-card-table .runtime-bars,.operator-detail-page .mobile-card-table .runtime-bars{margin-left:auto}
+    .skills-page .mobile-card-table .mini-trend{margin-left:auto}
+    .skill-detail-page .records-table.mobile-card-table tbody tr,.operator-detail-page .records-table.mobile-card-table tbody tr{cursor:default}
+    .skill-detail-page .records-table.mobile-card-table tbody tr:hover,.operator-detail-page .records-table.mobile-card-table tbody tr:hover{background:var(--bg)}
   }
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
