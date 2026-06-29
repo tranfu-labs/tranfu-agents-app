@@ -111,6 +111,15 @@ Post-deploy API check:
 curl -sS "https://your-domain.example/api/token-usage?days=1&time_granularity=hour" | head
 ```
 
+Upgrade an existing deployment:
+
+1. Keep the existing `TF_KEY`, SQLite volume, and agent/shim configuration unchanged.
+2. Keep the Token Usage credentials configured only on the server (`TF_TOKEN_USAGE_*` variables); do not place credentials in frontend code or GitHub.
+3. Deploy the new app image or rebuild the existing service from the latest tag.
+4. Verify `/`, `/agents`, `/skills`, and `/token-usage` after deployment.
+
+The Token Usage module is additive. It does not change existing Pods, Agents, SKILLS, Admin, shim install flow, or the event reporting protocol.
+
 ### Post-deploy checks for browser and Lark icons
 
 The dashboard serves favicon, Apple touch icon, manifest, and Open Graph image files from the same domain as the app. After a deploy, verify these paths return `200` before sharing the URL in browsers or Lark:

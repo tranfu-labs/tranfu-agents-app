@@ -543,7 +543,7 @@ function DonutChart({ title, icon, items }: { title: string; icon: IconName; ite
     <div className="token-donut" onMouseLeave={() => setTip(null)}>
       <div className="token-donut-title"><Icon name={icon} />{title}</div>
       <svg viewBox="0 0 220 170" role="img" aria-label={title}>
-        <text x="14" y="42" fill="var(--text)" fontSize="18" fontFamily="var(--mono)">{moneyFromQuota(total)}</text>
+        <text x="14" y="28" fill="var(--text)" fontSize="18" fontFamily="var(--mono)">{moneyFromQuota(total)}</text>
         {segments.map(({ item, start, end }) => {
           return (
             <path
@@ -911,7 +911,10 @@ export function TokenUsageView({
   return (
     <div className={`token-page ${loading && payload ? 'is-refreshing' : ''}`}>
       <section className="frame">
-        <SectionTitle title={t('tokenUsageTitle')} count={statusLabel} />
+        <div className="token-headline">
+          <SectionTitle title={t('tokenUsageTitle')} count={statusLabel} />
+          <button className="btn mini token-refresh-live" type="button" disabled={loading} onClick={() => void refresh(true)}>{loading ? t('loading') : t('refresh')}</button>
+        </div>
         <div className="usage-note">
           {data?.source === 'demo' ? t('tokenUsageDemo') : data?.configured ? t('tokenUsageConfigured') : t('tokenUsageHint')}
           {freshnessText ? <span className="src"> · {freshnessText}</span> : null}
@@ -973,7 +976,6 @@ export function TokenUsageView({
             </select>
           </label>
           <label className="field token-search">{t('adminSearch')}<input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t('tokenSearch')} /></label>
-          <button className="btn mini token-refresh" type="button" disabled={loading} onClick={() => void refresh(true)}>{loading ? t('loading') : t('refresh')}</button>
         </div>
       </section>
 

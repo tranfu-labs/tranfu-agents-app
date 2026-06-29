@@ -175,13 +175,15 @@
   .token-page{display:grid;gap:16px;min-width:0;max-width:100%;overflow-x:hidden}
   .token-page>.frame,.token-page>.split,.token-page>.statgrid,.token-page section.frame{min-width:0;max-width:100%;width:100%}
   .token-page .skills-wrap,.token-page .chart-box{min-width:0;max-width:100%;width:100%}
+  .token-headline{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+  .token-headline h2{flex:1;min-width:0;border-bottom:0;padding-right:6px}
+  .token-refresh-live{flex:none;margin-right:18px}
   .token-toolbar{align-items:flex-end}
   .token-toolbar .field{flex:0 0 auto;white-space:nowrap}
   .token-toolbar .field select{min-width:120px}
   .token-search{flex:1 1 360px;min-width:300px}
   .token-search input{width:100%;min-width:0}
   .token-datetime input{min-width:180px}
-  .token-refresh{align-self:flex-end;margin-left:auto}
   .token-stats{grid-template-columns:repeat(8,minmax(0,1fr));margin-bottom:0}
   .token-stats .delta{font-family:var(--mono);font-size:10px;color:var(--muted);margin:2px 0 1px;white-space:nowrap}
   .token-stats .delta.up{color:var(--err)}.token-stats .delta.down{color:var(--run)}
@@ -405,7 +407,7 @@
     .skills-wrap table{min-width:520px}
     .toolbar{align-items:stretch}.viewbody{align-items:flex-start;flex-direction:column}.viewbody .seg{width:100%}.viewbody .seg button{flex:1}.field{width:100%;align-items:flex-start;flex-direction:column}.field input,.field select{width:100%;min-width:0}
     .funnel-row{grid-template-columns:1fr}.funnel-list{margin:0}.statgrid,.statgrid.operator-stats,.token-stats,.dist,.dist-mirror,.token-split{grid-template-columns:1fr}
-    .token-toolbar{align-items:stretch}.token-toolbar .field{width:100%;justify-content:space-between}.token-toolbar .field select,.token-toolbar .field input{flex:1;min-width:0}.token-search{min-width:0}.token-refresh{width:100%;margin-left:0}
+    .token-refresh-live{margin-right:14px}.token-toolbar{align-items:stretch}.token-toolbar .field{width:100%;justify-content:space-between}.token-toolbar .field select,.token-toolbar .field input{flex:1;min-width:0}.token-search{min-width:0}
     .token-rank-row{grid-template-columns:96px minmax(110px,1fr) 76px}.token-donut-grid,.token-donut,.token-skeleton-grid{grid-template-columns:1fr}.token-donut svg{margin:auto}.token-health{align-items:flex-start;flex-direction:column}.token-health-core{border-right:0;border-bottom:1px solid var(--line);padding:0 0 10px;width:100%}
     .token-table-head{align-items:stretch;flex-direction:column}.token-table-actions{padding:0 12px 12px}.token-table-actions button,.token-table-actions label{flex:1 1 auto;justify-content:center}
     .token-drawer{width:100%;padding:14px}.token-detail-grid{grid-template-columns:1fr}.token-model-row{grid-template-columns:1fr auto}
