@@ -73,6 +73,22 @@ def test_robots_txt_missing_returns_404(client, app_mod, monkeypatch):
     assert client.get("/robots.txt").status_code == 404
 
 
+def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_mod, "FRONTEND_DIST", str(tmp_path))
+    (tmp_path / "favicon.svg").write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+    (tmp_path / "og-image-1200x630.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    favicon = client.get("/favicon.svg")
+    assert favicon.status_code == 200
+    assert "image/svg+xml" in favicon.headers["content-type"]
+    assert "<svg" in favicon.text
+
+    og_head = client.head("/og-image-1200x630.png")
+    assert og_head.status_code == 200
+    assert "image/png" in og_head.headers["content-type"]
+    assert og_head.content == b""
+
+
 # ---- /healthz -------------------------------------------------------------
 def test_healthz_is_ok_and_does_not_touch_db(client):
     r = client.get("/healthz")

@@ -93,6 +93,20 @@ TF_TOKEN_USAGE_CACHE_TTL=90
 
 After deploy, open `/token-usage`. If credentials are missing or expired, the rest of the dashboard still works; only the Token Usage tab will be unable to show real distribution usage.
 
+### Post-deploy checks for browser and Lark icons
+
+The dashboard serves favicon, Apple touch icon, manifest, and Open Graph image files from the same domain as the app. After a deploy, verify these paths return `200` before sharing the URL in browsers or Lark:
+
+```bash
+curl -I https://your-domain.example/favicon.ico
+curl -I https://your-domain.example/favicon.svg
+curl -I https://your-domain.example/apple-touch-icon.png
+curl -I https://your-domain.example/manifest.json
+curl -I https://your-domain.example/og-image-1200x630.png
+```
+
+If Lark still shows an old preview after these checks pass, send a fresh URL or wait for Lark's link-preview cache to expire.
+
 ## How a teammate connects an agent (natural language)
 
 A teammate just tells their own agent, in plain language:

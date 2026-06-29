@@ -7,7 +7,7 @@
 import os
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
 from server.config import _MEDIA
 from server.shim import _SHIM_MANIFEST
@@ -16,6 +16,15 @@ router = APIRouter()
 
 _SPA_BLOCKED_PREFIXES = {"api", "v1", "shims", "assets"}
 _SPA_BLOCKED_PATHS = {"install.sh", "healthz", "llms.txt", "robots.txt"}
+_ROOT_STATIC_FILES = {
+    "favicon.ico",
+    "favicon.svg",
+    "favicon-32x32.png",
+    "favicon-16x16.png",
+    "apple-touch-icon.png",
+    "manifest.json",
+    "og-image-1200x630.png",
+}
 
 
 def _spa_index():
@@ -33,6 +42,18 @@ def _plain_file(path, media_type="text/plain"):
             return PlainTextResponse(f.read(), media_type=media_type)
     except FileNotFoundError:
         return PlainTextResponse(f"{os.path.basename(path)} not found", status_code=404)
+
+
+def _frontend_root_static(filename: str):
+    if filename not in _ROOT_STATIC_FILES:
+        raise HTTPException(status_code=404)
+    from server import app
+    target = os.path.abspath(os.path.join(app.FRONTEND_DIST, filename))
+    dist = os.path.abspath(app.FRONTEND_DIST)
+    if not target.startswith(dist + os.sep) or not os.path.isfile(target):
+        raise HTTPException(status_code=404)
+    media = _MEDIA.get(os.path.splitext(target)[1], "application/octet-stream")
+    return FileResponse(target, media_type=media)
 
 
 @router.get("/healthz")
@@ -63,6 +84,48 @@ def llms_txt():
 def robots_txt():
     from server import app
     return _plain_file(app.ROBOTS_PATH, "text/plain")
+
+
+@router.get("/favicon.ico")
+@router.head("/favicon.ico")
+def favicon_ico():
+    return _frontend_root_static("favicon.ico")
+
+
+@router.get("/favicon.svg")
+@router.head("/favicon.svg")
+def favicon_svg():
+    return _frontend_root_static("favicon.svg")
+
+
+@router.get("/favicon-32x32.png")
+@router.head("/favicon-32x32.png")
+def favicon_32_png():
+    return _frontend_root_static("favicon-32x32.png")
+
+
+@router.get("/favicon-16x16.png")
+@router.head("/favicon-16x16.png")
+def favicon_16_png():
+    return _frontend_root_static("favicon-16x16.png")
+
+
+@router.get("/apple-touch-icon.png")
+@router.head("/apple-touch-icon.png")
+def apple_touch_icon_png():
+    return _frontend_root_static("apple-touch-icon.png")
+
+
+@router.get("/manifest.json")
+@router.head("/manifest.json")
+def manifest_json():
+    return _frontend_root_static("manifest.json")
+
+
+@router.get("/og-image-1200x630.png")
+@router.head("/og-image-1200x630.png")
+def og_image_1200x630_png():
+    return _frontend_root_static("og-image-1200x630.png")
 
 
 @router.get("/shims/manifest")

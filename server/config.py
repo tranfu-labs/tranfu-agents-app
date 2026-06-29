@@ -26,7 +26,9 @@ def _env_float(name, default):
 # 静态文件 MIME(/shims 直出)。
 _MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
           ".js": "text/javascript", ".mjs": "text/javascript",
-          ".json": "application/json", ".md": "text/markdown"}
+          ".json": "application/json", ".md": "text/markdown",
+          ".ico": "image/x-icon", ".png": "image/png",
+          ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json"}
 
 # 须以可执行位写出的 shim 文件清单(install.sh / 自更新会读)。
 _EXECUTABLE_SHIMS = {
