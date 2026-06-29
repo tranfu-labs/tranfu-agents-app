@@ -6,7 +6,12 @@ import { makeTokenUsageRange, unix } from '../lib/tokenUsageRange'
 import type { TokenModelUsage, TokenUsagePayload, TokenUsageQuery, TokenUsageSummary, TokenUsageTrend } from '../lib/types'
 
 type TokenKind = 'personal' | 'dapp' | 'other'
-type RiskState = 'normal' | 'low_quota' | 'exhausted' | 'high_error' | 'disabled'
+type RiskState = 'normal' | 'low_quota' | 'exhausted' | 'high_error' | 'disabled' | 'spike' | 'high_latency' | 'restricted_model'
+type RiskSeverity = 'info' | 'warn' | 'bad'
+type RiskAlert = { id: string; token_id: number; token_name: string; state: RiskState; severity: RiskSeverity; title: string; detail: string; quota: number }
+type EnrichedTokenRow = TokenUsageSummary & { kind: TokenKind; owner: string; risk: RiskState; riskReasons: RiskAlert[]; trendValues: number[] }
+type SortField = 'quota' | 'request_count' | 'token_name' | 'owner' | 'kind' | 'risk' | 'last_used_at' | 'remain_quota'
+type SortState = { field: SortField; dir: 'asc' | 'desc' }
 type Tooltip = { x: number; y: number; title: string; rows: Array<{ label: string; value: string; color?: string }> }
 type IconName = 'alert' | 'dollar' | 'health' | 'key' | 'model' | 'pie' | 'rank' | 'trend'
 
@@ -63,6 +68,12 @@ function pct(value: number) {
   return `${Math.round(value * 1000) / 10}%`
 }
 
+function signedPct(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${pct(value)}`
+}
+
 function ts(value?: number) {
   if (!value) return '—'
   return new Date(value * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -108,22 +119,18 @@ function inferOwner(row: TokenUsageSummary, kind: TokenKind) {
 }
 
 function riskOf(row: TokenUsageSummary): RiskState {
-  const requests = Number(row.request_count || 0)
-  const errors = Number(row.error_count || 0)
-  const errorRate = errors / Math.max(1, requests + errors)
-  if (row.status !== undefined && row.status !== 1) return 'disabled'
-  if (!row.unlimited_quota && Number(row.remain_quota || 0) <= 0) return 'exhausted'
-  if (errorRate >= 0.2 && errors >= 3) return 'high_error'
-  if (!row.unlimited_quota) {
-    const remain = Number(row.remain_quota || 0)
-    const total = remain + Number(row.used_quota || 0)
-    if (remain > 0 && total > 0 && remain / total < 0.1) return 'low_quota'
-  }
-  return 'normal'
+  return buildRiskAlerts(row as EnrichedTokenRow, [], []).at(0)?.state || 'normal'
 }
 
 function riskLabel(risk: RiskState, t: (key: string) => string) {
-  return risk === 'low_quota' ? t('tokenLowQuota') : risk === 'exhausted' ? t('tokenExhausted') : risk === 'high_error' ? t('tokenHighError') : risk === 'disabled' ? t('tokenDisabled') : t('tokenNormal')
+  if (risk === 'low_quota') return t('tokenLowQuota')
+  if (risk === 'exhausted') return t('tokenExhausted')
+  if (risk === 'high_error') return t('tokenHighError')
+  if (risk === 'disabled') return t('tokenDisabled')
+  if (risk === 'spike') return '消耗突增'
+  if (risk === 'high_latency') return '延迟异常'
+  if (risk === 'restricted_model') return '模型异常'
+  return t('tokenNormal')
 }
 
 function kindLabel(kind: TokenKind, t: (key: string) => string) {
@@ -152,26 +159,101 @@ function Icon({ name }: { name: IconName }) {
   )
 }
 
-function ChartHeading({ icon, title, total }: { icon: IconName; title: string; total?: string }) {
+function ChartHeading({ icon, title, total, actions }: { icon: IconName; title: string; total?: string; actions?: ReactNode }) {
   return (
     <div className="token-chart-copy">
       <b><Icon name={icon} />{title}</b>
-      {total ? <span>{total}</span> : null}
+      <span>{actions}{total ? <em>{total}</em> : null}</span>
     </div>
   )
 }
 
-function enrichRows(rows: TokenUsageSummary[], trends: TokenUsageTrend[]) {
+function errorRateOf(row: TokenUsageSummary) {
+  const requests = Number(row.request_count || 0)
+  const errors = Number(row.error_count || 0)
+  return errors / Math.max(1, requests + errors)
+}
+
+function buildRiskAlerts(row: EnrichedTokenRow, trendValues: number[], modelRows: TokenModelUsage[]): RiskAlert[] {
+  const alerts: RiskAlert[] = []
+  const quota = Number(row.quota || 0)
+  const requests = Number(row.request_count || 0)
+  const errors = Number(row.error_count || 0)
+  const errorRate = errorRateOf(row)
+  const avgLatency = Number(row.avg_use_time || 0)
+  const base = { token_id: row.token_id, token_name: row.token_name || `#${row.token_id}`, quota }
+  if (row.status !== undefined && row.status !== 1) {
+    alerts.push({ ...base, id: `${row.token_id}:disabled`, state: 'disabled', severity: quota > 0 ? 'bad' : 'warn', title: quota > 0 ? '停用但仍有消耗' : '停用/异常', detail: quota > 0 ? `本周期仍消耗 ${moneyFromQuota(quota)}` : '分发平台状态不是正常启用。' })
+  }
+  if (!row.unlimited_quota && Number(row.remain_quota || 0) <= 0) {
+    alerts.push({ ...base, id: `${row.token_id}:exhausted`, state: 'exhausted', severity: 'bad', title: '额度已耗尽', detail: '剩余额度为 0，后续请求可能失败。' })
+  } else if (!row.unlimited_quota) {
+    const remain = Number(row.remain_quota || 0)
+    const total = remain + Number(row.used_quota || 0)
+    if (remain > 0 && total > 0 && remain / total < 0.1) alerts.push({ ...base, id: `${row.token_id}:low_quota`, state: 'low_quota', severity: 'warn', title: '额度偏低', detail: `剩余额度约 ${pct(remain / total)}。` })
+  }
+  if (errorRate >= 0.1 && errors >= 3) {
+    alerts.push({ ...base, id: `${row.token_id}:high_error`, state: 'high_error', severity: 'bad', title: '失败率偏高', detail: `${errors} 次失败，失败率 ${pct(errorRate)}。` })
+  }
+  if (avgLatency >= 30 && requests >= 3) {
+    alerts.push({ ...base, id: `${row.token_id}:high_latency`, state: 'high_latency', severity: 'warn', title: '延迟异常', detail: `平均延迟 ${avgLatency.toFixed(2)}s。` })
+  }
+  const latest = trendValues.at(-1) || 0
+  const previous = trendValues.slice(-4, -1).filter((value) => value > 0)
+  const previousAvg = previous.reduce((sum, value) => sum + value, 0) / Math.max(1, previous.length)
+  if (latest >= 5 && previousAvg > 0 && latest / previousAvg >= 2.5 && latest - previousAvg >= 5) {
+    alerts.push({ ...base, id: `${row.token_id}:spike`, state: 'spike', severity: 'warn', title: '消耗突然上涨', detail: `最近桶 ${moneyUsd(latest)}，约为前值 ${Math.round(latest / previousAvg)} 倍。` })
+  }
+  const restrictedModels = modelRows
+    .map((item) => item.model_name || '')
+    .filter((name) => name && /(codex|auto-review|unknown)/i.test(name))
+  if (row.kind === 'dapp' && restrictedModels.length) {
+    alerts.push({ ...base, id: `${row.token_id}:restricted_model`, state: 'restricted_model', severity: 'warn', title: 'Dapp 模型需确认', detail: `使用了 ${restrictedModels.slice(0, 2).join(' / ')}。` })
+  }
+  return alerts.sort((a, b) => ({ bad: 0, warn: 1, info: 2 }[a.severity] - { bad: 0, warn: 1, info: 2 }[b.severity]))
+}
+
+function enrichRows(rows: TokenUsageSummary[], trends: TokenUsageTrend[], models: TokenModelUsage[] = []): EnrichedTokenRow[] {
   const trendByKey = new Map<number, number[]>()
   trends.forEach((row) => {
     const list = trendByKey.get(row.token_id) || []
     list.push(quotaToUsd(row.quota))
     trendByKey.set(row.token_id, list)
   })
+  const modelsByKey = new Map<number, TokenModelUsage[]>()
+  models.forEach((row) => {
+    const list = modelsByKey.get(row.token_id) || []
+    list.push(row)
+    modelsByKey.set(row.token_id, list)
+  })
   return rows.map((row) => {
     const kind = inferKind(row)
-    return { ...row, kind, owner: inferOwner(row, kind), risk: riskOf(row), trendValues: (trendByKey.get(row.token_id) || []).slice(-14) }
+    const trendValues = (trendByKey.get(row.token_id) || []).slice(-14)
+    const base = { ...row, kind, owner: inferOwner(row, kind), risk: 'normal' as RiskState, riskReasons: [], trendValues }
+    const riskReasons = buildRiskAlerts(base, trendValues, modelsByKey.get(row.token_id) || [])
+    return { ...base, riskReasons, risk: riskReasons[0]?.state || riskOf(row) }
   })
+}
+
+function computeTokenMetrics(rows: EnrichedTokenRow[]) {
+  const quota = rows.reduce((sum, row) => sum + Number(row.quota || 0), 0)
+  const tokenUsed = rows.reduce((sum, row) => sum + Number(row.token_used || 0), 0)
+  const requests = rows.reduce((sum, row) => sum + Number(row.request_count || 0), 0)
+  const errors = rows.reduce((sum, row) => sum + Number(row.error_count || 0), 0)
+  const riskCount = rows.filter((row) => row.riskReasons.length).length
+  return { quota, tokenUsed, requests, errors, active: rows.filter((row) => Number(row.request_count || 0) > 0).length, errorRate: errors / Math.max(1, requests + errors), riskCount }
+}
+
+function projectMonthlyQuota(quota: number, startTimestamp: number, endTimestamp: number) {
+  const end = new Date(endTimestamp * 1000)
+  const daysInMonth = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate()
+  const elapsedDays = Math.max(1 / 24, (endTimestamp - startTimestamp) / 86400)
+  return (quota / elapsedDays) * daysInMonth
+}
+
+function changeRate(current: number, previous: number) {
+  if (!previous) return current ? 1 : 0
+  return (current - previous) / previous
 }
 
 function ChartTip({ tip }: { tip: Tooltip | null }) {
@@ -244,23 +326,60 @@ function useDismissTipOnScroll(setTip: (tip: Tooltip | null) => void) {
   }, [setTip])
 }
 
-function KeyRankBars({ rows, t }: { rows: ReturnType<typeof enrichRows>; t: (key: string) => string }) {
+function KeyRankBars({
+  rows,
+  topLimit,
+  selectedTokenId,
+  onSelect,
+  t,
+}: {
+  rows: EnrichedTokenRow[]
+  topLimit: number
+  selectedTokenId: number | null
+  onSelect: (tokenId: number | null) => void
+  t: (key: string) => string
+}) {
   const [tip, setTip] = useState<Tooltip | null>(null)
   useDismissTipOnScroll(setTip)
-  const list = rows.slice(0, 14)
+  const topRows = rows.slice(0, topLimit)
+  const otherRows = rows.slice(topLimit)
+  const otherQuota = otherRows.reduce((sum, row) => sum + Number(row.quota || 0), 0)
+  const otherRow: EnrichedTokenRow | null = otherRows.length ? {
+    token_id: -1,
+    token_name: `其他 ${otherRows.length} 个 KEY`,
+    kind: 'other',
+    owner: '其他',
+    risk: 'normal',
+    riskReasons: [],
+    trendValues: [],
+    quota: otherQuota,
+    token_used: otherRows.reduce((sum, row) => sum + Number(row.token_used || 0), 0),
+    request_count: otherRows.reduce((sum, row) => sum + Number(row.request_count || 0), 0),
+    error_count: otherRows.reduce((sum, row) => sum + Number(row.error_count || 0), 0),
+    top_model: '—',
+  } : null
+  const list = otherRow ? [...topRows, otherRow] : topRows
   const total = rows.reduce((sum, row) => sum + Number(row.quota || 0), 0)
   const max = Math.max(...list.map((row) => Number(row.quota || 0)), 1)
   if (!list.length) return <Empty title={t('tokenNoData')} hint={t('tokenNoDataHint')} />
   return (
     <div className="token-rank-chart" onMouseLeave={() => setTip(null)}>
-      <ChartHeading icon="rank" title="KEY 消耗排行" total={`总计：${moneyFromQuota(total)}`} />
+      <ChartHeading
+        icon="rank"
+        title="KEY 消耗排行"
+        total={`总计：${moneyFromQuota(total)}`}
+        actions={selectedTokenId ? <button type="button" className="token-link-btn" onClick={() => onSelect(null)}>取消高亮</button> : null}
+      />
       {list.map((row, index) => {
         const value = Number(row.quota || 0)
         const color = COLORS[index % COLORS.length]
+        const clickable = row.token_id > 0
+        const selected = selectedTokenId === row.token_id
         return (
           <div
-            className="token-rank-row"
+            className={`token-rank-row ${selected ? 'selected' : ''} ${selectedTokenId && !selected ? 'dimmed' : ''} ${clickable ? 'clickable' : ''}`}
             key={row.token_id || row.token_name}
+            onClick={() => clickable && onSelect(selected ? null : row.token_id)}
             onMouseMove={(event) => setTip({ x: event.clientX, y: event.clientY, title: row.token_name || `#${row.token_id}`, rows: [
               { label: '消耗金额', value: moneyFromQuota(value), color },
               { label: 'Token 数', value: n(row.token_used) },
@@ -282,7 +401,21 @@ function KeyRankBars({ rows, t }: { rows: ReturnType<typeof enrichRows>; t: (key
   )
 }
 
-function UsageTrendLines({ rows, keys, granularity, t }: { rows: TokenUsageTrend[]; keys: ReturnType<typeof enrichRows>; granularity?: string; t: (key: string) => string }) {
+function UsageTrendLines({
+  rows,
+  keys,
+  granularity,
+  selectedTokenId,
+  onSelect,
+  t,
+}: {
+  rows: TokenUsageTrend[]
+  keys: EnrichedTokenRow[]
+  granularity?: string
+  selectedTokenId: number | null
+  onSelect: (tokenId: number | null) => void
+  t: (key: string) => string
+}) {
   const [tip, setTip] = useState<Tooltip | null>(null)
   const chartRef = useRef<HTMLDivElement | null>(null)
   const [chartWidth, setChartWidth] = useState(1160)
@@ -303,7 +436,9 @@ function UsageTrendLines({ rows, keys, granularity, t }: { rows: TokenUsageTrend
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-  const topKeys = keys.slice(0, 10)
+  const selectedKey = selectedTokenId ? keys.find((key) => key.token_id === selectedTokenId) : undefined
+  const baseTopKeys = keys.slice(0, 10)
+  const topKeys = selectedKey && !baseTopKeys.some((key) => key.token_id === selectedKey.token_id) ? [selectedKey, ...baseTopKeys.slice(0, 9)] : baseTopKeys
   const buckets = [...new Set(rows.map((row) => row.created_at))].sort((a, b) => a - b)
   if (!buckets.length || !topKeys.length) return <Empty title={t('tokenNoData')} hint={t('tokenNoDataHint')} />
   const byBucket = new Map<number, Map<number, number>>()
@@ -342,7 +477,8 @@ function UsageTrendLines({ rows, keys, granularity, t }: { rows: TokenUsageTrend
         {topKeys.map((key, keyIndex) => {
           const color = COLORS[keyIndex % COLORS.length]
           const path = buckets.map((bucket, index) => `${index === 0 ? 'M' : 'L'} ${x(index)} ${y(byBucket.get(bucket)?.get(key.token_id) || 0)}`).join(' ')
-          return <path key={key.token_id || key.token_name} d={path} fill="none" stroke={color} strokeWidth="2" opacity=".86" />
+          const selected = selectedTokenId === key.token_id
+          return <path key={key.token_id || key.token_name} d={path} fill="none" stroke={color} strokeWidth={selected ? '3' : '2'} opacity={selectedTokenId && !selected ? '.18' : '.9'} />
         })}
         {buckets.map((bucket, index) => (
           <g key={bucket}>
@@ -367,7 +503,12 @@ function UsageTrendLines({ rows, keys, granularity, t }: { rows: TokenUsageTrend
       </svg>
       <div className="token-chart-legend">
         {topKeys.map((key, index) => (
-          <span key={key.token_id || key.token_name} title={key.token_name || `#${key.token_id}`}>
+          <span
+            className={selectedTokenId === key.token_id ? 'selected' : selectedTokenId ? 'dimmed' : ''}
+            key={key.token_id || key.token_name}
+            title={key.token_name || `#${key.token_id}`}
+            onClick={() => onSelect(selectedTokenId === key.token_id ? null : key.token_id)}
+          >
             <i style={{ background: COLORS[index % COLORS.length] }} />
             {key.token_name || `#${key.token_id}`}
           </span>
@@ -428,26 +569,47 @@ function DonutChart({ title, icon, items }: { title: string; icon: IconName; ite
   )
 }
 
-function HealthPanel({ rows, metrics }: { rows: ReturnType<typeof enrichRows>; metrics: { requests: number; errors: number; tokenUsed: number } }) {
+function weightedPercentile(values: Array<{ value: number; weight: number }>, percentile: number) {
+  const sorted = values.filter((item) => item.value > 0 && item.weight > 0).sort((a, b) => a.value - b.value)
+  const total = sorted.reduce((sum, item) => sum + item.weight, 0)
+  let seen = 0
+  for (const item of sorted) {
+    seen += item.weight
+    if (seen / Math.max(1, total) >= percentile) return item.value
+  }
+  return sorted.at(-1)?.value || 0
+}
+
+function HealthPanel({ rows, metrics }: { rows: EnrichedTokenRow[]; metrics: { requests: number; errors: number; tokenUsed: number } }) {
   const total = metrics.requests + metrics.errors
   const successRate = metrics.requests / Math.max(1, total)
   const latencyWeight = rows.reduce((sum, row) => sum + Number(row.avg_use_time || 0) * Number(row.request_count || 0), 0)
   const avgLatency = latencyWeight / Math.max(1, metrics.requests)
+  const p95Latency = weightedPercentile(rows.map((row) => ({ value: Number(row.avg_use_time || 0), weight: Number(row.request_count || 0) })), 0.95)
   const throughput = metrics.tokenUsed / Math.max(1, latencyWeight)
   const modelHealth = [...rows.reduce((map, row) => {
-    const name = row.top_model || 'unknown'
+    const name = row.top_model && row.top_model !== 'unknown' ? row.top_model : '缺少模型名'
     const item = map.get(name) || { name, requests: 0, errors: 0 }
     item.requests += Number(row.request_count || 0)
     item.errors += Number(row.error_count || 0)
     map.set(name, item)
     return map
-  }, new Map<string, { name: string; requests: number; errors: number }>()).values()].sort((a, b) => b.requests - a.requests).slice(0, 5)
+  }, new Map<string, { name: string; requests: number; errors: number }>()).values()]
+    .filter((item) => item.requests + item.errors > 0)
+    .sort((a, b) => b.requests + b.errors - (a.requests + a.errors))
+    .slice(0, 5)
+  const keyErrors = rows
+    .map((row) => ({ name: row.token_name || `#${row.token_id}`, rate: errorRateOf(row), errors: Number(row.error_count || 0) }))
+    .filter((item) => item.errors > 0)
+    .sort((a, b) => b.rate - a.rate)
+    .slice(0, 3)
   return (
     <section className="frame token-health">
       <div className="token-health-core">
         <b><Icon name="health" />性能健康</b>
         <span>成功率 <strong className={successRate < 0.9 ? 'bad' : 'good'}>{pct(successRate)}</strong></span>
         <span>平均延迟 <strong>{avgLatency.toFixed(2)}s</strong></span>
+        <span>P95 <strong>{p95Latency.toFixed(2)}s</strong></span>
         <span>吞吐量 <strong>{shortN(throughput)} t/s</strong></span>
       </div>
       <div className="token-model-health">
@@ -455,6 +617,7 @@ function HealthPanel({ rows, metrics }: { rows: ReturnType<typeof enrichRows>; m
           const rate = item.requests / Math.max(1, item.requests + item.errors)
           return <span key={item.name}>{item.name} <i className={rate < 0.9 ? 'bad' : 'good'} /> <b>{pct(rate)}</b></span>
         })}
+        {keyErrors.map((item) => <span key={item.name} className="warn">KEY失败 {item.name} <i className="bad" /> <b>{pct(item.rate)}</b></span>)}
       </div>
     </section>
   )
@@ -485,6 +648,176 @@ function ModelRows({ rows, t }: { rows: TokenModelUsage[]; t: (key: string) => s
   )
 }
 
+function rowSortValue(row: EnrichedTokenRow, field: SortField) {
+  if (field === 'token_name') return normalized(row.token_name)
+  if (field === 'owner') return normalized(row.owner)
+  if (field === 'kind') return row.kind
+  if (field === 'risk') return row.riskReasons.length ? row.riskReasons[0].severity : 'zz'
+  if (field === 'last_used_at') return Number(row.last_used_at || row.accessed_time || 0)
+  if (field === 'remain_quota') return row.unlimited_quota ? Number.POSITIVE_INFINITY : Number(row.remain_quota || 0)
+  return Number(row[field] || 0)
+}
+
+function sortTokenRows(rows: EnrichedTokenRow[], sort: SortState) {
+  return [...rows].sort((a, b) => {
+    const av = rowSortValue(a, sort.field)
+    const bv = rowSortValue(b, sort.field)
+    const result = typeof av === 'string' || typeof bv === 'string' ? String(av).localeCompare(String(bv), 'zh-CN') : Number(av) - Number(bv)
+    return sort.dir === 'asc' ? result : -result
+  })
+}
+
+function filterTokenRows(
+  rows: EnrichedTokenRow[],
+  modelRows: TokenModelUsage[],
+  controls: { kind: 'all' | TokenKind; model: string; risk: 'all' | RiskState; q: string; hideZero: boolean },
+) {
+  let next = rows
+  const queryText = normalized(controls.q)
+  if (controls.kind !== 'all') next = next.filter((row) => row.kind === controls.kind)
+  if (controls.risk !== 'all') next = next.filter((row) => row.risk === controls.risk || row.riskReasons.some((item) => item.state === controls.risk))
+  if (controls.hideZero) next = next.filter((row) => Number(row.quota || 0) > 0 || Number(row.request_count || 0) > 0)
+  if (queryText) next = next.filter((row) => normalized(`${row.token_name} ${row.owner} ${row.username}`).includes(queryText))
+  if (controls.model !== 'all') {
+    const ids = new Set(modelRows.filter((row) => row.model_name === controls.model).map((row) => row.token_id))
+    next = next.filter((row) => ids.has(row.token_id))
+  }
+  return next
+}
+
+function Highlight({ text, query }: { text?: string; query: string }) {
+  const value = String(text || '—')
+  const needle = query.trim()
+  if (!needle) return <>{value}</>
+  const index = value.toLowerCase().indexOf(needle.toLowerCase())
+  if (index < 0) return <>{value}</>
+  return <>{value.slice(0, index)}<mark>{value.slice(index, index + needle.length)}</mark>{value.slice(index + needle.length)}</>
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function exportTokenRows(rows: EnrichedTokenRow[]) {
+  const header = ['KEY 名称', '类型', '归属', '消耗金额', '请求数', '失败数', '失败率', '常用模型', '剩余额度', '状态', '最后使用']
+  const lines = rows.map((row) => [
+    row.token_name || `#${row.token_id}`,
+    row.kind,
+    row.owner,
+    moneyFromQuota(row.quota),
+    row.request_count || 0,
+    row.error_count || 0,
+    pct(errorRateOf(row)),
+    row.top_model || '',
+    row.unlimited_quota ? '不限额' : moneyFromQuota(row.remain_quota),
+    riskLabel(row.risk, (key) => key),
+    ts(row.last_used_at || row.accessed_time),
+  ])
+  const csv = [header, ...lines].map((line) => line.map(csvCell).join(',')).join('\n')
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `token-usage-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+function SortButton({ field, sort, setSort, children }: { field: SortField; sort: SortState; setSort: (sort: SortState) => void; children: ReactNode }) {
+  const active = sort.field === field
+  return (
+    <button className={`token-sort ${active ? 'on' : ''}`} type="button" onClick={() => setSort(active ? { field, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: field === 'token_name' || field === 'owner' || field === 'kind' ? 'asc' : 'desc' })}>
+      {children}{active ? <span>{sort.dir === 'asc' ? '↑' : '↓'}</span> : null}
+    </button>
+  )
+}
+
+function TokenKeyDrawer({
+  row,
+  trendRows,
+  modelRows,
+  onClose,
+  t,
+}: {
+  row: EnrichedTokenRow | null
+  trendRows: TokenUsageTrend[]
+  modelRows: TokenModelUsage[]
+  onClose: () => void
+  t: (key: string) => string
+}) {
+  const [tip, setTip] = useState<Tooltip | null>(null)
+  useDismissTipOnScroll(setTip)
+  if (!row) return null
+  const trends = trendRows.filter((item) => item.token_id === row.token_id).sort((a, b) => a.created_at - b.created_at)
+  const models = modelRows.filter((item) => item.token_id === row.token_id).sort((a, b) => Number(b.quota || 0) - Number(a.quota || 0))
+  const max = Math.max(...trends.map((item) => quotaToUsd(item.quota)), 1)
+  return (
+    <div className="token-drawer-backdrop" onMouseDown={onClose}>
+      <aside className="token-drawer" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="token-drawer-head">
+          <span>KEY 详情</span>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+        <div className="token-drawer-title">
+          <b>{row.token_name || `#${row.token_id}`}</b>
+          <div><span className={`mode-badge ${KIND_CLASS[row.kind]}`}>{kindLabel(row.kind, t)}</span><span className={`status-pill risk-${row.risk}`}>{riskLabel(row.risk, t)}</span></div>
+        </div>
+        <div className="token-detail-grid">
+          <div><span>归属</span><b>{row.owner}</b></div>
+          <div><span>消耗金额</span><b>{moneyFromQuota(row.quota)}</b></div>
+          <div><span>请求数</span><b>{n(row.request_count)}</b></div>
+          <div><span>失败率</span><b>{pct(errorRateOf(row))}</b></div>
+          <div><span>平均延迟</span><b>{Number(row.avg_use_time || 0).toFixed(2)}s</b></div>
+          <div><span>最后使用</span><b>{ts(row.last_used_at || row.accessed_time)}</b></div>
+          <div><span>剩余额度</span><b>{row.unlimited_quota ? t('tokenUnlimited') : moneyFromQuota(row.remain_quota)}</b></div>
+          <div><span>模型数</span><b>{n(row.model_count || models.length)}</b></div>
+        </div>
+        <div className="token-detail-section">
+          <h3>消耗趋势</h3>
+          {trends.length ? (
+            <div className="token-detail-bars" onMouseLeave={() => setTip(null)}>
+              {trends.map((item) => {
+                const value = quotaToUsd(item.quota)
+                return (
+                  <i
+                    key={`${item.created_at}:${item.token_id}`}
+                    style={{ height: `${Math.max(3, (value / max) * 100)}%` }}
+                    onMouseMove={(event) => setTip({ x: event.clientX, y: event.clientY, title: bucketLabel(item.created_at), rows: [
+                      { label: '消耗金额', value: moneyUsd(value), color: COLORS[0] },
+                      { label: '请求数', value: n(item.count) },
+                      { label: 'Tokens', value: n(item.token_used) },
+                    ] })}
+                  />
+                )
+              })}
+              <ChartTip tip={tip} />
+            </div>
+          ) : <Empty title="暂无趋势" hint="当前筛选范围内没有趋势数据。" />}
+        </div>
+        <div className="token-detail-section">
+          <h3>模型使用</h3>
+          {models.length ? models.map((item) => (
+            <div className="token-model-row" key={item.model_name}>
+              <span>{item.model_name}</span>
+              <b>{moneyFromQuota(item.quota)}</b>
+              <em>{n(item.count)} 次</em>
+            </div>
+          )) : <Empty title="暂无模型数据" hint="分发平台没有返回模型拆分。" />}
+        </div>
+        {row.riskReasons.length ? (
+          <div className="token-detail-section">
+            <h3>风险原因</h3>
+            {row.riskReasons.map((item) => <div className={`token-alert-line ${item.severity}`} key={item.id}><b>{item.title}</b><span>{item.detail}</span></div>)}
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  )
+}
+
 export function TokenUsageView({
   data,
   loading,
@@ -506,57 +839,58 @@ export function TokenUsageView({
   const [model, setModel] = useState('all')
   const [risk, setRisk] = useState<'all' | RiskState>('all')
   const [q, setQ] = useState('')
-  const [ignoredRisks, setIgnoredRisks] = useState<Set<number>>(() => {
+  const [topLimit, setTopLimit] = useState(10)
+  const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null)
+  const [hideZero, setHideZero] = useState(false)
+  const [sort, setSort] = useState<SortState>({ field: 'quota', dir: 'desc' })
+  const [ignoredRisks, setIgnoredRisks] = useState<Set<string>>(() => {
     try {
-      return new Set(JSON.parse(window.localStorage.getItem('token-usage-ignored-risks') || '[]') as number[])
+      return new Set((JSON.parse(window.localStorage.getItem('token-usage-ignored-risks') || '[]') as Array<string | number>).map(String))
     } catch {
       return new Set()
     }
   })
   const payload = data?.data
-  const enriched = useMemo(() => enrichRows(payload?.summary || [], payload?.trend || []), [payload])
+  const comparisonPayload = data?.comparison?.data
+  const enriched = useMemo(() => enrichRows(payload?.summary || [], payload?.trend || [], payload?.models || []), [payload])
+  const comparisonEnriched = useMemo(() => enrichRows(comparisonPayload?.summary || [], comparisonPayload?.trend || [], comparisonPayload?.models || []), [comparisonPayload])
   const models = useMemo(() => [...new Set((payload?.models || []).map((row) => row.model_name).filter(Boolean))].sort(), [payload])
-  const matchingTokenIds = useMemo(() => {
-    let rows = enriched
-    const queryText = normalized(q)
-    if (kind !== 'all') rows = rows.filter((row) => row.kind === kind)
-    if (risk !== 'all') rows = rows.filter((row) => row.risk === risk)
-    if (queryText) rows = rows.filter((row) => normalized(`${row.token_name} ${row.owner} ${row.username}`).includes(queryText))
-    if (model !== 'all') {
-      const ids = new Set((payload?.models || []).filter((row) => row.model_name === model).map((row) => row.token_id))
-      rows = rows.filter((row) => ids.has(row.token_id))
-    }
-    return new Set(rows.map((row) => row.token_id))
-  }, [enriched, kind, model, payload, q, risk])
-  const filteredRows = useMemo(() => enriched.filter((row) => matchingTokenIds.has(row.token_id)).sort((a, b) => Number(b.quota || 0) - Number(a.quota || 0)), [enriched, matchingTokenIds])
+  const filterControls = useMemo(() => ({ kind, model, risk, q, hideZero }), [hideZero, kind, model, q, risk])
+  const filteredBaseRows = useMemo(() => filterTokenRows(enriched, payload?.models || [], filterControls), [enriched, filterControls, payload])
+  const filteredRows = useMemo(() => sortTokenRows(filteredBaseRows, sort), [filteredBaseRows, sort])
+  const filteredComparisonRows = useMemo(() => filterTokenRows(comparisonEnriched, comparisonPayload?.models || [], filterControls), [comparisonEnriched, comparisonPayload, filterControls])
+  const matchingTokenIds = useMemo(() => new Set(filteredBaseRows.map((row) => row.token_id)), [filteredBaseRows])
   const filteredTrend = useMemo(() => (payload?.trend || []).filter((row) => matchingTokenIds.has(row.token_id)), [matchingTokenIds, payload])
   const filteredModels = useMemo(() => (payload?.models || []).filter((row) => matchingTokenIds.has(row.token_id) && (model === 'all' || row.model_name === model)), [matchingTokenIds, model, payload])
-  const metrics = useMemo(() => {
-    const quota = filteredRows.reduce((sum, row) => sum + Number(row.quota || 0), 0)
-    const tokenUsed = filteredRows.reduce((sum, row) => sum + Number(row.token_used || 0), 0)
-    const requests = filteredRows.reduce((sum, row) => sum + Number(row.request_count || 0), 0)
-    const errors = filteredRows.reduce((sum, row) => sum + Number(row.error_count || 0), 0)
-    const riskCount = filteredRows.filter((row) => row.risk !== 'normal').length
-    return { quota, tokenUsed, requests, errors, active: filteredRows.filter((row) => Number(row.request_count || 0) > 0).length, errorRate: errors / Math.max(1, requests + errors), riskCount }
-  }, [filteredRows])
-  const allRiskRows = filteredRows.filter((row) => row.risk !== 'normal')
-  const riskRows = allRiskRows.filter((row) => !ignoredRisks.has(row.token_id)).slice(0, 8)
+  const selectedRow = useMemo(() => filteredRows.find((row) => row.token_id === selectedTokenId) || null, [filteredRows, selectedTokenId])
+  const activeSelectedTokenId = selectedRow?.token_id ?? null
+  const metrics = useMemo(() => computeTokenMetrics(filteredBaseRows), [filteredBaseRows])
+  const comparisonMetrics = useMemo(() => computeTokenMetrics(filteredComparisonRows), [filteredComparisonRows])
+  const growthRate = changeRate(metrics.quota, comparisonMetrics.quota)
+  const monthlyProjection = projectMonthlyQuota(metrics.quota, query.startTimestamp, query.endTimestamp)
+  const allRiskAlerts = useMemo(
+    () => filteredBaseRows.flatMap((row) => row.riskReasons).sort((a, b) => ({ bad: 0, warn: 1, info: 2 }[a.severity] - { bad: 0, warn: 1, info: 2 }[b.severity] || b.quota - a.quota)),
+    [filteredBaseRows],
+  )
+  const riskRows = allRiskAlerts.filter((row) => !ignoredRisks.has(row.id)).slice(0, 8)
   const typeItems = useMemo(() => {
     const map = new Map<TokenKind, number>()
-    filteredRows.forEach((row) => map.set(row.kind, (map.get(row.kind) || 0) + Number(row.quota || 0)))
+    filteredBaseRows.forEach((row) => map.set(row.kind, (map.get(row.kind) || 0) + Number(row.quota || 0)))
     return [...map.entries()].map(([name, value], index) => ({ label: kindLabel(name, t), value, color: COLORS[index % COLORS.length] })).filter((item) => item.value > 0)
-  }, [filteredRows, t])
+  }, [filteredBaseRows, t])
   const modelItems = useMemo(() => {
     const map = new Map<string, number>()
-    filteredModels.forEach((row) => map.set(row.model_name, (map.get(row.model_name) || 0) + Number(row.quota || 0)))
+    filteredModels
+      .filter((row) => !activeSelectedTokenId || row.token_id === activeSelectedTokenId)
+      .forEach((row) => map.set(row.model_name, (map.get(row.model_name) || 0) + Number(row.quota || 0)))
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([label, value], index) => ({ label, value, color: COLORS[(index + 4) % COLORS.length] }))
-  }, [filteredModels])
+  }, [activeSelectedTokenId, filteredModels])
   const applyPreset = (preset: string) => setQuery(makeTokenUsageRange(preset, query.timeGranularity))
   const updateCustom = (field: 'startTimestamp' | 'endTimestamp', value: string) => setQuery({ ...query, preset: 'custom', [field]: fromInputValue(value, query[field]) })
-  const ignoreRisk = (tokenId: number) => {
+  const ignoreRisk = (alertId: string) => {
     setIgnoredRisks((old) => {
       const next = new Set(old)
-      next.add(tokenId)
+      next.add(alertId)
       window.localStorage.setItem('token-usage-ignored-risks', JSON.stringify([...next]))
       return next
     })
@@ -566,14 +900,21 @@ export function TokenUsageView({
     setIgnoredRisks(new Set())
   }
   const isInitialLoading = loading && !payload
-  const statusLabel = data?.source === 'demo' ? 'DEMO' : data?.configured ? (loading && payload ? 'LIVE · loading' : 'LIVE') : undefined
+  const statusLabel = data?.source === 'demo' ? 'DEMO' : data?.configured ? (loading && payload ? 'LIVE ⟳' : 'LIVE') : undefined
+  const freshness = data?.fetched_at ? new Date(data.fetched_at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+  const freshnessText = [
+    freshness ? `最后更新 ${freshness}` : '',
+    data?.source === 'upstream' ? '上游正常' : data?.source === 'demo' ? '演示数据' : '',
+    data?.cached ? '后端缓存' : data?.source === 'upstream' ? '实时读取' : '',
+  ].filter(Boolean).join(' · ')
 
   return (
-    <div className="token-page">
+    <div className={`token-page ${loading && payload ? 'is-refreshing' : ''}`}>
       <section className="frame">
         <SectionTitle title={t('tokenUsageTitle')} count={statusLabel} />
         <div className="usage-note">
           {data?.source === 'demo' ? t('tokenUsageDemo') : data?.configured ? t('tokenUsageConfigured') : t('tokenUsageHint')}
+          {freshnessText ? <span className="src"> · {freshnessText}</span> : null}
           {data?.warning ? <span className="src"> · {data.warning}</span> : null}
         </div>
         <div className="toolbar token-toolbar">
@@ -619,7 +960,16 @@ export function TokenUsageView({
               <option value="low_quota">{t('tokenLowQuota')}</option>
               <option value="exhausted">{t('tokenExhausted')}</option>
               <option value="high_error">{t('tokenHighError')}</option>
+              <option value="spike">消耗突增</option>
+              <option value="high_latency">延迟异常</option>
+              <option value="restricted_model">模型异常</option>
               <option value="disabled">{t('tokenDisabled')}</option>
+            </select>
+          </label>
+          <label className="field token-topn">
+            Top N
+            <select value={topLimit} onChange={(event) => setTopLimit(Number(event.target.value))}>
+              {[5, 10, 20].map((value) => <option value={value} key={value}>Top {value}</option>)}
             </select>
           </label>
           <label className="field token-search">{t('adminSearch')}<input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t('tokenSearch')} /></label>
@@ -634,7 +984,9 @@ export function TokenUsageView({
       {!isInitialLoading ? (
         <>
       <div className="statgrid token-stats token-data-section">
-        <div className="stat"><div className="v">{moneyFromQuota(metrics.quota)}</div><div className="l">消耗金额</div></div>
+        <div className="stat"><div className="v">{moneyFromQuota(metrics.quota)}</div><div className={`delta ${growthRate > 0 ? 'up' : growthRate < 0 ? 'down' : ''}`}>{data?.comparison?.label || '较上一周期'} {signedPct(growthRate)}</div><div className="l">消耗金额</div></div>
+        <div className="stat"><div className="v">{signedPct(growthRate)}</div><div className="l">消耗增长率</div></div>
+        <div className="stat"><div className="v">{moneyFromQuota(monthlyProjection)}</div><div className="l">预计本月消耗</div></div>
         <div className="stat"><div className="v">{shortN(metrics.tokenUsed)}</div><div className="l">{t('tokenTokens')}</div></div>
         <div className="stat"><div className="v">{n(metrics.requests)}</div><div className="l">{t('tokenRequests')}</div></div>
         <div className="stat"><div className="v">{n(metrics.active)}</div><div className="l">{t('tokenActiveKeys')}</div></div>
@@ -642,10 +994,10 @@ export function TokenUsageView({
         <div className="stat"><div className="v">{n(metrics.riskCount)}</div><div className="l">{t('tokenRisk')}</div></div>
       </div>
 
-      <HealthPanel rows={filteredRows} metrics={metrics} />
+      <HealthPanel rows={filteredBaseRows} metrics={metrics} />
 
       <div className="split token-split">
-        <section className="frame"><KeyRankBars rows={filteredRows} t={t} /></section>
+        <section className="frame"><KeyRankBars rows={filteredBaseRows} topLimit={topLimit} selectedTokenId={activeSelectedTokenId} onSelect={setSelectedTokenId} t={t} /></section>
         <section className="frame">
           <div className="token-panel-title">
             <span><Icon name="alert" />{t('tokenRisks')}</span>
@@ -657,26 +1009,26 @@ export function TokenUsageView({
           {riskRows.length ? (
             <div className="token-risk-list">
               {riskRows.map((row) => (
-                <div className="token-risk" key={row.token_id}>
-                  <span className={`dot risk-${row.risk}`} />
-                  <div><b>{row.token_name}</b><p>{riskLabel(row.risk, t)} · {kindLabel(row.kind, t)} · {row.owner}</p></div>
+                <div className={`token-risk ${row.severity}`} key={row.id}>
+                  <span className={`dot risk-${row.state}`} />
+                  <div><b>{row.token_name}</b><p>{row.title} · {row.detail}</p></div>
                   <span className="mono">{moneyFromQuota(row.quota)}</span>
-                  <button className="token-risk-dismiss" type="button" onClick={() => ignoreRisk(row.token_id)}>忽略</button>
+                  <button className="token-risk-dismiss" type="button" onClick={() => ignoreRisk(row.id)}>忽略</button>
                 </div>
               ))}
             </div>
-          ) : <Empty title={allRiskRows.length ? '当前风险已忽略' : t('tokenNormal')} hint={allRiskRows.length ? '可点击恢复已忽略重新显示。' : t('tokenNoDataHint')} />}
+          ) : <Empty title={allRiskAlerts.length ? '当前风险已忽略' : t('tokenNormal')} hint={allRiskAlerts.length ? '可点击恢复已忽略重新显示。' : t('tokenNoDataHint')} />}
         </section>
       </div>
 
       <section className="frame">
-        <UsageTrendLines rows={filteredTrend} keys={filteredRows} granularity={data?.range?.time_granularity} t={t} />
+        <UsageTrendLines rows={filteredTrend} keys={filteredBaseRows} granularity={data?.range?.time_granularity} selectedTokenId={activeSelectedTokenId} onSelect={setSelectedTokenId} t={t} />
       </section>
 
       <div className="split token-split">
         <section className="frame token-donut-grid">
           <DonutChart title="类型消耗占比" icon="pie" items={typeItems} />
-          <DonutChart title="模型消耗占比" icon="model" items={modelItems} />
+          <DonutChart title={selectedRow ? '模型消耗占比 · 选中 KEY' : '模型消耗占比'} icon="model" items={modelItems} />
         </section>
         <section className="frame">
           <SectionTitle title={t('tokenModels')} count={filteredModels.length} />
@@ -685,17 +1037,26 @@ export function TokenUsageView({
       </div>
 
       <section className="frame">
-        <SectionTitle title={t('tokenKeys')} count={filteredRows.length} />
+        <div className="token-table-head">
+          <SectionTitle title={t('tokenKeys')} count={filteredRows.length} />
+          <div className="token-table-actions">
+            <button className={kind === 'all' ? 'on' : ''} type="button" onClick={() => setKind('all')}>全部</button>
+            <button className={kind === 'personal' ? 'on' : ''} type="button" onClick={() => setKind('personal')}>只看个人</button>
+            <button className={kind === 'dapp' ? 'on' : ''} type="button" onClick={() => setKind('dapp')}>只看 Dapp</button>
+            <label><input type="checkbox" checked={hideZero} onChange={(event) => setHideZero(event.target.checked)} /> 隐藏 0 消耗</label>
+            <button type="button" onClick={() => exportTokenRows(filteredRows)}>导出 CSV</button>
+          </div>
+        </div>
         {filteredRows.length ? (
           <div className="skills-wrap">
             <table className="token-table">
-              <thead><tr><th>{t('tokenKeyName')}</th><th>{t('tokenKind')}</th><th>{t('tokenOwner')}</th><th className="num">消耗金额</th><th className="num">{t('tokenRequests')}</th><th>{t('tokenTopModel')}</th><th>{t('tokenRemain')}</th><th>{t('trend')}</th><th>{t('tokenStatus')}</th><th>{t('tokenLastUsed')}</th></tr></thead>
+              <thead><tr><th><SortButton field="token_name" sort={sort} setSort={setSort}>{t('tokenKeyName')}</SortButton></th><th><SortButton field="kind" sort={sort} setSort={setSort}>{t('tokenKind')}</SortButton></th><th><SortButton field="owner" sort={sort} setSort={setSort}>{t('tokenOwner')}</SortButton></th><th className="num"><SortButton field="quota" sort={sort} setSort={setSort}>消耗金额</SortButton></th><th className="num"><SortButton field="request_count" sort={sort} setSort={setSort}>{t('tokenRequests')}</SortButton></th><th>{t('tokenTopModel')}</th><th><SortButton field="remain_quota" sort={sort} setSort={setSort}>{t('tokenRemain')}</SortButton></th><th>{t('trend')}</th><th><SortButton field="risk" sort={sort} setSort={setSort}>{t('tokenStatus')}</SortButton></th><th><SortButton field="last_used_at" sort={sort} setSort={setSort}>{t('tokenLastUsed')}</SortButton></th></tr></thead>
               <tbody>
                 {filteredRows.map((row) => (
-                  <tr key={row.token_id}>
-                    <td><b>{row.token_name || `#${row.token_id}`}</b><div className="q">{row.username || '—'}</div></td>
+                  <tr key={row.token_id} className={activeSelectedTokenId === row.token_id ? 'selected' : ''} onClick={() => setSelectedTokenId(row.token_id)}>
+                    <td><b><Highlight text={row.token_name || `#${row.token_id}`} query={q} /></b><div className="q"><Highlight text={row.username || '—'} query={q} /></div></td>
                     <td><span className={`mode-badge ${KIND_CLASS[row.kind]}`}>{kindLabel(row.kind, t)}</span></td>
-                    <td>{row.owner}</td>
+                    <td><Highlight text={row.owner} query={q} /></td>
                     <td className="num">{moneyFromQuota(row.quota)}</td>
                     <td className="num">{n(row.request_count)}</td>
                     <td className="q">{row.top_model || '—'}</td>
@@ -710,6 +1071,7 @@ export function TokenUsageView({
           </div>
         ) : <Empty title={t('tokenNoData')} hint={t('tokenNoDataHint')} />}
       </section>
+      <TokenKeyDrawer row={selectedRow} trendRows={payload?.trend || []} modelRows={payload?.models || []} onClose={() => setSelectedTokenId(null)} t={t} />
         </>
       ) : null}
     </div>

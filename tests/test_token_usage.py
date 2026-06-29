@@ -94,6 +94,8 @@ def test_token_usage_upstream_success_and_cache(client, monkeypatch):
     assert req.headers["New-api-user"] == "42"
     assert first["source"] == "upstream"
     assert first["configured"] is True
+    assert first["cached"] is False
+    assert second["cached"] is True
     assert second["data"] == first["data"]
     assert first["data"]["trend"][0]["count"] == 3
     assert first["data"]["trend"][0]["error_count"] == 1

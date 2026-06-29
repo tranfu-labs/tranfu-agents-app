@@ -150,13 +150,13 @@ def _cached_query_upstream(cfg, start, end, granularity, timezone_offset_minutes
         with _UPSTREAM_CACHE_LOCK:
             cached = _UPSTREAM_CACHE.get(key)
             if cached and now - cached["ts"] <= cfg["cache_ttl"]:
-                return deepcopy(cached["data"])
+                return deepcopy(cached["data"]), True
 
     data = _query_upstream(cfg, start, end, granularity, timezone_offset_minutes)
     if cfg["cache_ttl"] > 0:
         with _UPSTREAM_CACHE_LOCK:
             _UPSTREAM_CACHE[key] = {"ts": now, "data": deepcopy(data)}
-    return data
+    return data, False
 
 
 def _demo_payload(start, end, granularity):
@@ -254,11 +254,12 @@ async def token_usage(
     configured = bool((cfg["access_token"] or cfg["cookie"]) and cfg["user_id"])
 
     try:
-        data = await run_in_threadpool(_cached_query_upstream, cfg, start, end, granularity, timezone_offset_minutes)
+        data, cached = await run_in_threadpool(_cached_query_upstream, cfg, start, end, granularity, timezone_offset_minutes)
     except Exception as exc:
         if not cfg["demo"]:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         data = _demo_payload(start, end, granularity)
+        cached = False
         source = "demo"
         warning = str(exc)
 
@@ -267,6 +268,7 @@ async def token_usage(
         "ok": True,
         "source": source,
         "configured": configured,
+        "cached": cached,
         "warning": warning,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "range": {

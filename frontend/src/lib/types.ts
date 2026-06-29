@@ -317,19 +317,33 @@ export type TokenModelUsage = {
   token_used?: number
 }
 
+export type TokenUsageRangeMeta = {
+  start_timestamp?: number
+  end_timestamp?: number
+  days?: number
+  time_granularity?: string
+  timezone_offset_minutes?: number
+}
+
 export type TokenUsagePayload = {
   ok: boolean
   source: 'upstream' | 'demo' | string
   configured?: boolean
+  cached?: boolean
   warning?: string
   fetched_at?: string
-  range?: {
-    start_timestamp?: number
-    end_timestamp?: number
-    days?: number
-    time_granularity?: string
-    timezone_offset_minutes?: number
+  comparison?: {
+    label: string
+    data: {
+      summary: TokenUsageSummary[]
+      trend: TokenUsageTrend[]
+      models: TokenModelUsage[]
+    }
+    range?: TokenUsageRangeMeta
+    source?: string
+    cached?: boolean
   }
+  range?: TokenUsageRangeMeta
   data: {
     summary: TokenUsageSummary[]
     trend: TokenUsageTrend[]

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_STATE, demoOperatorDetail, demoSkillDetail, demoSkillsOverview } from './demo'
+import { makeTokenUsageComparisonRange } from './tokenUsageRange'
 import type {
   AdminInventory,
   AdminPreview,
@@ -47,6 +48,27 @@ function tokenUsageUrl(query: TokenUsageQuery) {
 
 async function fetchTokenUsagePayload(query: TokenUsageQuery, signal?: AbortSignal) {
   return fetchJson<TokenUsagePayload>(tokenUsageUrl(query), signal ? { signal } : undefined)
+}
+
+async function fetchTokenUsageWithComparison(query: TokenUsageQuery, signal?: AbortSignal) {
+  const comparison = makeTokenUsageComparisonRange(query)
+  const next = await fetchTokenUsagePayload(query, signal)
+  try {
+    const previous = await fetchTokenUsagePayload(comparison.query, signal)
+    return {
+      ...next,
+      comparison: {
+        label: comparison.label,
+        data: previous.data,
+        range: previous.range,
+        source: previous.source,
+        cached: previous.cached,
+      },
+    }
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw err
+    return next
+  }
 }
 
 export async function fetchAdminInventory(key: string, q: string, limit = 200): Promise<AdminInventory> {
@@ -343,7 +365,7 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
         let next: TokenUsagePayload | null = null
         for (let attempt = 0; attempt < 2; attempt += 1) {
           try {
-            next = await fetchTokenUsagePayload(query, controller.signal)
+            next = await fetchTokenUsageWithComparison(query, controller.signal)
             break
           } catch (err) {
             if ((err as Error)?.name === 'AbortError' || attempt === 1) throw err

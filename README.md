@@ -93,6 +93,24 @@ TF_TOKEN_USAGE_CACHE_TTL=90
 
 After deploy, open `/token-usage`. If credentials are missing or expired, the rest of the dashboard still works; only the Token Usage tab will be unable to show real distribution usage.
 
+Current Token Usage dashboard capabilities:
+
+- Default view opens on **today** with an **hourly** trend.
+- Top cards show spend, period-over-period change, growth rate, projected monthly spend, tokens, requests, active KEY count, failure rate, and risk KEY count.
+- KEY ranking supports Top 5 / Top 10 / Top 20 with the remaining KEYs grouped as "Other".
+- Clicking a KEY highlights it across the ranking, trend, model mix, table, and opens a detail drawer.
+- Risk alerts cover spend spikes, high failure rate, high latency, low or exhausted quota, disabled-but-consuming KEYs, and Dapp model mismatches.
+- The KEY table supports sorting, quick personal/Dapp filters, hiding zero-spend KEYs, search highlighting, and CSV export.
+- The header shows freshness metadata: last update time, upstream status, and whether the response came from backend cache.
+
+These analytics are computed from the existing distribution-platform response. No extra environment variables are required beyond the Token Usage credentials above.
+
+Post-deploy API check:
+
+```bash
+curl -sS "https://your-domain.example/api/token-usage?days=1&time_granularity=hour" | head
+```
+
 ### Post-deploy checks for browser and Lark icons
 
 The dashboard serves favicon, Apple touch icon, manifest, and Open Graph image files from the same domain as the app. After a deploy, verify these paths return `200` before sharing the URL in browsers or Lark:
