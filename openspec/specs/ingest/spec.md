@@ -36,7 +36,10 @@
     profile 全量替换不得触碰该字段,后续不带 `shim_version` 的心跳不得清掉它。
     为兼容旧 shim,通过 profile 字段携带 `shim_version` 的旧路径仍允许(`tf_profile.collect()` 顶层导出,
     服务端读 payload 顶层一次即覆盖两种来源)。
-12. **Claude Code 斜杠命令也算 skill 调用。** Claude Code(Desktop / CLI / IDE 入口下)在 hook 之后才把用户手敲的 `/<skill-name>` 展开成 `<command-message>...</command-message>` + `<command-name>/<name></command-name>` + `<command-args>...</command-args>` 三件套写进 transcript jsonl(`~/.claude/projects/*.jsonl`)。**`UserPromptSubmit` hook 收到的 `prompt` 字段是裸文本,不含任何 markup**——所以不能从 `UserPromptSubmit` 解析,必须等 transcript 落盘后再扫。shim 侧(`tf_hook.py`)必须在 `Stop` 和 `SessionEnd` 事件中读 hook payload 携带的 `transcript_path`,扫描其中的 `<command-name>/?<name></command-name>` 标记,对每个唯一 skill 名按 `skill` 字段上报一次(`current_step` 为 `skill: <name>`,与 `scan_codex_skills` 输出对齐)。约束与既有 `PreToolUse + Skill` 工具调用同口径:会话×skill 去重(服务端 `(session_id, skill, mode)` 唯一约束兜底,客户端不持状态)、`TF_REPORT_SKILLS=0` 可关、`TF_RUNTIME != claude-code` 不触发、skill 名提取失败或 jsonl 缺失/不可读/`transcript_path` 缺失时静默退出且不阻塞主线程、同会话内 Stop 多次触发产生的重复上报由服务端去重吞掉。
+12. **Claude Code 斜杠命令也算 skill 调用。** Claude Code(Desktop / CLI / IDE 入口下)在 hook 之后才把用户手敲的 `/<skill-name>` 展开成 `<command-message>...</command-message>` + `<command-name>/<name></command-name>` + `<command-args>...</command-args>` 三件套写进 transcript jsonl(`~/.claude/projects/*.jsonl`)。**`UserPromptSubmit` hook 收到的 `prompt` 字段是裸文本,不含任何 markup**——所以不能从 `UserPromptSubmit` 解析,必须等 transcript 落盘后再扫。shim 侧(`tf_hook.py`)必须在 `Stop` 和 `SessionEnd` 事件中读 hook payload 携带的 `transcript_path`,扫描其中的 `<command-name>/?<name></command-name>` 标记,对每个唯一 skill 名按 `skill` 字段上报一次(`current_step` 为 `skill: <name>`,与 `scan_codex_skills` 输出对齐)。
+    扫描时必须做**位置校验**:行级 JSON 解码 transcript jsonl,仅当某行满足 `type == "user"` 且 `message.content`(支持 string 与 list-of-blocks 两种形态,list 形态取首个 `type=text` 块的 `text`)`lstrip()` 后**以 `<command-name>` 起头,或以 `<command-message>` 起头且紧跟 `<command-name>`**时,才取首个 `<command-name>` 标记作为候选 skill 名。位置不在 user-message 起头斜杠命令三件套中的标记(含 assistant 文本、tool_result content、subagent prompt、文档/代码 fixture 引用等)一律忽略,不得上报。
+    扫描时还必须做**命名空间校验**:候选 skill 名归一化(去前导 `/`,按 `:` 切首段以折叠子命令)后,若落入 Claude Code 内置斜杠命令集合(含但不限于 `clear / compact / context / cost / config / agents / doctor / exit / quit / help / login / logout / memory / model / permissions / hooks / status / usage / mcp / vim / bug / release-notes / pr-comments / terminal-setup / add-dir / resume / migrate-installer / ide / bashes / output-style / microphone / fast`),不得上报。该集合由 shim 侧维护,Anthropic 未来扩展内置命令时同步追加。
+    约束与既有 `PreToolUse + Skill` 工具调用同口径:会话×skill 去重(服务端 `(session_id, skill, mode)` 唯一约束兜底,客户端不持状态)、`TF_REPORT_SKILLS=0` 可关、`TF_RUNTIME != claude-code` 不触发、skill 名提取失败或 jsonl 缺失/不可读/`transcript_path` 缺失时静默退出且不阻塞主线程、同会话内 Stop 多次触发产生的重复上报由服务端去重吞掉。
 
 ## 签发端点防爆破(SHOULD)
 - `POST /v1/enroll`(凭 `TF_KEY` 签发持久 per-operator token)应纳入与管理接口同类的按 IP 速率限制
@@ -71,3 +74,7 @@
 - `Stop` + `transcript_path` 字段缺失或路径不存在 → 静默退出,不报错、不上报。
 - 同一 session 内 Stop 触发多次,transcript 内同一个 `<command-name>` 始终在 → 每次 Stop 都会重发一次,服务端 `(session_id, skill, mode)` 唯一约束兜底,`skill_uses` 表仍只 1 行。
 - 同一会话内:用户先手敲 `/foo` 触发 Stop 上报、随后模型 invoke `Skill` 工具 `foo` 触发 PreToolUse → `skill_uses` 表仍只有 `(session, foo, used)` 1 行(既有去重规则未变)。
+- `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` `lstrip()` 起头 `<command-message>clear</command-message>` 并紧跟 `<command-name>/clear</command-name>` → 命中内置命令黑名单,不附加 `skill` 字段,`skill_uses` 表无新增。
+- `Stop` 事件 + transcript 内某 `type=assistant` / `tool_result` content 含 `<command-name>verify</command-name>` 子串、但全文件无任何 `type=user` content 起头斜杠命令三件套记录 → 位置守门拒收,不附加 `skill` 字段,`skill_uses` 表无新增。
+- `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` `lstrip()` 起头 `<command-name>/output-style:new</command-name>` 或等价 `<command-message>` 三件套 → 归一化为 `output-style` 命中黑名单,不附加 `skill` 字段。
+- `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` 是 list-of-blocks `[{"type":"text","text":"<command-name>/foo-bar</command-name>..."}]` → 抓 `foo-bar` 上报一次。

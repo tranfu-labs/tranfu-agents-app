@@ -57,7 +57,8 @@ agent 机器                         中心服务器(单容器)                 
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
   - `tf_hook.py` Claude Code / Codex / Hermes 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
-    Claude Code 识别 `Skill`,Hermes 识别 `skill_view`;
+    Claude Code 识别 `Skill` 工具调用,并在 `Stop` / `SessionEnd` 按位置守门扫描 transcript 里的真实斜杠 skill,
+    过滤 Claude Code 内置 UI 命令;Hermes 识别 `skill_view`;
     Codex 在轮次/会话结束时拉起 `tf_rollout_scan.py`;
     Hermes 链路另落 `~/.tranfu/logs/hermes-hook.ndjson` 常态结构化诊断日志,双文件 5MB rotate,
     `TF_HOOK_DEBUG=0` 关闭,见 ADR-0022);
