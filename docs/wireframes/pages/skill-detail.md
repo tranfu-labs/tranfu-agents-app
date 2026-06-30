@@ -107,4 +107,4 @@ hover(时间): 2026-06-28 10:32:07 Asia/Shanghai
 | ④ | 趋势图：used 与 equipped 分列 | 静态；窄屏只在图表组件内横滚 | detail（趋势序列） | DetailTrend |
 | ⑤ | runtime 分布 | 静态；平板/手机单列 | detail.runtime | Distribution |
 | ⑥ | operator 分布 | 静态；平板/手机单列 | detail.operators | Distribution |
-| ⑦ | 最近记录表：时间/调度员/运行时/mode/session | 时间列取 `first_seen` 按浏览器本地时区展示；本地今天内显示相对时间，昨天及更早显示绝对时间，hover 显示本地绝对时间+时区；缺失 `first_seen` 回退原始日期；手机为摘要行；不可点；session 截前 12 位 | detail.records[] | table |
+| ⑦ | 最近记录表：时间/调度员/运行时/mode/session | 时间列取 `first_seen` 按浏览器本地时区展示；本地今天内显示相对时间，昨天及更早显示绝对时间，hover 显示本地绝对时间+时区；缺失 `first_seen` 时按原始 UTC `day` 显示相对日期（今天/昨天/N天前），hover 保留原始日期；手机为摘要行；不可点；session 截前 12 位 | detail.records[] | table |

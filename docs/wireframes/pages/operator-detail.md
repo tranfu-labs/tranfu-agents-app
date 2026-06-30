@@ -109,4 +109,4 @@ hover(时间): 2026-06-28 10:32:07 Asia/Shanghai
 | ④ | 日级趋势 | 按 skill 分段 Top8+其它，今日进行中；窄屏只在图表组件内横滚 | detail.daily | StackedSkillChart |
 | ⑤ | runtime 分布 | 桌面左窄栏；平板/手机单列且位于使用 Skill 排行之前 | detail.runtime | Distribution |
 | ⑥ | 使用 Skill 排行 | 桌面右宽栏；平板/手机单列；手机为摘要行；默认按 7 天降序；整行可点 → `/skill/:name`，Enter/Space 可达 | detail.skills | table |
-| ⑦ | 最近记录 | 最近 50 条，时间列取 `first_seen` 按浏览器本地时区展示；本地今天内显示相对时间，昨天及更早显示绝对时间，hover 显示本地绝对时间+时区；缺失 `first_seen` 回退原始日期；手机为摘要行；mode 恒 used 故省略；不可点 | detail.records[] | table |
+| ⑦ | 最近记录 | 最近 50 条，时间列取 `first_seen` 按浏览器本地时区展示；本地今天内显示相对时间，昨天及更早显示绝对时间，hover 显示本地绝对时间+时区；缺失 `first_seen` 时按原始 UTC `day` 显示相对日期（今天/昨天/N天前），hover 保留原始日期；手机为摘要行；mode 恒 used 故省略；不可点 | detail.records[] | table |
