@@ -4,6 +4,11 @@
 """
 import os
 
+import pytest
+from fastapi import HTTPException
+
+from server.routes import onboarding
+
 
 # ---- /shims/{path} 目录穿越拒绝 ------------------------------------------
 def test_shims_dotdot_returns_404(client):
@@ -75,7 +80,26 @@ def test_robots_txt_missing_returns_404(client, app_mod, monkeypatch):
 
 def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monkeypatch, tmp_path):
     monkeypatch.setattr(app_mod, "FRONTEND_DIST", str(tmp_path))
+    legacy_assets = {
+        "favicon.ico": (b"\x00\x00\x01\x00", "image/x-icon"),
+        "favicon-32x32.png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        "favicon-16x16.png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        "apple-touch-icon.png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        "manifest.json": (b"{}", "application/json"),
+    }
+    for filename, (content, _) in legacy_assets.items():
+        (tmp_path / filename).write_bytes(content)
     (tmp_path / "favicon.svg").write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+    (tmp_path / "favicon-20260626.ico").write_bytes(b"\x00\x00\x01\x00")
+    versioned_pngs = (
+        "favicon-32x32-20260530.png",
+        "favicon-16x16-20260530.png",
+        "apple-touch-icon-20260530.png",
+        "android-chrome-192x192-20260530.png",
+        "android-chrome-512x512-20260530.png",
+    )
+    for filename in versioned_pngs:
+        (tmp_path / filename).write_bytes(b"\x89PNG\r\n\x1a\n")
     (tmp_path / "og-image-1200x630.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     favicon = client.get("/favicon.svg")
@@ -83,10 +107,39 @@ def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monke
     assert "image/svg+xml" in favicon.headers["content-type"]
     assert "<svg" in favicon.text
 
+    for filename, (_, media) in legacy_assets.items():
+        asset = client.get(f"/{filename}")
+        assert asset.status_code == 200
+        assert media in asset.headers["content-type"]
+
+    ico_head = client.head("/favicon-20260626.ico")
+    assert ico_head.status_code == 200
+    assert "image/x-icon" in ico_head.headers["content-type"]
+    assert ico_head.content == b""
+
+    for filename in versioned_pngs:
+        asset = client.get(f"/{filename}")
+        assert asset.status_code == 200
+        assert "image/png" in asset.headers["content-type"]
+        assert asset.content.startswith(b"\x89PNG")
+
     og_head = client.head("/og-image-1200x630.png")
     assert og_head.status_code == 200
     assert "image/png" in og_head.headers["content-type"]
     assert og_head.content == b""
+
+    assert client.get("/favicon-20260529.ico").status_code == 404
+
+
+def test_frontend_root_static_rejects_non_whitelisted_name():
+    with pytest.raises(HTTPException) as exc:
+        onboarding._frontend_root_static("not-allowed.png")
+    assert exc.value.status_code == 404
+
+
+def test_frontend_root_static_missing_whitelisted_asset_returns_404(client, app_mod, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_mod, "FRONTEND_DIST", str(tmp_path))
+    assert client.get("/favicon.ico").status_code == 404
 
 
 # ---- /healthz -------------------------------------------------------------
