@@ -11,12 +11,28 @@ test('recent record uses browser-local today for relative labels', () => {
   assert.equal(display.title, '2026-06-28 00:30:00 Asia/Shanghai')
 })
 
-test('recent record shows absolute time for browser-local yesterday', () => {
+test('recent record shows relative date and local time for browser-local yesterday', () => {
   const now = new Date('2026-06-27T17:00:00+00:00')
   const display = formatRecentRecordTime('2026-06-27T15:00:00+00:00', '2026-06-27', 'zh', now)
 
-  assert.equal(display.label, '2026-06-27 23:00:00')
+  assert.equal(display.label, '昨天 23:00:00')
   assert.equal(display.title, '2026-06-27 23:00:00 Asia/Shanghai')
+})
+
+test('recent record shows day-count relative date and local time for older first_seen rows', () => {
+  const now = new Date('2026-06-30T04:00:00+00:00')
+  const display = formatRecentRecordTime('2026-06-25T01:18:55+00:00', '2026-06-25', 'en', now)
+
+  assert.equal(display.label, '5d ago 09:18:55')
+  assert.equal(display.title, '2026-06-25 09:18:55 Asia/Shanghai')
+})
+
+test('recent record preserves future first_seen as absolute local time', () => {
+  const now = new Date('2026-06-27T17:00:00+00:00')
+  const display = formatRecentRecordTime('2026-06-28T01:00:00+00:00', '2026-06-28', 'zh', now)
+
+  assert.equal(display.label, '2026-06-28 09:00:00')
+  assert.equal(display.title, '2026-06-28 09:00:00 Asia/Shanghai')
 })
 
 test('recent record uses restrained just-now labels', () => {
