@@ -1,10 +1,10 @@
-name: Build and Publish to GHCR
+name: Build and Publish GHCR deploy-ghcr
 
-# push main 触发：跑测试卡口 → 构建镜像 → 推 ghcr.io/<owner>/<repo>:latest + :<sha>。
-# 本阶段只发布镜像，不触发 Coolify 自动部署（compose.yml 仍是 build 模式）。
+# Isolated GHCR migration branch. Only deploy-ghcr triggers this workflow.
 on:
   push:
-    branches: [main]
+    branches:
+      - deploy-ghcr
   workflow_dispatch:
 
 env:
@@ -14,12 +14,34 @@ env:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
 
     permissions:
       contents: read
       packages: write
 
+    env:
+      COOLIFY_APP_UUID:     ${{ vars.COOLIFY_APP_UUID }}
+      IMAGE_TAG_ROLLING:    ${{ vars.IMAGE_TAG_ROLLING }}
+      IMAGE_TAG_SHA_PREFIX: ${{ vars.IMAGE_TAG_SHA_PREFIX }}
+
     steps:
+      - name: 前置检查（Coolify 部署所需配置）
+        env:
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          BASE:  ${{ secrets.COOLIFY_BASE_URL }}
+        run: |
+          missing=()
+          [ -z "$TOKEN" ] && missing+=("repo secret: COOLIFY_API_TOKEN")
+          [ -z "$BASE"  ] && missing+=("repo secret: COOLIFY_BASE_URL")
+          [ -z "$COOLIFY_APP_UUID" ]  && missing+=("environment '${{ github.ref_name }}' var: COOLIFY_APP_UUID")
+          [ -z "$IMAGE_TAG_ROLLING" ] && missing+=("environment '${{ github.ref_name }}' var: IMAGE_TAG_ROLLING")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::缺少 Coolify 部署配置，构建已中止："
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -62,7 +84,17 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG_ROLLING }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG_SHA_PREFIX }}${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: 触发 Coolify 部署
+        env:
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          BASE:  ${{ secrets.COOLIFY_BASE_URL }}
+        run: |
+          BASE="${BASE%/}"
+          curl -sSL --fail-with-body -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false"
