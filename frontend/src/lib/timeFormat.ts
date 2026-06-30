@@ -35,6 +35,14 @@ function utcDateOnly(date: Date) {
   ].join('-')
 }
 
+function localDateOnly(date: Date) {
+  return [
+    date.getFullYear(),
+    pad2(date.getMonth() + 1),
+    pad2(date.getDate()),
+  ].join('-')
+}
+
 function sameLocalDay(left: Date, right: Date) {
   return left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth()
@@ -45,8 +53,12 @@ function localDayIndex(date: Date) {
   return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000
 }
 
-function localTimeOnly(date: Date) {
-  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+function localTimeMinute(date: Date) {
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+function localMonthDay(date: Date) {
+  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
 function browserTimeZone() {
@@ -83,19 +95,51 @@ function relativeLabel(seconds: number, lang: Lang) {
   return lang === 'zh' ? `${hours}小时前` : `${hours}h ago`
 }
 
-function relativeDateLabel(daysAgo: number, lang: Lang) {
-  if (daysAgo === 0) return lang === 'zh' ? '今天' : 'today'
-  if (daysAgo === 1) return lang === 'zh' ? '昨天' : 'yesterday'
-  return lang === 'zh' ? `${daysAgo}天前` : `${daysAgo}d ago`
+function todayLabel(lang: Lang) {
+  return lang === 'zh' ? '今天' : 'today'
+}
+
+function yesterdayLabel(lang: Lang) {
+  return lang === 'zh' ? '昨天' : 'yesterday'
+}
+
+function weekdayLabel(day: number, lang: Lang) {
+  const zh = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  const en = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  return lang === 'zh' ? zh[day] : en[day]
+}
+
+function recentDateLabel(date: Date, daysAgo: number, lang: Lang, referenceYear: number) {
+  if (daysAgo === 0) return todayLabel(lang)
+  if (daysAgo === 1) return yesterdayLabel(lang)
+  if (daysAgo > 1 && daysAgo < 7) return weekdayLabel(date.getDay(), lang)
+  if (date.getFullYear() === referenceYear) return localMonthDay(date)
+  return `${date.getFullYear()}-${localMonthDay(date)}`
+}
+
+function recentDateTimeLabel(date: Date, daysAgo: number, lang: Lang, now: Date) {
+  return `${recentDateLabel(date, daysAgo, lang, now.getFullYear())} ${localTimeMinute(date)}`
+}
+
+function dateOnlyLabel(dayTime: number, referenceTime: number, daysAgo: number, lang: Lang) {
+  const dayDate = new Date(dayTime)
+  const referenceDate = new Date(referenceTime)
+  if (daysAgo === 0) return todayLabel(lang)
+  if (daysAgo === 1) return yesterdayLabel(lang)
+  if (daysAgo > 1 && daysAgo < 7) return weekdayLabel(dayDate.getUTCDay(), lang)
+  if (dayDate.getUTCFullYear() === referenceDate.getUTCFullYear()) {
+    return `${pad2(dayDate.getUTCMonth() + 1)}-${pad2(dayDate.getUTCDate())}`
+  }
+  return utcDateOnly(dayDate)
 }
 
 function formatRecentRecordDay(day: string, lang: Lang, now: Date, referenceDay?: string): TimeDisplay {
   const dayTime = parseDateOnlyUtc(day)
-  const referenceTime = parseDateOnlyUtc(referenceDay) ?? parseDateOnlyUtc(utcDateOnly(now))
+  const referenceTime = parseDateOnlyUtc(referenceDay) ?? parseDateOnlyUtc(localDateOnly(now))
   if (dayTime === null || referenceTime === null) return { label: day, title: day }
   const daysAgo = Math.floor((referenceTime - dayTime) / 86400000)
   if (daysAgo < 0) return { label: day, title: day }
-  return { label: relativeDateLabel(daysAgo, lang), title: day }
+  return { label: dateOnlyLabel(dayTime, referenceTime, daysAgo, lang), title: day }
 }
 
 export function formatRecentRecordTime(firstSeen?: string, fallbackDay = '', lang: Lang = 'zh', now = new Date(), referenceDay?: string): TimeDisplay {
@@ -106,7 +150,7 @@ export function formatRecentRecordTime(firstSeen?: string, fallbackDay = '', lan
   if (!sameLocalDay(date, now)) {
     const daysAgo = Math.floor(localDayIndex(now) - localDayIndex(date))
     if (daysAgo < 1) return absolute
-    return { label: `${relativeDateLabel(daysAgo, lang)} ${localTimeOnly(date)}`, title: absolute.title }
+    return { label: recentDateTimeLabel(date, daysAgo, lang, now), title: absolute.title }
   }
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
   return { label: relativeLabel(seconds, lang), title: absolute.title }
