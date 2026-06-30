@@ -41,6 +41,14 @@ function sameLocalDay(left: Date, right: Date) {
     && left.getDate() === right.getDate()
 }
 
+function localDayIndex(date: Date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000
+}
+
+function localTimeOnly(date: Date) {
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+}
+
 function browserTimeZone() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || ''
@@ -95,7 +103,11 @@ export function formatRecentRecordTime(firstSeen?: string, fallbackDay = '', lan
   if (!date) return formatRecentRecordDay(fallbackDay, lang, now, referenceDay)
   const absolute = formatLocalTimestamp(firstSeen, fallbackDay)
   if (date.getTime() > now.getTime()) return absolute
-  if (!sameLocalDay(date, now)) return absolute
+  if (!sameLocalDay(date, now)) {
+    const daysAgo = Math.floor(localDayIndex(now) - localDayIndex(date))
+    if (daysAgo < 1) return absolute
+    return { label: `${relativeDateLabel(daysAgo, lang)} ${localTimeOnly(date)}`, title: absolute.title }
+  }
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
   return { label: relativeLabel(seconds, lang), title: absolute.title }
 }
