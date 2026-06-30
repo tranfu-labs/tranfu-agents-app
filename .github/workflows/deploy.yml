@@ -1,6 +1,5 @@
 name: Build and Publish GHCR deploy-ghcr
 
-# Isolated GHCR migration branch. Only deploy-ghcr triggers this workflow.
 on:
   push:
     branches:
@@ -38,8 +37,7 @@ jobs:
           [ -z "$IMAGE_TAG_ROLLING" ] && missing+=("environment '${{ github.ref_name }}' var: IMAGE_TAG_ROLLING")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::缺少 Coolify 部署配置，构建已中止："
-            printf '  - %s
-' "${missing[@]}"
+            for m in "${missing[@]}"; do echo "  - $m"; done
             exit 1
           fi
 
