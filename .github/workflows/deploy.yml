@@ -96,6 +96,4 @@ jobs:
           BASE:  ${{ secrets.COOLIFY_BASE_URL }}
         run: |
           BASE="${BASE%/}"
-          curl -sSL --fail-with-body -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            "$BASE/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false"
+          curl -sSL --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false"
