@@ -1,9 +1,6 @@
 services:
   server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: tranfu-agents-app:local
+    image: ghcr.io/tranfu-labs/tranfu-agents-app:latest
     environment:
       TF_DB: /data/tf.db
       PORT: "8788"
@@ -24,7 +21,7 @@ services:
       TF_TOKEN_USAGE_CACHE_TTL: ${TF_TOKEN_USAGE_CACHE_TTL:-90}
       TF_TOKEN_USAGE_DEMO: ${TF_TOKEN_USAGE_DEMO:-1}
     volumes:
-      - tf-data:/data
+      - tvve4z1rplm1eqe9c0dgdybw_tf-data:/data
     expose:
       - "8788"
     restart: unless-stopped
@@ -40,4 +37,5 @@ services:
       start_period: 10s
 
 volumes:
-  tf-data:
+  tvve4z1rplm1eqe9c0dgdybw_tf-data:
+    name: tvve4z1rplm1eqe9c0dgdybw_tf-data
