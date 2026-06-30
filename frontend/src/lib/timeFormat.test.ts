@@ -27,11 +27,35 @@ test('recent record uses restrained just-now labels', () => {
   assert.equal(display.title, '2026-06-28 01:00:05 Asia/Shanghai')
 })
 
-test('recent record falls back to day when first_seen is missing', () => {
-  const display = formatRecentRecordTime(undefined, '2026-06-27', 'zh', new Date('2026-06-27T17:00:00+00:00'))
+test('recent record shows relative date for date-only today', () => {
+  const display = formatRecentRecordTime(undefined, '2026-06-30', 'zh', new Date('2026-06-29T17:00:00+00:00'), '2026-06-30')
 
-  assert.equal(display.label, '2026-06-27')
-  assert.equal(display.title, '2026-06-27')
+  assert.equal(display.label, '今天')
+  assert.equal(display.title, '2026-06-30')
+})
+
+test('recent record shows relative date for date-only yesterday', () => {
+  const display = formatRecentRecordTime(undefined, '2026-06-29', 'en', new Date('2026-06-29T17:00:00+00:00'), '2026-06-30')
+
+  assert.equal(display.label, 'yesterday')
+  assert.equal(display.title, '2026-06-29')
+})
+
+test('recent record shows day-count relative date for older date-only rows', () => {
+  const display = formatRecentRecordTime(undefined, '2026-06-25', 'zh', new Date('2026-06-29T17:00:00+00:00'), '2026-06-30')
+
+  assert.equal(display.label, '5天前')
+  assert.equal(display.title, '2026-06-25')
+})
+
+test('recent record preserves future and invalid date-only fallbacks', () => {
+  const future = formatRecentRecordTime(undefined, '2026-07-01', 'zh', new Date('2026-06-29T17:00:00+00:00'), '2026-06-30')
+  const invalid = formatRecentRecordTime(undefined, '2026-02-31', 'zh', new Date('2026-06-29T17:00:00+00:00'), '2026-06-30')
+
+  assert.equal(future.label, '2026-07-01')
+  assert.equal(future.title, '2026-07-01')
+  assert.equal(invalid.label, '2026-02-31')
+  assert.equal(invalid.title, '2026-02-31')
 })
 
 test('local absolute timestamps are zero-padded to seconds', () => {

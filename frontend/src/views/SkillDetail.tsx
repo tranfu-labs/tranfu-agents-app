@@ -117,7 +117,7 @@ export function SkillDetailView({ data, loading, error, lang, t }: { data: Skill
           </thead>
           <tbody>
             {(data.records || []).map((record) => {
-              const time = formatRecentRecordTime(record.first_seen, record.day || '', lang)
+              const time = formatRecentRecordTime(record.first_seen, record.day || '', lang, undefined, data.today)
               return (
                 <tr key={`${record.session_id}-${record.mode}-${record.day}`}>
                   <td className="q mobile-main" data-label={t('skillLast')} title={time.title}>{time.label}</td>

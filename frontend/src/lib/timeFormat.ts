@@ -15,6 +15,26 @@ function parseDate(value?: string) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function parseDateOnlyUtc(value?: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '')
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const time = Date.UTC(year, month - 1, day)
+  const date = new Date(time)
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
+  return time
+}
+
+function utcDateOnly(date: Date) {
+  return [
+    date.getUTCFullYear(),
+    pad2(date.getUTCMonth() + 1),
+    pad2(date.getUTCDate()),
+  ].join('-')
+}
+
 function sameLocalDay(left: Date, right: Date) {
   return left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth()
@@ -55,9 +75,24 @@ function relativeLabel(seconds: number, lang: Lang) {
   return lang === 'zh' ? `${hours}小时前` : `${hours}h ago`
 }
 
-export function formatRecentRecordTime(firstSeen?: string, fallbackDay = '', lang: Lang = 'zh', now = new Date()): TimeDisplay {
+function relativeDateLabel(daysAgo: number, lang: Lang) {
+  if (daysAgo === 0) return lang === 'zh' ? '今天' : 'today'
+  if (daysAgo === 1) return lang === 'zh' ? '昨天' : 'yesterday'
+  return lang === 'zh' ? `${daysAgo}天前` : `${daysAgo}d ago`
+}
+
+function formatRecentRecordDay(day: string, lang: Lang, now: Date, referenceDay?: string): TimeDisplay {
+  const dayTime = parseDateOnlyUtc(day)
+  const referenceTime = parseDateOnlyUtc(referenceDay) ?? parseDateOnlyUtc(utcDateOnly(now))
+  if (dayTime === null || referenceTime === null) return { label: day, title: day }
+  const daysAgo = Math.floor((referenceTime - dayTime) / 86400000)
+  if (daysAgo < 0) return { label: day, title: day }
+  return { label: relativeDateLabel(daysAgo, lang), title: day }
+}
+
+export function formatRecentRecordTime(firstSeen?: string, fallbackDay = '', lang: Lang = 'zh', now = new Date(), referenceDay?: string): TimeDisplay {
   const date = parseDate(firstSeen)
-  if (!date) return { label: fallbackDay, title: fallbackDay }
+  if (!date) return formatRecentRecordDay(fallbackDay, lang, now, referenceDay)
   const absolute = formatLocalTimestamp(firstSeen, fallbackDay)
   if (date.getTime() > now.getTime()) return absolute
   if (!sameLocalDay(date, now)) return absolute
