@@ -130,6 +130,12 @@
 - `/skill/:name` 与 `/operator/:name` 的最近记录表在手机下须展示为摘要行;
   最近记录无下钻目标,仍不得呈现为可点击行。
 - 不得使用浏览器本地存储;不得写死后端端口(同源相对路径)。
+- 网站 head 的浏览器 favicon 链路须本地化 `https://tranfu.com/` 当前实际使用的版本化 ico/png 文件名,
+  并使用同源根绝对路径引用,如 `/favicon-20260626.ico`、`/favicon-32x32-20260530.png`、
+  `/favicon-16x16-20260530.png`、`/apple-touch-icon-20260530.png`;不得直接引用 `https://tranfu.com/...`
+  远端 favicon 资源,也不得同时声明 SVG favicon 抢优先级。PWA `manifest.json` 保留 TRANFU//AGENTS 自己的
+  name/description/theme 语义,icons 可引用同一组版本化本地资源;`theme_color` 必须与 HTML
+  `<meta name="theme-color">` 一致。
 - 前端源码在 `frontend/`;生产由 Docker/CI 构建 `frontend/dist`,运行容器不依赖 node,仓库不提交 dist。
 
 ## 可验证行为
@@ -196,5 +202,8 @@
 - 1440x900 打开 `/skills`、`/skill/:name`、`/operator/:name` → 桌面布局与既有信息架构保持一致,
   不因移动端样式退化。
 - 看板页面不再渲染 skills 区块,原有卡片与轮询行为不变。
+- 构建后的 `index.html` head 含 `/favicon-20260626.ico`、`/favicon-32x32-20260530.png`、
+  `/favicon-16x16-20260530.png` 与 `/apple-touch-icon-20260530.png`,且不含 `rel="icon"` 的 `favicon.svg`。
+- `manifest.json` 的 icons 指向版本化本地资源,且 `theme_color` 与 HTML `<meta name="theme-color">` 一致。
 - 同一 `TF_STATE_TTL` 窗口内连续请求 `/api/state` → 响应可完全相同,`now` 不随每次请求刷新;超过 TTL 后重新计算。
 - 100 并发 `/api/state` 期间请求 `/healthz` → 返回 `ok`,且不因 `/api/state` 聚合占用 threadpool 而排队超时。

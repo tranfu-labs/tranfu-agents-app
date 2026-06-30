@@ -76,12 +76,34 @@ def test_robots_txt_missing_returns_404(client, app_mod, monkeypatch):
 def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monkeypatch, tmp_path):
     monkeypatch.setattr(app_mod, "FRONTEND_DIST", str(tmp_path))
     (tmp_path / "favicon.svg").write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+    (tmp_path / "favicon-20260626.ico").write_bytes(b"\x00\x00\x01\x00")
+    (tmp_path / "favicon-32x32-20260530.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "favicon-16x16-20260530.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "apple-touch-icon-20260530.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "android-chrome-192x192-20260530.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "android-chrome-512x512-20260530.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (tmp_path / "og-image-1200x630.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     favicon = client.get("/favicon.svg")
     assert favicon.status_code == 200
     assert "image/svg+xml" in favicon.headers["content-type"]
     assert "<svg" in favicon.text
+
+    versioned_ico = client.get("/favicon-20260626.ico")
+    assert versioned_ico.status_code == 200
+    assert "image/x-icon" in versioned_ico.headers["content-type"]
+
+    for path in (
+        "/favicon-32x32-20260530.png",
+        "/favicon-16x16-20260530.png",
+        "/apple-touch-icon-20260530.png",
+        "/android-chrome-192x192-20260530.png",
+        "/android-chrome-512x512-20260530.png",
+    ):
+        asset_head = client.head(path)
+        assert asset_head.status_code == 200
+        assert "image/png" in asset_head.headers["content-type"]
+        assert asset_head.content == b""
 
     og_head = client.head("/og-image-1200x630.png")
     assert og_head.status_code == 200

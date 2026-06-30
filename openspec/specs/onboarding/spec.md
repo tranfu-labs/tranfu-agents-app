@@ -1,6 +1,6 @@
 # 规格:onboarding(安装与接入域)
 
-事实来源:`install.sh`、`server/routes/onboarding.py`(`/install.sh` / `/shims/{path}` / `/shims/manifest` / `/llms.txt` / `/robots.txt` / `/healthz` / SPA 路由)、`server/shim.py`(`_build_shim_manifest` / `_SHIM_MANIFEST` — 内容版本与文件清单)、`shims/*`、`QUICKSTART.md` / `USAGE.md`。
+事实来源:`install.sh`、`server/routes/onboarding.py`(`/install.sh` / `/shims/{path}` / `/shims/manifest` / `/llms.txt` / `/robots.txt` / `/healthz` / SPA 路由 / 根静态图标资源)、`server/shim.py`(`_build_shim_manifest` / `_SHIM_MANIFEST` — 内容版本与文件清单)、`shims/*`、`QUICKSTART.md` / `USAGE.md`。
 
 ## 规则(MUST)
 1. 安装一律从**看板域名**:`curl -fsSL $SERVER/install.sh | bash -s -- --server $SERVER --key K --operator OP --runtime RT [--agent A --role R --about .. --tips ..]`。
@@ -12,6 +12,10 @@
 3. **装完即注册**:安装末尾发送一条 `started --profile` 事件,使看板立刻出现卡且详情有内容。
 4. 服务端 `/shims/{path}` 仅提供 `shims/` 目录内文件,且拒绝目录穿越;`/install.sh` 提供仓库 `install.sh`;
    `/shims/manifest` 提供当前 shim 文件清单、安装目标、sha256 与内容版本。
+   服务端根路径还必须提供前端 head 需要的本地静态图标资源,包括版本化 favicon 链路
+   `/favicon-20260626.ico`、`/favicon-32x32-20260530.png`、`/favicon-16x16-20260530.png`、
+   `/apple-touch-icon-20260530.png`、`/android-chrome-192x192-20260530.png`、
+   `/android-chrome-512x512-20260530.png`;这些路径必须复用 `frontend/dist` 边界检查并按扩展名返回正确 MIME。
 5. 接入路径并存:`tf-run`(任意 CLI)、Claude Code / Codex 钩子(`tf_hook.py` + `tf_hooks.py`,见 ADR-0009/0010)、
    Hermes shell hooks(`tf-hermes-hook.sh` + `tf_hook.py`)、MCP reporter(桌面/黑盒)。
 6. **hooks 安装必须幂等且可回退**:`--runtime claude-code` 默认维护 `~/.claude/settings.json`;
@@ -53,6 +57,8 @@
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
   `curl $SERVER/shims/../server/app.py` 返回 404。
+- `GET /favicon-20260626.ico` 返回 200 且 `content-type` 含 `image/x-icon`;
+  `HEAD /favicon-32x32-20260530.png` 返回 200 且 `content-type` 含 `image/png`,响应体为空。
 - 跑完安装命令后,`/api/state` 出现该身份卡片且含 profile(role/IM 等)。
 - `TF_AUTO_UPDATE=0` 时,`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` 任一事件都不启动更新;
   服务端不可达或坏包时旧 shim 保留。

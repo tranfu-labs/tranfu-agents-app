@@ -22,6 +22,12 @@ _ROOT_STATIC_FILES = {
     "favicon-32x32.png",
     "favicon-16x16.png",
     "apple-touch-icon.png",
+    "favicon-20260626.ico",
+    "favicon-32x32-20260530.png",
+    "favicon-16x16-20260530.png",
+    "apple-touch-icon-20260530.png",
+    "android-chrome-192x192-20260530.png",
+    "android-chrome-512x512-20260530.png",
     "manifest.json",
     "og-image-1200x630.png",
 }
@@ -114,6 +120,42 @@ def favicon_16_png():
 @router.head("/apple-touch-icon.png")
 def apple_touch_icon_png():
     return _frontend_root_static("apple-touch-icon.png")
+
+
+@router.get("/favicon-20260626.ico")
+@router.head("/favicon-20260626.ico")
+def favicon_20260626_ico():
+    return _frontend_root_static("favicon-20260626.ico")
+
+
+@router.get("/favicon-32x32-20260530.png")
+@router.head("/favicon-32x32-20260530.png")
+def favicon_32_20260530_png():
+    return _frontend_root_static("favicon-32x32-20260530.png")
+
+
+@router.get("/favicon-16x16-20260530.png")
+@router.head("/favicon-16x16-20260530.png")
+def favicon_16_20260530_png():
+    return _frontend_root_static("favicon-16x16-20260530.png")
+
+
+@router.get("/apple-touch-icon-20260530.png")
+@router.head("/apple-touch-icon-20260530.png")
+def apple_touch_icon_20260530_png():
+    return _frontend_root_static("apple-touch-icon-20260530.png")
+
+
+@router.get("/android-chrome-192x192-20260530.png")
+@router.head("/android-chrome-192x192-20260530.png")
+def android_chrome_192_20260530_png():
+    return _frontend_root_static("android-chrome-192x192-20260530.png")
+
+
+@router.get("/android-chrome-512x512-20260530.png")
+@router.head("/android-chrome-512x512-20260530.png")
+def android_chrome_512_20260530_png():
+    return _frontend_root_static("android-chrome-512x512-20260530.png")
 
 
 @router.get("/manifest.json")
