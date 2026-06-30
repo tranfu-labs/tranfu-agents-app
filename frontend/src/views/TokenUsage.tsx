@@ -17,7 +17,7 @@ type IconName = 'alert' | 'dollar' | 'health' | 'key' | 'model' | 'pie' | 'rank'
 
 const QUOTA_PER_USD = 500000
 const COLORS = ['#ef3340', '#e5e7eb', '#7a8190', '#f59e0b', '#0891b2', '#22c55e', '#8b5cf6', '#f97316', '#06b6d4', '#eab308', '#64748b', '#ec4899']
-const KIND_CLASS: Record<TokenKind, string> = { personal: 'used', dapp: 'equipped', other: '' }
+const KIND_CLASS: Record<TokenKind, string> = { personal: 'kind-personal', dapp: 'kind-dapp', other: 'kind-other' }
 const PRESETS = [
   ['today', '当日'],
   ['yesterday', '昨天'],
@@ -85,6 +85,14 @@ function bucketLabel(value?: number, granularity?: string) {
   if (granularity === 'hour' || granularity === 'four_hour') return date.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit' })
   if (granularity === 'month') return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit' })
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' })
+}
+
+function bucketTooltipLabel(value?: number, granularity?: string) {
+  if (!value) return ''
+  const date = new Date(value * 1000)
+  if (granularity === 'month') return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit' })
+  if (granularity === 'week') return `${date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' })} 周`
+  return date.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit' })
 }
 
 function normalized(text?: string) {
@@ -492,7 +500,7 @@ function UsageTrendLines({
               onMouseMove={(event) => {
                 const items = pointRows(bucket)
                 const totalValue = items.reduce((sum, item) => sum + item.value, 0)
-                setTip({ x: event.clientX, y: event.clientY, title: bucketLabel(bucket, granularity), rows: [
+                setTip({ x: event.clientX, y: event.clientY, title: bucketTooltipLabel(bucket, granularity), rows: [
                   { label: '总计', value: moneyUsd(totalValue) },
                   ...items.map((item) => ({ label: item.key.token_name || `#${item.key.token_id}`, value: moneyUsd(item.value), color: item.color })),
                 ] })
@@ -739,12 +747,14 @@ function TokenKeyDrawer({
   row,
   trendRows,
   modelRows,
+  granularity,
   onClose,
   t,
 }: {
   row: EnrichedTokenRow | null
   trendRows: TokenUsageTrend[]
   modelRows: TokenModelUsage[]
+  granularity?: string
   onClose: () => void
   t: (key: string) => string
 }) {
@@ -763,7 +773,7 @@ function TokenKeyDrawer({
         </div>
         <div className="token-drawer-title">
           <b>{row.token_name || `#${row.token_id}`}</b>
-          <div><span className={`mode-badge ${KIND_CLASS[row.kind]}`}>{kindLabel(row.kind, t)}</span><span className={`status-pill risk-${row.risk}`}>{riskLabel(row.risk, t)}</span></div>
+          <div><span className={`token-kind-badge ${KIND_CLASS[row.kind]}`}>{kindLabel(row.kind, t)}</span><span className={`status-pill risk-${row.risk}`}>{riskLabel(row.risk, t)}</span></div>
         </div>
         <div className="token-detail-grid">
           <div><span>归属</span><b>{row.owner}</b></div>
@@ -785,7 +795,7 @@ function TokenKeyDrawer({
                   <i
                     key={`${item.created_at}:${item.token_id}`}
                     style={{ height: `${Math.max(3, (value / max) * 100)}%` }}
-                    onMouseMove={(event) => setTip({ x: event.clientX, y: event.clientY, title: bucketLabel(item.created_at), rows: [
+                    onMouseMove={(event) => setTip({ x: event.clientX, y: event.clientY, title: bucketTooltipLabel(item.created_at, granularity), rows: [
                       { label: '消耗金额', value: moneyUsd(value), color: COLORS[0] },
                       { label: '请求数', value: n(item.count) },
                       { label: 'Tokens', value: n(item.token_used) },
@@ -1057,7 +1067,7 @@ export function TokenUsageView({
                 {filteredRows.map((row) => (
                   <tr key={row.token_id} className={activeSelectedTokenId === row.token_id ? 'selected' : ''} onClick={() => setSelectedTokenId(row.token_id)}>
                     <td><b><Highlight text={row.token_name || `#${row.token_id}`} query={q} /></b><div className="q"><Highlight text={row.username || '—'} query={q} /></div></td>
-                    <td><span className={`mode-badge ${KIND_CLASS[row.kind]}`}>{kindLabel(row.kind, t)}</span></td>
+                    <td><span className={`token-kind-badge ${KIND_CLASS[row.kind]}`}>{kindLabel(row.kind, t)}</span></td>
                     <td><Highlight text={row.owner} query={q} /></td>
                     <td className="num">{moneyFromQuota(row.quota)}</td>
                     <td className="num">{n(row.request_count)}</td>
@@ -1073,7 +1083,7 @@ export function TokenUsageView({
           </div>
         ) : <Empty title={t('tokenNoData')} hint={t('tokenNoDataHint')} />}
       </section>
-      <TokenKeyDrawer row={selectedRow} trendRows={payload?.trend || []} modelRows={payload?.models || []} onClose={() => setSelectedTokenId(null)} t={t} />
+      <TokenKeyDrawer row={selectedRow} trendRows={payload?.trend || []} modelRows={payload?.models || []} granularity={data?.range?.time_granularity} onClose={() => setSelectedTokenId(null)} t={t} />
         </>
       ) : null}
     </div>

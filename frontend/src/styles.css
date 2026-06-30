@@ -239,7 +239,11 @@
   .token-table tbody tr{cursor:pointer}.token-table tbody tr.selected{background:color-mix(in srgb,var(--info) 12%,transparent)}
   .token-table mark{background:color-mix(in srgb,var(--wait) 35%,transparent);color:var(--text);border-radius:3px;padding:0 2px}
   .token-sort{display:inline-flex;align-items:center;gap:4px;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit}.token-sort.on{color:var(--text)}
-  .status-pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .status-pill,.token-kind-badge{display:inline-flex;align-items:center;justify-content:center;min-height:22px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;line-height:1.35;color:var(--muted);white-space:nowrap}
+  .token-kind-badge{font-family:var(--sans);text-transform:none;letter-spacing:0;flex:none}
+  .token-kind-badge.kind-personal{color:#38bdf8;border-color:color-mix(in srgb,#38bdf8 70%,var(--line));background:color-mix(in srgb,#38bdf8 10%,transparent)}
+  .token-kind-badge.kind-dapp{color:#a78bfa;border-color:color-mix(in srgb,#a78bfa 72%,var(--line));background:color-mix(in srgb,#a78bfa 11%,transparent)}
+  .token-kind-badge.kind-other{color:var(--muted);border-color:var(--line2);background:var(--elev2)}
   .risk-normal{color:var(--run);border-color:color-mix(in srgb,var(--run) 58%,var(--line))}
   .risk-low_quota{color:var(--wait);border-color:color-mix(in srgb,var(--wait) 70%,var(--line))}
   .risk-spike,.risk-high_latency,.risk-restricted_model{color:var(--wait);border-color:color-mix(in srgb,var(--wait) 70%,var(--line))}
