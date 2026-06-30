@@ -21,14 +21,15 @@
    以 `(session_id, skill, mode)` 幂等。`mode` 取自可选 `skill_mode ∈ {used,equipped}`,
    缺省或非法值必须按 `used` 处理。同会话同 skill 同 mode 重复投递(含 spool 重试)不得产生第二条记录;
    同 skill 的 `used` 与 `equipped` 必须为两条独立记录。该记录保留 `session_id`、`operator`、`runtime`、
-   `mode`、首见 UTC 日,且不受 events 90 天保留窗口影响。
+   `mode`、首见 `Asia/Shanghai` 统计日,且不受 events 90 天保留窗口影响。
 5. 即使事件命中心跳去重(status/step 无变化仅刷新 last_seen),`skill` 字段仍必须被处理。
    事件无 `session_id` 时,`skill` 字段忽略:不落库、不报错、正常返回。
 6. shim/plugin 侧:`TF_REPORT_SKILLS=0` 时不得附加 `skill` / `skill_mode` 字段;默认(未设置或非 0)附加。
    skill 名提取失败时不附加该字段,不得阻塞或报错。
 7. OpenClaw 下 `skill_mode=equipped` 只表示框架把 skill 编译进 prompt(装备态),不代表 agent 实际跨工具边界使用;
    上报与日志只允许包含 skill 名和结构事实,不得包含 prompt 正文、skill 描述、参数或输出。
-8. 时间一律按 UTC;`day` 取 UTC 日期。
+8. 具体时间戳一律保存 UTC instant;`events.day`、`skill_uses.day` 与 `skills_seen.first_day`
+   取服务端接收时间在 `Asia/Shanghai` 下的统计日期。
 9. 云端运行时 `{manus, mulerun, chatgpt}` 标记 `fidelity = coarse`,其余 `full`。
 10. `input`/`output`(内容)与 `instructions`/`memory`(敏感)默认不应被上报,仅在使用者显式开启时携带。
 11. `shim_version` 只记录本机 `~/.tranfu/manifest.json` 的内容版本,用于看板判断本地 shim 是否过期。
@@ -49,8 +50,8 @@
 ## 不变量
 - 不存在任何 token / 成本字段(见 ADR-0002)。
 - 上报失败不得影响使用者 agent(客户端侧静默,见 ADR-0005)。
-- `skills_seen.first_day` 在普通采集时记录 skill 首见日;当后台清理或恢复导致某 skill 的
-  `skill_uses` 引用增减时,必须按剩余引用重算(取剩余最早 UTC day;无引用则删除该行)。
+- `skills_seen.first_day` 在普通采集时记录 skill 首见统计日;当后台清理或恢复导致某 skill 的
+  `skill_uses` 引用增减时,必须按剩余引用重算(取剩余最早 `Asia/Shanghai` 统计日;无引用则删除该行)。
 
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。
@@ -74,6 +75,8 @@
 - `Stop` + `transcript_path` 字段缺失或路径不存在 → 静默退出,不报错、不上报。
 - 同一 session 内 Stop 触发多次,transcript 内同一个 `<command-name>` 始终在 → 每次 Stop 都会重发一次,服务端 `(session_id, skill, mode)` 唯一约束兜底,`skill_uses` 表仍只 1 行。
 - 同一会话内:用户先手敲 `/foo` 触发 Stop 上报、随后模型 invoke `Skill` 工具 `foo` 触发 PreToolUse → `skill_uses` 表仍只有 `(session, foo, used)` 1 行(既有去重规则未变)。
+- 服务端当前 UTC 时间为 `2026-06-12T16:05:00+00:00` 时,新事件落库 `events.day=2026-06-13`;
+  同一事件带 `skill=alpha` 时,新 `skill_uses.day=2026-06-13`,对应 `skills_seen.first_day=2026-06-13`。
 - `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` `lstrip()` 起头 `<command-message>clear</command-message>` 并紧跟 `<command-name>/clear</command-name>` → 命中内置命令黑名单,不附加 `skill` 字段,`skill_uses` 表无新增。
 - `Stop` 事件 + transcript 内某 `type=assistant` / `tool_result` content 含 `<command-name>verify</command-name>` 子串、但全文件无任何 `type=user` content 起头斜杠命令三件套记录 → 位置守门拒收,不附加 `skill` 字段,`skill_uses` 表无新增。
 - `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` `lstrip()` 起头 `<command-name>/output-style:new</command-name>` 或等价 `<command-message>` 三件套 → 归一化为 `output-style` 命中黑名单,不附加 `skill` 字段。

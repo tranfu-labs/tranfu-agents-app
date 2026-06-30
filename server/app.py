@@ -125,7 +125,8 @@ from server.shim import _shim_target, _build_shim_manifest
 # DB schema / 迁移 / 共用工具(now_iso/_sha/_json/_clip/db/init_db)与保留策略
 # (_maybe_prune/_maybe_prune_trash)+ _audit 全部搬到 server.db。
 from server.db import (
-    now_iso, _sha, _json, _clip,
+    now_iso, now_utc, stats_now, stats_today, stats_day, stats_day_for,
+    _sha, _json, _clip,
     db, init_db, _ensure_skill_uses_schema,
     _audit, _maybe_prune, _maybe_prune_trash, _prune_state,
 )

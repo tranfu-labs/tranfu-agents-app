@@ -2,6 +2,8 @@
 对应 server/app.py 的 metrics / _snapshot / agent_detail / operator_detail / skill_detail。
 由 add-server-app-test-baseline 引入。
 """
+from datetime import datetime, timezone
+
 from conftest import ev
 
 
@@ -101,6 +103,34 @@ def test_done_then_error_yields_runs_and_error_counts(client):
     assert q["runs"] >= 2
     assert q["error"] >= 1
     assert q["success"] >= 1
+
+
+def test_active_time_buckets_split_on_shanghai_midnight(client, app_mod, monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 12, 16, 5, tzinfo=timezone.utc)
+            return value if tz else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(app_mod, "datetime", FixedDatetime)
+    with app_mod.db() as conn:
+        conn.execute("""INSERT INTO events
+          (ts,recv,day,last_seen,operator,runtime,session_id,status,current_step,source)
+          VALUES(?,?,?,?,?,?,?,?,?,?)""",
+          ("2026-06-12T15:59:00+00:00", "2026-06-12T15:59:00+00:00", "2026-06-12",
+           "2026-06-12T15:59:00+00:00", "alice", "codex", "midnight", "running", "run", "heartbeat"))
+        conn.execute("""INSERT INTO events
+          (ts,recv,day,last_seen,operator,runtime,session_id,status,current_step,source)
+          VALUES(?,?,?,?,?,?,?,?,?,?)""",
+          ("2026-06-12T16:01:00+00:00", "2026-06-12T16:01:00+00:00", "2026-06-13",
+           "2026-06-12T16:01:00+00:00", "alice", "codex", "midnight", "done", "done", "heartbeat"))
+        conn.commit()
+
+    body = client.get("/api/state").json()
+    card = next(c for c in body["sessions"] if c["session_id"] == "midnight")
+    assert card["active_series"][-2:] == [60, 60]
+    assert card["today_active"] == 60
+    assert body["totals"]["today_active"] == 60
 
 
 # ---- _snapshot.card:input/output 截断、quality.reuse -----------------------

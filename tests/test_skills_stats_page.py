@@ -32,7 +32,7 @@ def _clear_catalog(app_mod, error=None):
 
 
 def _set_skill_day(app_mod, session_id, skill, days_ago, mode="used"):
-    day = (datetime.now(timezone.utc).date() - timedelta(days=days_ago)).isoformat()
+    day = (app_mod.stats_today() - timedelta(days=days_ago)).isoformat()
     first_seen = f"{day}T12:00:00+00:00"
     with app_mod.db() as conn:
         conn.execute("""UPDATE skill_uses SET day=?, first_seen=?
@@ -85,7 +85,7 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     days = _seed_skill_stats(client, app_mod)
 
     data = client.get("/api/skills?days=7").json()
-    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["today"] == app_mod.stats_day()
     assert data["catalog"]["available"] is True
     alpha = next(r for r in data["table"] if r["name"] == "alpha")
     assert alpha["source"] == "own"
@@ -212,11 +212,11 @@ def test_skills_overview_governance_empty_and_tie_sort(client, app_mod):
     ]
 
 
-def test_skills_overview_today_and_daily_window_use_server_utc(client, app_mod, monkeypatch):
+def test_skills_overview_today_and_daily_window_use_shanghai_stats_day(client, app_mod, monkeypatch):
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            value = cls(2026, 6, 13, 0, 5, tzinfo=timezone.utc)
+            value = cls(2026, 6, 12, 16, 5, tzinfo=timezone.utc)
             return value if tz else value.replace(tzinfo=None)
 
     monkeypatch.setattr(app_mod, "datetime", FixedDatetime)
@@ -258,7 +258,7 @@ def test_skills_overview_empty_when_catalog_unavailable(client, app_mod):
 def test_skill_detail_keeps_used_and_equipped_separate(client, app_mod):
     days = _seed_skill_stats(client, app_mod)
     data = client.get("/api/skill/alpha").json()
-    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["today"] == app_mod.stats_day()
     assert data["source"] == "own"
     assert data["metrics"]["sessions_total"] == 3
     assert data["metrics"]["sessions_30d"] == 2
@@ -284,7 +284,7 @@ def test_operator_detail_used_only_skill_breakdown_and_recent_records(client, ap
     _set_skill_day(app_mod, "a-new", "meta-tool", 5, mode="equipped")
 
     data = client.get("/api/operator/alice").json()
-    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["today"] == app_mod.stats_day()
     assert data["operator"] == "alice"
     assert data["metrics"] == {
         "sessions_7d": 2,

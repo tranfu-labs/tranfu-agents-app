@@ -17,7 +17,7 @@ agent 机器                         中心服务器(单容器)                 
 ## 模块
 
 ### M1 — 服务端 collector (`server/app.py`)
-- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
+- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 高频轮询快照必须经进程内 TTL 缓存复用,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
@@ -32,12 +32,12 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
-  `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 图表按服务端 UTC `today`
+  `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 图表按服务端 `Asia/Shanghai` `today`
   铺满 7/30/90 天或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
   SKILLS 总览的按 Skill/按人视角切换使用独立标准 `frame` 卡片(标题栏说明 + 内容行 32px 分段按钮),可下钻表格整行跳转,
   最近记录按浏览器本地时区展示 `first_seen`(本地今天内相对时间,昨天及更早显示相对日期+本地时刻,hover 显示完整本地绝对时间+时区;
-  缺失 `first_seen` 时按 UTC `day` 相对显示今天/昨天/N天前,hover 保留原始日期)且不呈现可点态;
-  `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持 UTC 日期语义;按 Skill 视角的使用排行内部提供管理者筛选 Lens(`all`/`untracked`),
+  缺失 `first_seen` 时按服务端统计 `day` 相对显示今天/昨天/N天前,hover 保留原始日期)且不呈现可点态;
+  `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;按 Skill 视角的使用排行内部提供管理者筛选 Lens(`all`/`untracked`),
   `untracked` 只切换该排行表为未收录使用占比列表,不改变趋势图、全局过滤条或公司库漏斗;
   暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、

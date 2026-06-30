@@ -11,7 +11,7 @@ from contextlib import closing
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from server.db import _audit, _clip, _maybe_prune, _sha, db, now_iso
+from server.db import _audit, _clip, _maybe_prune, _sha, db, now_iso, now_utc, stats_day_for
 from server.identity import canon_operator, verify_operator
 from server.profile import _skill_mode, _skill_names, _skill_use_name
 from server.security import (
@@ -81,8 +81,10 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         if skill_name:
             return {"ok": True, "logged": False, "skill_ignored": True}
         raise HTTPException(400, "operator, runtime, session_id, status are required")
-    ts = e.get("ts") or now_iso()
-    recv = now_iso()                               # server-authoritative time (§6)
+    recv_dt = now_utc()                            # server-authoritative time (§6)
+    recv = recv_dt.isoformat()
+    day = stats_day_for(recv_dt)
+    ts = e.get("ts") or recv
     sid = e["session_id"]
     status, step = e["status"], e.get("current_step")
 
@@ -106,9 +108,9 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         if skill_name:
             conn.execute("""INSERT OR IGNORE INTO skill_uses
               (session_id,skill,mode,operator,runtime,day,first_seen) VALUES(?,?,?,?,?,?,?)""",
-              (sid, skill_name, skill_mode, op, rt, recv[:10], recv))
+              (sid, skill_name, skill_mode, op, rt, day, recv))
             conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)",
-                         (skill_name, recv[:10]))
+                         (skill_name, day))
 
         # OPTIONAL profile payload — full-snapshot replace per identity (§6)
         profile = {k: e[k] for k in PROFILE_KEYS if e.get(k) is not None}
@@ -118,7 +120,7 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
               ON CONFLICT(operator,ak,runtime) DO UPDATE SET json=excluded.json,updated=excluded.updated""",
               (op, ag, rt, json.dumps(profile, ensure_ascii=False), recv))
             for nm in _skill_names(profile.get("skills")):
-                conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, recv[:10]))
+                conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, day))
 
         # OPTIONAL shim_version — sticky per identity. Top-level field on every
         # heartbeat in the new protocol; older shims only set it inside the
@@ -147,7 +149,7 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
           (ts,recv,day,last_seen,v,operator,agent,runtime,session_id,parent_session_id,verified,
            status,task,current_step,model,input,output,meta,source)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-          (ts, recv, recv[:10], recv, e.get("v"), op, e.get("agent"), rt, sid,
+          (ts, recv, day, recv, e.get("v"), op, e.get("agent"), rt, sid,
            e.get("parent_session_id"), verified, status,
            e.get("task"), step, e.get("model"), inp, outp, meta_json, "heartbeat"))
         _maybe_prune(conn)
