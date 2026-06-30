@@ -15,7 +15,8 @@
   `ACTIVE_ST` / `STALE_SECONDS` / `REPO_ROOT` / `FRONTEND_DIST` / `SHIMS_DIR` / catalog 默认 URL 等)
   + `_env_int` / `_env_float`。
 - `db.py`:连接 / schema / 迁移 / `_maybe_prune` / `_audit` + 共用工具
-  (`now_iso` / `_sha` / `_json` / `_clip` / `_age` / `_parse` / `_day_cutoff`)。
+  (`now_iso` / `now_utc` / `stats_now` / `stats_today` / `stats_day` / `stats_day_for` /
+  `_sha` / `_json` / `_clip` / `_age` / `_parse` / `_day_cutoff`)。
 - `security.py`:CSP / 安全响应头中间件 / 鉴权 / 限流 / `_audit_denied`。
 - `identity.py`:`canon_operator` / `verify_operator` / `_norm_op`。
 - `profile.py`:skill 名规范化 + `load_profiles` / `load_shim_versions` / `reuse_map`。
@@ -54,9 +55,11 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
 
 `server/app.py` 顶部 `from datetime import datetime, timezone, timedelta` 让
 `tests/test_skills_stats_page.py` 等能 `monkeypatch.setattr(app_mod, "datetime", FixedDatetime)`
-锁死「现在时间」。子模块内部如需读「当前 UTC 时间」,**不要**直接 `datetime.now(...)`(那会用
-子模块自己的 datetime 绑定,不受 monkeypatch 影响);改用 `routes/board.py` 的 `_now_utc()` 或
-`db.py` 的 `_day_cutoff(...)`(它们内部都走 `app.datetime` 间接读)。
+锁死「现在时间」。子模块内部如需读「当前 UTC instant」或「当前统计日」,**不要**直接
+`datetime.now(...)`(那会用子模块自己的 datetime 绑定,不受 monkeypatch 影响);改用
+`db.py` 的 `now_utc()` / `now_iso()` / `stats_now()` / `stats_today()` / `stats_day()` /
+`_day_cutoff(...)`(它们内部都走 `app.datetime` 间接读)。默认统计日口径为 `Asia/Shanghai`;
+具体时间戳仍保存 UTC instant。
 
 ## 修改后必跑
 

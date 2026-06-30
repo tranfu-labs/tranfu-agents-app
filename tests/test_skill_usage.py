@@ -23,7 +23,7 @@ def _skill_rows(app_mod):
 
 
 def _set_skill_day(app_mod, session_id, skill, days_ago):
-    day = (datetime.now(timezone.utc).date() - timedelta(days=days_ago)).isoformat()
+    day = (app_mod.stats_today() - timedelta(days=days_ago)).isoformat()
     with app_mod.db() as conn:
         conn.execute("UPDATE skill_uses SET day=? WHERE session_id=? AND skill=?",
                      (day, session_id, skill))
@@ -35,8 +35,30 @@ def test_skill_use_dedupes_per_session(client, app_mod):
     assert ev(client, session_id="s1", skill="openai-docs").status_code == 200
     assert _skill_rows(app_mod) == [{
         "session_id": "s1", "skill": "openai-docs", "mode": "used", "operator": "alice",
-        "runtime": "codex", "day": datetime.now(timezone.utc).date().isoformat(),
+        "runtime": "codex", "day": app_mod.stats_day(),
     }]
+
+
+def test_skill_and_event_days_use_shanghai_stats_day(client, app_mod, monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 12, 16, 5, tzinfo=timezone.utc)
+            return value if tz else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(app_mod, "datetime", FixedDatetime)
+    ev(client, session_id="s1", skill="openai-docs", current_step="edge")
+
+    with app_mod.db() as conn:
+        event = conn.execute("SELECT day, recv FROM events WHERE session_id='s1'").fetchone()
+        skill = conn.execute("SELECT day, first_seen FROM skill_uses WHERE session_id='s1'").fetchone()
+        seen = conn.execute("SELECT first_day FROM skills_seen WHERE name='openai-docs'").fetchone()
+
+    assert event["day"] == "2026-06-13"
+    assert skill["day"] == "2026-06-13"
+    assert seen["first_day"] == "2026-06-13"
+    assert event["recv"].startswith("2026-06-12T16:05:00")
+    assert skill["first_seen"].startswith("2026-06-12T16:05:00")
 
 
 def test_skill_use_counts_different_sessions(client, app_mod):

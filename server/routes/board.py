@@ -9,7 +9,7 @@ import json
 import threading
 import time
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -20,7 +20,7 @@ from server.config import (
     ACTIVE_ST, CATALOG_COMPANY_TYPES, CATALOG_SOURCE_UNKNOWN, CLOUD_RUNTIMES, LIVE_ST,
     PROFILE_KEYS, SKILL_MODES, STALE_SECONDS, WINDOW_DAYS,
 )
-from server.db import _age, _day_cutoff, _parse, db, now_iso
+from server.db import STATS_TZ, _age, _day_cutoff, _parse, db, now_iso, stats_now, stats_today
 from server.profile import _skill_names, _skill_use_name, load_profiles, load_shim_versions, reuse_map
 from server.shim import _SHIM_MANIFEST
 
@@ -30,19 +30,9 @@ router = APIRouter()
 _state_cache_lock = threading.Lock()
 _state_cache = {"at": 0.0, "data": None}
 
-
-def _now_utc():
-    """通过 server.app 命名空间间接读 datetime,保留
-    monkeypatch(app_mod, 'datetime', FixedDatetime) 的测试语义。"""
-    from server import app
-    return app.datetime.now(timezone.utc)
-
-
-
-
 def _iter_sessions(conn):
     """Yield (key, session_id, [rows]) grouped by identity+session over the window."""
-    win_start = (_now_utc().date() - timedelta(days=WINDOW_DAYS - 1)).isoformat()
+    win_start = _day_cutoff(WINDOW_DAYS)
     # use server-authoritative recv time (fall back to ts/last_seen for legacy rows)
     rows = conn.execute("""SELECT operator, COALESCE(agent,runtime) k, runtime, session_id, status,
         COALESCE(recv, ts) rt_time, COALESCE(last_seen, recv, ts) ls FROM events WHERE day >= ?
@@ -62,7 +52,7 @@ def _iter_sessions(conn):
 def metrics(conn):
     """Per identity: day-bucketed active time (today/week/series7/series90) AND
     quality (runs/done/error/avg_sec/auto_rate). One pass over the window."""
-    now = _now_utc()
+    now = stats_now()
     today = now.date()
     buckets = {}   # key -> {dayiso: seconds}
     qual = {}      # key -> {runs,done,error,active,auto}
@@ -71,11 +61,12 @@ def metrics(conn):
         if b <= a:
             return
         d = buckets.setdefault(key, {})
-        cur = a
-        while cur < b:
+        cur = a.astimezone(STATS_TZ)
+        end = b.astimezone(STATS_TZ)
+        while cur < end:
             day = cur.date()
-            day_end = datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(days=1)
-            seg = min(b, day_end)
+            day_end = datetime(day.year, day.month, day.day, tzinfo=STATS_TZ) + timedelta(days=1)
+            seg = min(end, day_end)
             d[day.isoformat()] = d.get(day.isoformat(), 0) + (seg - cur).total_seconds()
             cur = seg
 
@@ -128,7 +119,7 @@ def metrics(conn):
 
 
 def leverage(conn):
-    today = _now_utc().date()
+    today = stats_today()
     wk = (today - timedelta(days=7)).isoformat()
     assets = conn.execute("SELECT COUNT(*) c FROM skills_seen").fetchone()["c"]
     week = conn.execute("SELECT COUNT(*) c FROM skills_seen WHERE first_day >= ?", (wk,)).fetchone()["c"]
@@ -136,7 +127,7 @@ def leverage(conn):
 
 
 def skill_usage(conn):
-    today = _now_utc().date()
+    today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     rows = conn.execute("""
@@ -229,7 +220,7 @@ def _skills_governance_untracked(conn, daily_start, d30, trend_days, catalog_by)
 def skills_overview(conn, days):
     if days not in (7, 30, 90):
         raise HTTPException(400, "days must be one of 7, 30, 90")
-    today = _now_utc().date()
+    today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     d14 = (today - timedelta(days=13)).isoformat()
@@ -418,7 +409,7 @@ def operator_detail_payload(conn, name):
     """, (operator,)).fetchone()["c"]
     if not exists:
         raise HTTPException(404, "operator not found")
-    today = _now_utc().date()
+    today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     _items, catalog_by, catalog_meta = _catalog_context(conn)
@@ -516,7 +507,7 @@ def skill_detail_payload(conn, name):
     exists = conn.execute("SELECT COUNT(*) c FROM skill_uses WHERE skill=?", (name,)).fetchone()["c"]
     if not exists:
         raise HTTPException(404, "skill not found")
-    today = _now_utc().date()
+    today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     _items, catalog_by, catalog_meta = _catalog_context(conn)
@@ -724,4 +715,3 @@ def agent_detail(key: str):
         if (c["operator"] + "\x00" + ((c.get("agent") or c["runtime"]))) == want:
             return JSONResponse(c)
     raise HTTPException(404, "agent not found")
-

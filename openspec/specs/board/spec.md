@@ -6,7 +6,7 @@
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
-- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], operator_daily[], operator_table[], governance, funnel, catalog }`(SKILLS 总览;`today` 为 UTC 当日,`days` 影响 daily/operator_daily 与 governance 窗口,默认 30)。
+- `GET /api/skills?days={7|30|90}` → `{ today, daily[], table[], operator_daily[], operator_table[], governance, funnel, catalog }`(SKILLS 总览;`today` 为服务端统计时区 `Asia/Shanghai` 当日,`days` 影响 daily/operator_daily 与 governance 窗口,默认 30)。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
@@ -19,14 +19,14 @@
 2. 每张卡合并:计算所得活跃(today/week/series7/`active_days`[90])、质量(runs/success/error/avg_sec/auto_rate)、
    复用(跨人技能重叠),以及该身份最新 profile 字段。
 3. **掉线判定**:`running/started` 且距 `last_seen` 超过 `STALE_SECONDS=180` 秒 → 展示为 `idle`。
-4. 活跃统计窗口 `WINDOW_DAYS=90`,按 UTC 日;跨天会话按当天边界拆分。
+4. 活跃统计窗口 `WINDOW_DAYS=90`,按服务端统计时区 `Asia/Shanghai` 日;跨天会话按该时区当天边界拆分。
 5. `totals.live` 仅计 `status ∈ {running, started, waiting}`。
 6. `feed` 为真实状态转变(非心跳),倒序。
 7. leverage = `{assets: 不同技能数, skills_week: 近 7 天首次出现的技能数}`。
 8. `skills` 为 Skill 使用/装备排行数组,每项含 `name`、`mode`(`used`/`equipped`)、`sessions_7d`、`sessions_30d`、
    `sessions_total`、`users_30d`、`last_day`;按 `sessions_30d` 降序,平手按 `sessions_total`。
 9. Skill 计数口径:一个会话用过/装备某 skill 的某个 mode 算一次(来源即 `skill_uses` 的会话×skill×mode 粒度,
-   读侧不再去重);时间窗口按 UTC 日切,与活跃统计口径一致。`used` 与 `equipped` 必须分条呈现,不得相加。
+   读侧不再去重);时间窗口按服务端统计时区 `Asia/Shanghai` 日切,与活跃统计口径一致。`used` 与 `equipped` 必须分条呈现,不得相加。
 10. `shim.version` 为服务端当前分发的 shim 内容版本;看板按"三态"比较每张卡的 `shim_version`:
     - `current` —— `agent.shim_version` 等于服务端 `shim.version`(常态显示)。
     - `outdated` —— `agent.shim_version` 存在但不等于 `shim.version`(显示"旧 shim",橙色)。
@@ -42,7 +42,7 @@
     used 会话数降序(平手按最近使用日、再按名称),每项含 `name/source/sessions/share/users_30d/runtime_counts/trend_14d/trend_days/last_day`;
     `users_30d` 固定保持近 30 天用户数语义。
 15. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
-    已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、30 天有人使用名单(UTC 日切);
+    已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、30 天有人使用名单(按 `Asia/Shanghai` 日切);
     并返回闲置名单 = 已安装 − 30 天使用。三层均返回名单而非仅数字。
 16. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
     从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
@@ -74,7 +74,7 @@
 - SKILLS 总览筛选绑定到 URL search params:`win`(7/30/90)、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`lens`(`all`/`untracked`);
   筛选变化使用 replace,不污染浏览器历史;详情跳转使用 push。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
-- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 UTC 日窗口逐日铺满:
+- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 `Asia/Shanghai` 统计日窗口逐日铺满:
   右端取服务端 `today`,左端为 `today-(N-1)`,N ∈ {7,30,90};每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽。前端取窗口内使用量前 8 的 skill 分色,其余合并为"其它"段;时间窗筛选只作用于柱状图,
   主表固定 7 天/30 天/累计三列,漏斗第 3 层固定 30 天;窗口选择器不含"全部"档。
@@ -91,7 +91,7 @@
   Top8 外并"其它"、合计);浮窗锚定柱子几何而非光标——默认贴柱子右侧、顶部对齐图表绘图区顶,
   碰视口右边界翻到柱子左侧、碰下边界上移贴视口底。今日列作为最后一格,以进行中视觉区分并在浮窗标注。
   移动端点击列显示浮窗,点击别处或横向滚动图表时关闭。整窗全空或筛选后全空时显示空态,不渲染一排空轴。
-- Skill 详情趋势图固定最近 30 个 UTC 日逐日铺满(右端同服务端 `today`),used 柱与 equipped 折线分列展示,
+- Skill 详情趋势图固定最近 30 个 `Asia/Shanghai` 统计日逐日铺满(右端同服务端 `today`),used 柱与 equipped 折线分列展示,
   不相加;空天留白,今日列进行中,悬停/点击浮窗显示 used/equipped,且使用与 SKILLS 总览一致的柱子锚定、
   视口翻转和点击别处关闭规则。
 - 单操作员详情的 skill 排行在界面上呈现为「使用 Skill 排行」,默认按最近 7 天使用次数降序(平手按累计、再按名称);
@@ -101,7 +101,7 @@
   浏览器本地今天内显示克制相对时间(中文 `刚刚` / `N分钟前` / `N小时前`,英文 `just now` / `Nm ago` / `Nh ago`);
   浏览器本地昨天及更早显示相对日期加本地时刻(中文 `昨天 HH:mm:ss` / `N天前 HH:mm:ss`,
   英文 `yesterday HH:mm:ss` / `Nd ago HH:mm:ss`);鼠标悬浮时间单元格时,title 显示完整本地绝对时间与浏览器时区名
-  (时区名不可得时省略)。`first_seen` 缺失时按原始 UTC 日期 `day` 与服务端返回的 UTC `today`
+  (时区名不可得时省略)。`first_seen` 缺失时按原始统计日期 `day` 与服务端返回的 `Asia/Shanghai` `today`
   显示相对日期:中文 `今天` / `昨天` / `N天前`,英文 `today` / `yesterday` / `Nd ago`;
   hover title 保留原始 `day`,不得把 date-only 值强行按浏览器时区换算或补造具体时刻。
 - 所有具有下钻目标的表格(总览技能主表、总览操作员主表、操作员详情的使用 Skill 排行)须整行可点,
@@ -151,15 +151,16 @@
 - `days=30` 包含更多历史非公司库 used 时,`governance.untracked_usage` 的分母、分子、Top 列表随窗口扩大更新。
 - 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
 - catalog 拉取失败 → `/api/skills` 返回 200,funnel 带过期标记与旧名单。
-- `days=7` → daily 仅含最近 7 个 UTC 日;`days` 变化不影响 table 与 funnel;`days=0` 返回 400。
-- `/api/skills` 与 `/api/skill/{name}` 均返回 UTC `today`;前端以它作为时间轴右端,不得用浏览器本地日期推算。
+- 服务端当前 UTC 时间为 `2026-06-12T16:05:00+00:00` 时,`/api/skills` 与 `/api/skill/{name}` 均返回 `today=2026-06-13`。
+- `days=7` → daily 仅含最近 7 个 `Asia/Shanghai` 统计日;`days` 变化不影响 table 与 funnel;`days=0` 返回 400。
+- `/api/skills` 与 `/api/skill/{name}` 均返回 `Asia/Shanghai` `today`;前端以它作为时间轴右端,不得用浏览器本地日期推算。
 - 只有今天有 used → 主图 7/30/90 日槽位完整铺开,仅最后一槽有今日进行中柱;中间缺数据的日期保留空槽。
 - 悬停某柱 → 浮窗锚定该柱右侧、顶部与图表绘图区顶对齐;最右侧柱 → 浮窗翻到柱子左侧,不溢出视口;
   手机窄屏点击柱子也显示同一浮窗,横向滚动或点击非柱区域关闭。
-- 进入任一 skill 详情 → 趋势图铺满最近 30 个 UTC 日,used/equipped 分列展示且不相加。
+- 进入任一 skill 详情 → 趋势图铺满最近 30 个 `Asia/Shanghai` 统计日,used/equipped 分列展示且不相加。
 - 按人视角中,同一操作员在同一会话内多次使用同一 skill 只计 1;仅 equipped 或空 operator 的记录不进入
   `operator_table`、`operator_daily` 与 `/api/operator/{name}`。
-- `days=7` → `operator_daily` 仅含最近 7 个 UTC 日;`operator_table` 三列不受影响。
+- `days=7` → `operator_daily` 仅含最近 7 个 `Asia/Shanghai` 统计日;`operator_table` 三列不受影响。
 - 单操作员详情的 skill 排行行点击 → 进入对应 `/skill/{name}` 详情。
 - `GET /api/operator/不存在的人` → 404。
 - 主表默认按 30 天会话数降序,平手按累计。
