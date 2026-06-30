@@ -126,8 +126,14 @@ The dashboard serves favicon, Apple touch icon, manifest, and Open Graph image f
 
 ```bash
 curl -I https://your-domain.example/favicon.ico
+curl -I https://your-domain.example/favicon-20260626.ico
 curl -I https://your-domain.example/favicon.svg
+curl -I https://your-domain.example/favicon-32x32-20260530.png
+curl -I https://your-domain.example/favicon-16x16-20260530.png
 curl -I https://your-domain.example/apple-touch-icon.png
+curl -I https://your-domain.example/apple-touch-icon-20260530.png
+curl -I https://your-domain.example/android-chrome-192x192-20260530.png
+curl -I https://your-domain.example/android-chrome-512x512-20260530.png
 curl -I https://your-domain.example/manifest.json
 curl -I https://your-domain.example/og-image-1200x630.png
 ```

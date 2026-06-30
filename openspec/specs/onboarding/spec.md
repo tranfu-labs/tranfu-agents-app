@@ -49,10 +49,18 @@
     - 与 `~/.tranfu/logs/hook-payload.jsonl`(`TF_DEBUG_HOOK=1` 按需 raw stdin dump,
       由 ingest 域 spec 规定)互补共存:两者写入点独立、文件路径不同、守门条件不同,
       各自失败不影响对方与上报主线。
+11. 服务端根静态 icon 文件必须从构建后的 `frontend/dist` 根目录提供,并走白名单与路径穿越保护。
+    TRANFU//AGENTS head/manifest 引用到的浏览器与 PWA icon 文件包括未版本化兼容文件与版本化实体文件;
+    带点静态路径不得落入 SPA fallback。
 
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
   `curl $SERVER/shims/../server/app.py` 返回 404。
+- `curl -I $SERVER/favicon-20260626.ico` 返回 200 且为 `image/x-icon`;
+  `curl -I $SERVER/favicon-32x32-20260530.png`、`/favicon-16x16-20260530.png`、
+  `/apple-touch-icon-20260530.png`、`/android-chrome-192x192-20260530.png`、
+  `/android-chrome-512x512-20260530.png` 返回 200 且为 `image/png`;
+  未被白名单允许的带点根路径返回 404,不落入 SPA 深链 fallback。
 - 跑完安装命令后,`/api/state` 出现该身份卡片且含 profile(role/IM 等)。
 - `TF_AUTO_UPDATE=0` 时,`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` 任一事件都不启动更新;
   服务端不可达或坏包时旧 shim 保留。
