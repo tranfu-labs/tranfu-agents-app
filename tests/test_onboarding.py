@@ -101,6 +101,7 @@ def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monke
     for filename in versioned_pngs:
         (tmp_path / filename).write_bytes(b"\x89PNG\r\n\x1a\n")
     (tmp_path / "og-image-1200x630.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "theme-init.js").write_text("document.documentElement.dataset.theme='dark'", encoding="utf-8")
 
     favicon = client.get("/favicon.svg")
     assert favicon.status_code == 200
@@ -127,6 +128,16 @@ def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monke
     assert og_head.status_code == 200
     assert "image/png" in og_head.headers["content-type"]
     assert og_head.content == b""
+
+    theme_init = client.get("/theme-init.js")
+    assert theme_init.status_code == 200
+    assert "text/javascript" in theme_init.headers["content-type"]
+    assert "dataset.theme" in theme_init.text
+
+    theme_init_head = client.head("/theme-init.js")
+    assert theme_init_head.status_code == 200
+    assert "text/javascript" in theme_init_head.headers["content-type"]
+    assert theme_init_head.content == b""
 
     assert client.get("/favicon-20260529.ico").status_code == 404
 

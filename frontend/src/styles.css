@@ -1,15 +1,17 @@
-  :root{
+  :root,:root[data-theme="dark"]{
     --bg:#0b0b0c; --grid:rgba(255,255,255,.018); --elev:rgba(255,255,255,.022); --elev2:rgba(255,255,255,.014);
     --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15); --tick:rgba(255,255,255,.3); --hover:rgba(255,255,255,.04);
     --text:#ededee; --muted:#9ca0a6; --faint:#626670; --brand:#ec1c2b;
     --run:#3fb950; --wait:#d29922; --err:#f85149; --info:#58a6ff; --done:#6e7681;
     --r:10px; --sans:'Inter',system-ui,-apple-system,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+    color-scheme:dark;
   }
-  body.light{
+  :root[data-theme="light"],body.light{
     --bg:#f6f7f8; --grid:rgba(0,0,0,.03); --elev:rgba(0,0,0,.018); --elev2:rgba(0,0,0,.012);
     --line:rgba(0,0,0,.1); --line2:rgba(0,0,0,.18); --tick:rgba(0,0,0,.28); --hover:rgba(0,0,0,.03);
     --text:#16181d; --muted:#57606a; --faint:#8b949e;
     --run:#1a7f37; --wait:#9a6700; --err:#cf222e; --info:#0969da; --done:#6e7781;
+    color-scheme:light;
   }
   *{box-sizing:border-box} html,body{margin:0}
   body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;
@@ -33,7 +35,7 @@
   .logo{display:inline-flex;align-items:center;gap:10px}
   .logo-fb{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--brand),#a60f1a);transform:skewX(-11deg)}
   .logo-tile{display:inline-flex;align-items:center;padding:4px;border-radius:6px}
-  body.light .logo-tile{background:#0b0b0c}
+  :root[data-theme="light"] .logo-tile,body.light .logo-tile{background:#0b0b0c}
   .logo-mark{height:20px;width:auto;display:block}
   .wm{font-weight:700;font-size:16px;letter-spacing:.04em}.wm i{color:var(--brand);font-style:normal}
   nav.tabs{display:flex;gap:2px;margin-left:6px}
@@ -52,6 +54,8 @@
   .ctl{display:flex;align-items:center;gap:6px}
   .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
   .seg button{font-size:11px;padding:5px 9px;color:var(--faint);font-family:var(--mono)}.seg button.on{color:var(--text);background:var(--hover)}
+  .theme-seg{max-width:100%;flex-wrap:wrap}
+  .theme-seg button{font-family:var(--sans);font-weight:600;letter-spacing:0;white-space:nowrap}
   .icon-btn{width:30px;height:30px;border:1px solid var(--line);border-radius:7px;display:grid;place-items:center;color:var(--muted)}
   .icon-btn:hover{color:var(--text);border-color:var(--line2)}
 
@@ -392,6 +396,8 @@
     .live-pill{font-size:10px;padding:3px 7px;margin-left:0}
     .ctl{gap:4px}
     .icon-btn{width:28px;height:28px}
+    .theme-seg{width:100%;order:7}
+    .theme-seg button{flex:1 1 0;padding:5px 7px}
     nav.tabs{order:5;width:100%;margin-left:0;justify-content:flex-start}
     nav.tabs button,nav.tabs a{padding:6px 11px}
     .ctl{order:4;margin-left:0}

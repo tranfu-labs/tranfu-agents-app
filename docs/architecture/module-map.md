@@ -40,14 +40,14 @@ agent 机器                         中心服务器(单容器)                 
   缺失 `first_seen` 时按服务端统计 `day` 显示今天/昨天/星期/MM-DD/YYYY-MM-DD,hover 保留原始日期)且不呈现可点态;
   `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;按 Skill 视角的使用排行内部提供管理者筛选 Lens(`all`/`untracked`),
   `untracked` 只切换该排行表为未收录使用占比列表,不改变趋势图、全局过滤条或公司库漏斗;
-  暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
+  暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
   `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
 - **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
-- **禁止依赖**:浏览器本地存储(localStorage 等;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
+- **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
   独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
 
 ### M3 — 采集 shim (`shims/`)
@@ -92,7 +92,7 @@ agent 机器                         中心服务器(单容器)                 
 | 模块 | 不得依赖 |
 |---|---|
 | M1 服务端 | 外部 DB/MQ;token 成本;主动读使用者敏感内容 |
-| M2 前端 | 浏览器持久存储(例外:`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
+| M2 前端 | 浏览器持久存储(例外:主题模式 `tf-theme-mode` localStorage;`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
 | M3 shim | 第三方库;抛错阻塞;默认上报内容/记忆 |
 | M4 安装 | 仓库必须公开 |
 | 全部 | 把密钥写进仓库/文档正文 |

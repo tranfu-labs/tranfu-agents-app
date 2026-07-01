@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo } from './Logo'
+import type { ResolvedTheme, ThemeMode } from '../lib/theme'
 import type { Lang, StatePayload } from '../lib/types'
 import { locale } from '../lib/utils'
 
 type Props = {
   lang: Lang
   setLang: (lang: Lang) => void
-  light: boolean
-  setLight: (light: boolean) => void
+  themeMode: ThemeMode
+  resolvedTheme: ResolvedTheme
+  setThemeMode: (mode: ThemeMode) => void
   state: StatePayload | null
   demo: boolean
   t: (key: string) => string
 }
 
-export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props) {
+export function TopBar({ lang, setLang, themeMode, resolvedTheme, setThemeMode, state, demo, t }: Props) {
   const [clock, setClock] = useState('--:--:--')
   const location = useLocation()
   const active = (name: 'board' | 'agents' | 'skills' | 'token') => {
@@ -33,6 +35,11 @@ export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props
 
   const leverage = state?.leverage || { skills_week: 0, assets: 0 }
   const live = state?.totals?.live || 0
+  const themeOptions: Array<{ mode: ThemeMode; label: string }> = [
+    { mode: 'system', label: t('themeSystem') },
+    { mode: 'light', label: t('themeLight') },
+    { mode: 'dark', label: t('themeDark') },
+  ]
 
   return (
     <header>
@@ -83,9 +90,20 @@ export function TopBar({ lang, setLang, light, setLight, state, demo, t }: Props
             EN
           </button>
         </div>
-        <button className="icon-btn" onClick={() => setLight(!light)} aria-label="theme">
-          {light ? '☀' : '🌙'}
-        </button>
+        <div className="seg theme-seg" role="group" aria-label={t('themeMode')}>
+          {themeOptions.map((option) => (
+            <button
+              key={option.mode}
+              className={themeMode === option.mode ? 'on' : ''}
+              type="button"
+              aria-pressed={themeMode === option.mode}
+              aria-label={`${t('themeMode')}: ${option.label}${option.mode === 'system' ? ` (${resolvedTheme})` : ''}`}
+              onClick={() => setThemeMode(option.mode)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   )
