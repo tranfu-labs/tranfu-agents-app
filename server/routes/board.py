@@ -396,6 +396,310 @@ def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_na
     }
 
 
+EVIDENCE_KINDS = {
+    "total", "untracked", "coverage", "operators", "avg_per_session",
+    "idle", "unused_ratio", "zero_install", "top3", "runtime", "source",
+}
+
+
+def _clean_limit_offset(limit, offset):
+    try:
+        limit = int(limit)
+        offset = int(offset)
+    except Exception:
+        raise HTTPException(400, "limit and offset must be integers")
+    if limit < 1 or limit > 500:
+        raise HTTPException(400, "limit must be between 1 and 500")
+    if offset < 0:
+        raise HTTPException(400, "offset must be >= 0")
+    return limit, offset
+
+
+def _evidence_actions(kind):
+    labels = {
+        "total": [("inspect-records", "看原始记录"), ("group-by-skill", "按 skill 分组"), ("group-by-operator", "找使用者")],
+        "untracked": [("inspect-records", "看未收录记录"), ("group-by-operator", "找使用者"), ("collect-candidates", "复制收录候选")],
+        "coverage": [("inspect-records", "看公司库触发"), ("group-by-skill", "看覆盖 skill"), ("group-by-operator", "找使用者")],
+        "operators": [("group-by-operator", "看操作员"), ("inspect-records", "看原始记录")],
+        "avg_per_session": [("group-by-session", "看会话分布"), ("inspect-records", "看原始记录")],
+        "idle": [("inspect-list", "看闲置名单"), ("copy-list", "复制名单")],
+        "unused_ratio": [("inspect-list", "看装了没用名单"), ("copy-list", "复制名单")],
+        "zero_install": [("inspect-list", "看零装机名单"), ("copy-list", "复制名单")],
+        "top3": [("inspect-records", "看集中记录"), ("group-by-skill", "看 Top3")],
+        "runtime": [("group-by-runtime", "看 runtime"), ("inspect-records", "看原始记录")],
+        "source": [("group-by-source", "看来源"), ("inspect-records", "看原始记录")],
+    }
+    return [{"id": key, "label": label} for key, label in labels.get(kind, labels["total"])]
+
+
+def _forced_sources(kind):
+    if kind == "untracked":
+        return {"non_catalog"}
+    if kind == "coverage":
+        return set(CATALOG_COMPANY_TYPES)
+    if kind in {"idle", "unused_ratio", "zero_install"}:
+        return set(CATALOG_COMPANY_TYPES)
+    return None
+
+
+def _source_filter(kind, src, ignored):
+    src = _skill_source_key(src) if src else ""
+    forced = _forced_sources(kind)
+    if forced is None:
+        return {src} if src else None, src
+    if src and src in forced:
+        return {src}, src
+    if src and src not in forced:
+        ignored.append({
+            "name": "src",
+            "value": src,
+            "reason": f"kind_{kind}_forces_{'_or_'.join(sorted(forced))}",
+        })
+    return forced, "non_catalog" if forced == {"non_catalog"} else ",".join(sorted(forced))
+
+
+def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", operator=""):
+    clauses = ["mode='used'", "day >= ?", "day <= ?"]
+    params = [window_start, window_end]
+    if rt:
+        clauses.append("COALESCE(runtime,'') = ?")
+        params.append(rt)
+    if skill:
+        clauses.append("skill = ?")
+        params.append(skill)
+    if operator:
+        clauses.append("operator = ?")
+        params.append(operator)
+    if q:
+        needle = f"%{q.casefold()}%"
+        clauses.append("(lower(skill) LIKE ? OR lower(COALESCE(operator,'')) LIKE ?)")
+        params.extend([needle, needle])
+    return [dict(r) for r in conn.execute(f"""
+      SELECT day, first_seen, skill, COALESCE(operator,'') operator,
+        COALESCE(runtime,'') runtime, session_id
+      FROM skill_uses
+      WHERE {' AND '.join(clauses)}
+    """, params)]
+
+
+def _annotate_evidence_rows(rows, catalog_by):
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["runtime"] = item.get("runtime") or "unknown"
+        source = _skill_source(item["skill"], catalog_by)
+        item["source"] = source
+        item["_source_key"] = _skill_source_key(source)
+        out.append(item)
+    return out
+
+
+def _filter_evidence_rows(rows, source_keys):
+    if not source_keys:
+        return rows
+    return [row for row in rows if row.get("_source_key") in source_keys]
+
+
+def _evidence_top_skills(rows):
+    stats = {}
+    for row in rows:
+        item = stats.setdefault(row["skill"], {
+            "name": row["skill"],
+            "source": row.get("source"),
+            "records": 0,
+            "operators": set(),
+            "last_day": "",
+        })
+        item["records"] += 1
+        if row.get("operator"):
+            item["operators"].add(row["operator"])
+        if (row.get("day") or "") > (item.get("last_day") or ""):
+            item["last_day"] = row.get("day") or ""
+    out = []
+    for item in stats.values():
+        out.append({
+            "name": item["name"],
+            "source": item.get("source"),
+            "records": item["records"],
+            "operators": len(item["operators"]),
+            "last_day": item.get("last_day"),
+        })
+    out.sort(key=lambda x: (-x["records"], x["name"]))
+    return out
+
+
+def _evidence_top_operators(rows):
+    stats = {}
+    for row in rows:
+        operator = row.get("operator") or ""
+        if not operator:
+            continue
+        item = stats.setdefault(operator, {"operator": operator, "records": 0, "skills": set(), "last_day": ""})
+        item["records"] += 1
+        item["skills"].add(row["skill"])
+        if (row.get("day") or "") > (item.get("last_day") or ""):
+            item["last_day"] = row.get("day") or ""
+    out = [{
+        "operator": item["operator"],
+        "records": item["records"],
+        "skills": len(item["skills"]),
+        "last_day": item.get("last_day"),
+    } for item in stats.values()]
+    out.sort(key=lambda x: (-x["records"], x["operator"]))
+    return out
+
+
+def _evidence_daily(rows):
+    stats = {}
+    for row in rows:
+        day = row.get("day") or ""
+        if day:
+            stats[day] = stats.get(day, 0) + 1
+    return [{"day": day, "records": stats[day]} for day in sorted(stats)]
+
+
+def _evidence_record_summary(rows, items=None, installed=0):
+    skills = {row["skill"] for row in rows if row.get("skill")}
+    operators = {row["operator"] for row in rows if row.get("operator")}
+    sessions = {row["session_id"] for row in rows if row.get("session_id")}
+    untracked = sum(1 for row in rows if row.get("_source_key") == "non_catalog")
+    company = sum(1 for row in rows if row.get("_source_key") in CATALOG_COMPANY_TYPES)
+    external = sum(1 for row in rows if row.get("_source_key") == "external")
+    summary = {
+        "records": len(rows),
+        "skills": len(skills),
+        "operators": len(operators),
+        "sessions": len(sessions),
+        "untracked_records": untracked,
+        "company_records": company,
+        "external_records": external,
+    }
+    if items is not None:
+        summary["items"] = len(items)
+        summary["installed"] = int(installed or 0)
+        summary["unused_ratio"] = (len(items) / installed) if installed else 0
+    if sessions:
+        summary["avg_skills_per_session"] = len(rows) / len(sessions)
+    return summary
+
+
+def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q="", skill="", rt="", operator="", catalog_by=None):
+    catalog_by = catalog_by or {}
+    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
+    installed_names = _installed_skill_names(conn) & company_names
+    used_rows = _evidence_fetch_rows(conn, window_start, window_end, q="", rt=rt, skill="", operator=operator)
+    used_rows = _annotate_evidence_rows(used_rows, catalog_by)
+    used_rows = _filter_evidence_rows(used_rows, source_keys)
+    used_names = {row["skill"] for row in used_rows if row["skill"] in company_names}
+    if kind == "zero_install":
+        names = sorted(company_names - installed_names)
+        installed_total = len(company_names)
+    else:
+        names = sorted(installed_names - used_names)
+        installed_total = len(installed_names)
+    if source_keys:
+        names = [name for name in names if _skill_source_key(_skill_source(name, catalog_by)) in source_keys]
+    if skill:
+        names = [name for name in names if name == skill]
+    if q:
+        needle = q.casefold()
+        names = [name for name in names if needle in name.casefold()]
+    install_counts = _installed_skill_counts(conn)
+    last_days = {r["skill"]: r["last_day"] for r in conn.execute("""
+      SELECT skill, MAX(day) last_day
+      FROM skill_uses
+      WHERE mode='used'
+      GROUP BY skill
+    """)}
+    items = [{
+        "name": name,
+        "source": _skill_source(name, catalog_by),
+        "installers": int(install_counts.get(name, 0)),
+        "last_day": last_days.get(name),
+    } for name in names]
+    items.sort(key=lambda x: (-(x["installers"] or 0), x["name"]))
+    return items, installed_total
+
+
+def skills_evidence_payload(conn, days=30, w=None, wstart=None, wend=None, kind="total",
+                            q="", rt="", src="", skill="", operator="", limit=100, offset=0):
+    kind = (kind or "total").strip()
+    if kind not in EVIDENCE_KINDS:
+        raise HTTPException(400, "kind is invalid")
+    limit, offset = _clean_limit_offset(limit, offset)
+    window = _skills_window(days, w, wstart, wend)
+    window_start = window["start"]
+    window_end = window["end"]
+    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    q = (q or "").strip()
+    rt = (rt or "").strip()
+    skill = _skill_use_name(skill) if skill else ""
+    operator = (operator or "").strip()
+    ignored = []
+    source_keys, applied_src = _source_filter(kind, src, ignored)
+    applied_filters = {
+        "w": window["key"],
+        "window_start": window_start,
+        "window_end": window_end,
+        "q": q,
+        "rt": rt,
+        "src": applied_src,
+        "skill": skill,
+        "operator": operator,
+    }
+
+    if kind in {"idle", "unused_ratio", "zero_install"}:
+        items, installed = _evidence_list_items(
+            conn, kind, window_start, window_end, source_keys, q=q, skill=skill,
+            rt=rt, operator=operator, catalog_by=catalog_by,
+        )
+        page_items = items[offset:offset + limit]
+        return {
+            "kind": kind,
+            "today": stats_today().isoformat(),
+            "window": window,
+            "summary": _evidence_record_summary([], items, installed),
+            "actions": _evidence_actions(kind),
+            "applied_filters": applied_filters,
+            "ignored_filters": ignored,
+            "top_skills": [],
+            "top_operators": [],
+            "daily": [],
+            "records": [],
+            "items": page_items,
+            "catalog": catalog_meta,
+        }
+
+    rows = _evidence_fetch_rows(conn, window_start, window_end, q=q, rt=rt, skill=skill, operator=operator)
+    rows = _annotate_evidence_rows(rows, catalog_by)
+    rows = _filter_evidence_rows(rows, source_keys)
+    if kind == "operators":
+        rows = [row for row in rows if row.get("operator")]
+    if kind == "top3":
+        top3 = {item["name"] for item in _evidence_top_skills(rows)[:3]}
+        rows = [row for row in rows if row["skill"] in top3]
+    rows.sort(key=lambda row: (row.get("first_seen") or row.get("day") or "", row.get("skill") or ""), reverse=True)
+    public_rows = []
+    for row in rows[offset:offset + limit]:
+        item = {k: row.get(k) for k in ("day", "first_seen", "skill", "operator", "runtime", "source", "session_id")}
+        public_rows.append(item)
+    return {
+        "kind": kind,
+        "today": stats_today().isoformat(),
+        "window": window,
+        "summary": _evidence_record_summary(rows),
+        "actions": _evidence_actions(kind),
+        "applied_filters": applied_filters,
+        "ignored_filters": ignored,
+        "top_skills": _evidence_top_skills(rows)[:20],
+        "top_operators": _evidence_top_operators(rows)[:20],
+        "daily": _evidence_daily(rows),
+        "records": public_rows,
+        "items": [],
+        "catalog": catalog_meta,
+    }
+
+
 def skills_overview(conn, days, w=None, wstart=None, wend=None):
     window = _skills_window(days, w, wstart, wend)
     days = window["days"]
@@ -891,6 +1195,17 @@ async def state():
 def skills_stats(days: int = 30, w: str | None = None, wstart: int | None = Query(None), wend: int | None = Query(None)):
     with closing(db()) as conn:
         return JSONResponse(skills_overview(conn, days, w, wstart, wend))
+
+
+@router.get("/api/skills/evidence")
+def skills_evidence(kind: str = "total", days: int = 30, w: str | None = None,
+                    wstart: int | None = Query(None), wend: int | None = Query(None),
+                    q: str = "", rt: str = "", src: str = "", skill: str = "",
+                    operator: str = "", limit: int = 100, offset: int = 0):
+    with closing(db()) as conn:
+        return JSONResponse(skills_evidence_payload(
+            conn, days, w, wstart, wend, kind, q, rt, src, skill, operator, limit, offset,
+        ))
 
 
 @router.get("/api/skill/{name}")

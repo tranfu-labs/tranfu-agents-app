@@ -1,3 +1,5 @@
 import './theme.test.ts'
 import './timeFormat.test.ts'
 import './skillsDashboard.test.ts'
+import './skillsEvidence.test.ts'
+import './skillsCopy.test.ts'

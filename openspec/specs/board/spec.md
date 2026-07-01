@@ -11,10 +11,13 @@
   `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
   governance、period_comparison 与 attribution 窗口;服务端无参兼容默认 30 天,SKILLS 前端无 URL 窗口参数时默认请求 `7d`。
   新增字段均为可选返回,前端读不到时降级。)
+- `GET /api/skills/evidence?kind={total|untracked|coverage|operators|avg_per_session|idle|unused_ratio|zero_install|top3|runtime|source}[&days=7|30|90][&w=today|this_week|last_week|7d|14d|30d|90d|custom][&wstart=&wend=&q=&rt=&src=&skill=&operator=&limit=&offset=]`
+  → 当前时间窗下的 SKILLS 证据 payload,字段含 `today/window/summary/actions/applied_filters/ignored_filters/top_skills/top_operators/daily/records/items/catalog`;
+  只统计 `mode=used` records,`equipped` 不得进入 `summary.records`、`top_*`、`daily` 或 `records`。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
-- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
+- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/evidence`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
   `GET /assets/*` → Vite 指纹化静态资源;`GET /healthz` → `ok`。`/healthz` 必须是 async handler,
   不打开 DB 连接、不触发 IO,在事件循环直接返回。
 
@@ -48,19 +51,27 @@
 15. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
     已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、当前 `days/w` 窗口有人使用名单(按 `Asia/Shanghai` 日切;
     字段名 `used_30d` 保留兼容);并返回闲置名单 = 已安装 − 当前窗口使用。三层均返回名单而非仅数字。
-16. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
+16. `/api/skills/evidence` 的 `kind` 是强制证据口径,用户筛选是附加约束。`q/rt/skill/operator` 与 `kind`
+    取交集;`src` 只有在不与 `kind` 的强制 source 口径冲突时才生效。若冲突,后端必须忽略冲突 `src`
+    并在 `ignored_filters` 说明。`src=non_catalog` 等价于服务端来源 `非公司库`;catalog 中 `external` 不算未收录。
+17. `/api/skills/evidence?kind=total` 的 `summary.records` 必须等于同一窗口 `/api/skills` 响应里的
+    `period_comparison.current_sessions`;`kind=untracked` 必须只包含 `source=非公司库` 的 used records。
+    `kind=idle` / `kind=unused_ratio` 的名单口径为 company catalog `own|meta` 中的 installed names 减去当前窗口 used company names;
+    `kind=zero_install` 的名单口径为 company catalog `own|meta` names 减去 installed names。
+    `limit` 默认 100,上限 500;非法 kind、limit、offset 返回 400。
+18. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
     从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
-17. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
+19. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
     会话×skill 去重使用次数(一行 `skill_uses` used 记录),语义为"此人在多少个会话里用过 skill",非真实调用次数。
     `operator_table` 固定输出 7 天 / 30 天 / 累计、用过 skill 数、会话数、runtime 计数、来源计数、近 14 天趋势和最近使用日;
     默认按 30 天降序,平手按累计。`days` 只影响 `operator_daily`,不影响 `operator_table`。
-18. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
+20. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
-19. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
+21. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
     前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
     可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
     依赖"`/api/state.now` 必须是请求当下时间"的假设。
-20. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
+22. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
 
 ## 部署/运维
@@ -73,7 +84,7 @@
 ## 前端规则(MUST)
 - 轮询 `/api/state`(约 3s),取不到时退回内置演示数据并显示"未连接服务端"。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
-- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;
+- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;SKILLS 证据页 `/skills/evidence`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
   `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)。
@@ -84,25 +95,32 @@
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
-- SKILLS 总览采用仪表盘结构:控制条 → KPI 环带(8 格) → 治理健康条(5 项) →
-  主分析区并列(左:排行 Bar/操作员排行 + 每日使用趋势图;右:治理待办) → 归因 Donut(来源+runtime) →
+- SKILLS 总览采用证据导向仪表盘结构:控制条 → 过去 W 变化(8 格,每格可追证据) → 问题线索(5 项) →
+  主分析区并列(左:排行 Bar/操作员排行 + 每日使用趋势图;右:待处理线索) → 归因 Donut(来源+runtime) →
   明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。
   首次加载只保留控制条和 skeleton/Empty;增量刷新保留旧数据并在标题 `cnt` 标记 loading/error。
 - 控制条承载视角切换、时间窗、环比开关、搜索、runtime、来源、Top N、隐藏 0 使用和导出入口。视角切换使用 32px 高分段按钮,
   选中态使用品牌色 `--brand`;切换视角不重置时间窗。公司库漏斗常驻且始终使用 skill/catalog 口径。
-- 按 Skill 视角 KPI 环带 8 格口径:总触发次数、公司库覆盖率、活跃操作员数、平均每会话 skill 数、未收录使用占比、闲置 skill 数、
-  装了没用比例、Top3 集中度。除闲置 skill 数和装了没用比例两个快照指标外,其余展示本期 vs 上期同长度窗口 delta;
-  `previous=0,current>0` 显示 `+∞%`,两边 0 显示 `—`。按人视角 KPI 环带换为 operator 口径快照,至少包含使用记录、活跃操作员、
+- 按 Skill 视角「过去 W 变化」8 格口径:总触发次数、公司库覆盖率、活跃操作员数、平均每会话 skill 数、未收录使用占比、闲置 skill 数、
+  装了没用比例、Top3 集中度。每格必须提供证据入口,并在有名单时展示 Top 1-3 个 skill/operator 名称。
+  除闲置 skill 数和装了没用比例两个快照指标外,其余可展示本期 vs 上期同长度窗口 delta;
+  `previous=0,current>0` 显示 `+∞%`,两边 0 显示 `—`。按人视角换为 operator 口径摘要,至少包含使用记录、活跃操作员、
   活跃率、人均 skill、人均会话、Top3 集中度、runtime 覆盖和来源覆盖。
-- 按 Skill 视角治理健康条 5 项:未收录占比、装了没用比例、公司库覆盖率、Top3 集中度、平均 skill/会。每项按 good/warn/bad 三色展示,
-  只做信号不承载点击;阈值为未收录 `<10%/10-25%/>25%`、装了没用 `<20%/20-40%/>40%`、覆盖率 `>50%/30-50%/<30%`、
+- 按 Skill 视角「问题线索」5 项:未收录占比、装了没用比例、公司库覆盖率、Top3 集中度、平均 skill/会。每项展示当前值、证据入口和可行动提示,
+  不得显示 `良好`、`偏高`、`需关注` 作为考核标签;阈值为未收录 `<10%/10-25%/>25%`、装了没用 `<20%/20-40%/>40%`、覆盖率 `>50%/30-50%/<30%`、
   Top3 `30-60% good,60-80% 或 <30% warn,>80% bad`、平均 skill/会 `>1.5 good,0.8-1.5 warn,<0.8 bad`。
-  按人视角治理健康条换为 operator 使用健康信号,至少包含活跃率、人均 skill、Top3 集中度、runtime 覆盖和活跃操作员数。
+  按人视角问题线索换为 operator 使用信号,至少包含活跃率、人均 skill、Top3 集中度、runtime 覆盖和活跃操作员数。
 - 主分析区排行 Bar 在按 Skill 视角显示 Top N + 长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;点行设置全局 `sel`,
   再点取消,并与其下方每日使用趋势图和 Donut 联动。按人视角主分析区显示操作员排行表并继续下钻 `/operator/:name`,
   不新增与行跳转冲突的选中态;其下方趋势图展示当前筛选后的 operator 分布。
-- 按 Skill 视角治理待办 3 组:有使用但未收录、装了窗口内没用、收录但零装机。按人视角待办换为重度使用者、近 7 天沉睡、
-  低覆盖使用者。每组 Top 8 + 查看全部/忽略入口;忽略是当前页面会话态,不写入浏览器持久化,避免突破 ADR-0023 的 localStorage 边界。
+- 按 Skill 视角待处理线索 3 组固定顺序:有使用但未收录、装了窗口内没用、收录但零装机。`有使用但未收录` 是第一优先线索,
+  必须展示 Top items、触发次数和至少一个证据动作。按人视角待办换为重度使用者、近 7 天沉睡、低覆盖使用者。
+  每组 Top 8 + 查看全部/忽略入口;行动作必须是非破坏操作,例如 `看证据`、`找使用者`、`打开详情`、`忽略本页`。
+  忽略是当前页面会话态,不写入浏览器持久化,避免突破 ADR-0023 的 localStorage 边界。
+- `/skills/evidence` 必须保留当前 SKILLS 时间窗和筛选语义;刷新、复制链接和前进后退必须保持 evidence `kind` 与筛选。
+  证据页必须展示返回 SKILLS 的入口、当前窗口、下一步动作、分组证据、原始记录表或名单证据。
+  原始记录的具体时间 `first_seen` 按浏览器本地时区展示;缺失 `first_seen` 时按服务端 `day` date-only 语义展示,
+  规则与 `/skill/:name`、`/operator/:name` 最近记录一致。最近记录/证据记录无下钻目标时不得呈现可点态。
 - 归因 Donut 两张:按来源为双层 Sunburst(内环=已收录 vs 未收录;外环=own/meta/external/non_catalog),按 runtime 为单层 Donut;
   权重均为当前窗口 used sessions。零值扇区不画;来源父子角度一致性容差 <0.5°;点击来源扇区联动全局 `src`。
 - 明细表列为名称/来源/W 内/W′ 上期/Δ%/用户/runtime/趋势/最近。按 Skill 视角点行默认打开右侧抽屉而不是直接跳详情;
@@ -144,8 +162,8 @@
 - SKILLS 统计域(`/skills`、`/skill/:name`、`/operator/:name`)使用专用响应式规则:
   桌面 `>1080px` 保持现有信息架构;平板 `601px-1080px`;手机 `≤600px`。
   该域页面根节点不得出现横向滚动;趋势图只允许在 `.chart-box` 内部横向滚动。
-- `/skills` 在平板与手机下必须保持单列主内容流:控制条 → KPI 环带 → 治理健康条 →
-  排行/操作员排行 → 趋势图 → 治理待办 → 归因 → 明细 → 公司库漏斗。漏斗下沉到底部,不得在窄屏下挤到排行右侧导致主体过窄。
+- `/skills` 在平板与手机下必须保持单列主内容流:控制条 → 过去 W 变化 → 问题线索 →
+  排行/操作员排行 → 趋势图 → 待处理线索 → 归因 → 明细 → 公司库漏斗。漏斗下沉到底部,不得在窄屏下挤到排行右侧导致主体过窄。
 - `/skills` 的控制条在手机下仍须显示当前视角说明文案;分段按钮等分占满可用宽度。
   搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。
 - `/skills` 的趋势图使用固定单日槽宽(按 30d 观感定标),日期轨道长度与图表视窗尺寸解耦:
@@ -181,8 +199,19 @@
 - 造数据:7 天内 own used 6、external used 2、非公司库 used 4、非公司库 equipped 3 →
   `/api/skills?days=7` 的 `governance.untracked_usage.total_sessions=12`、`used_sessions=4`、
   `ratio≈0.333`,Top 不含 external/equipped。
+- 造数据:7 天内 `alpha own used=2`、`beta external used=1`、`ghost non_catalog used=3`、`ghost equipped=2` →
+  `/api/skills/evidence?kind=total&w=7d` 的 `summary.records=6`,records 不含 equipped;
+  `/api/skills/evidence?kind=untracked&w=7d` 的 `summary.records=3`,records 只含 `ghost`,不含 `beta` 或 equipped。
+- `/api/skills/evidence?kind=total&w=7d` 的 `summary.records` 与同一窗口 `/api/skills?w=7d`
+  响应里的 `period_comparison.current_sessions` 相同。
+- 从 `/skills?src=own&w=7d` 点击 `有使用但未收录` 的 `看证据` → 证据页仍展示 non_catalog used records,
+  payload 的 `ignored_filters` 标明 `src=own` 被 `kind=untracked` 覆盖。
 - `days=30` 包含更多历史非公司库 used 时,`governance.untracked_usage` 的分母、分子、Top 列表随窗口扩大更新。
 - 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
+- 造安装态:`idle-own` 在 profile installed,窗口内未 used,且 catalog type 为 `own` →
+  `/api/skills/evidence?kind=idle&w=7d` 的 `items` 含 `idle-own`,并带 `installers`。
+- 造公司库收录但未安装态:`meta-tool` 在 company catalog `meta` 中,未出现在 profile installed →
+  `/api/skills/evidence?kind=zero_install&w=7d` 的 `items` 含 `meta-tool`,`installers=0`。
 - catalog 拉取失败 → `/api/skills` 返回 200,funnel 带过期标记与旧名单。
 - 服务端当前 UTC 时间为 `2026-06-12T16:05:00+00:00` 时,`/api/skills` 与 `/api/skill/{name}` 均返回 `today=2026-06-13`。
 - `days=7` 或 `w=7d` → daily 仅含最近 7 个 `Asia/Shanghai` 统计日;`w=14d` 可返回 14 天窗口;
@@ -201,8 +230,11 @@
 - 进入某操作员详情 → 左侧为 runtime 分布、右侧为「使用 Skill 排行」,排行默认按 7 天列降序。
 - /skills 视角切换位于控制条内,内容行按钮为 32px 高分段控件;切换后整页换主语且说明文案随之变化,时间窗不重置。
 - `/skills` 无窗口参数 → 前端默认 `w=7d`。
-- `/skills?view=skill&w=7d&topn=8` 显示 KPI 环带 8 格、治理健康 5 项、排行 Bar 下方每日趋势图、治理待办、两张 Donut、明细表和下沉漏斗。
-- `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过 KPI、健康条和治理待办 A 组呈现。
+- `/skills?view=skill&w=7d&topn=8` 显示过去 W 变化 8 格、问题线索 5 项、排行 Bar 下方每日趋势图、待处理线索、两张 Donut、明细表和下沉漏斗。
+- `/skills?view=skill&w=7d` 首屏不显示旧 KPI / 健康评分语义文案。
+- 点击 `/skills` 首屏 `总触发次数` 的证据入口 → 跳到 `/skills/evidence?kind=total&w=7d...`,证据表显示当前窗口 records。
+- 点击 `/skills` 首屏 `有使用但未收录` 的 `看证据` → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
+- `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过过去 W 变化、问题线索和待处理线索 A 组呈现。
 - 点击 Skill 明细表任意行 → 同页打开右侧抽屉并写入 `sel=<skill>`;抽屉内点「前往详情页」才跳 `/skill/:name`。
 - 浏览器时区为 Asia/Shanghai,当前本地时间为 `2026-06-28 01:00:00`,记录
   `first_seen=2026-06-27T16:30:00+00:00` → 最近记录可见文本为 `30分钟前`,hover title 为
@@ -226,7 +258,8 @@
 - 375x812 打开 `/skills?view=skill&w=7d` → 页面根无横向滚动,控制条说明可见,筛选控件逐行铺满,
   排行摘要行之后显示 7 天趋势图;趋势图保持 30d 单日槽宽并右对齐显示最新 7 天,不拉伸到整行;Skill 明细行为移动摘要/单列样式,点 Skill 明细行打开全屏抽屉。
 - 375x812 打开 `/skills?view=skill&w=30d` → 页面根无横向滚动,30 天趋势图只在 `.chart-box` 内横滚,
-  治理待办位于排行之后,公司库漏斗位于页面底部。
+  待处理线索位于排行之后,公司库漏斗位于页面底部。
+- 375x812 打开 `/skills/evidence?kind=total&w=30d` → 页面根无横向滚动,记录表以摘要行展示。
 - 375x812 打开 `/skills?view=operator&w=30d` → 页面根无横向滚动,按人榜为摘要行且整行点击进入 `/operator/:name`,
   公司库漏斗仍位于页面底部。
 - 768x1024 打开 `/skills` → 主视图上下堆叠,Donut 上下堆叠,筛选条可换行但页面无横向滚动,

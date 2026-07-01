@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
-import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsOverview, useTokenUsage } from './lib/api'
+import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
 import { makeT } from './lib/i18n'
 import { useSkillQueryState } from './lib/skillQuery'
 import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
@@ -13,6 +13,7 @@ import { Board } from './views/Board'
 import { Agents } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
+import { SkillsEvidenceView } from './views/SkillsEvidence'
 import { SkillDetailView } from './views/SkillDetail'
 import { OperatorDetailView } from './views/OperatorDetail'
 import { AdminView } from './views/Admin'
@@ -23,6 +24,13 @@ function SkillsRoute({ t }: { t: (key: string) => string }) {
   const skillsWindow = resolveSkillsWindow(params)
   const overview = useSkillsOverview(true, skillsWindow.days, skillsWindowQuery(params))
   return <SkillsView data={overview.data} loading={overview.loading} error={overview.error} t={t} />
+}
+
+function SkillsEvidenceRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
+  const location = useLocation()
+  const query = location.search.startsWith('?') ? location.search.slice(1) : location.search
+  const evidence = useSkillsEvidence(true, query || 'kind=total&w=7d')
+  return <SkillsEvidenceView data={evidence.data} loading={evidence.loading} error={evidence.error} lang={lang} search={location.search} t={t} />
 }
 
 function SkillDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
@@ -113,6 +121,7 @@ export default function App() {
             <Route path="/agents" element={<Agents data={state.data} lang={lang} t={t} />} />
             <Route path="/agent/:key" element={<AgentDetail data={state.data} lang={lang} t={t} />} />
             <Route path="/skills" element={<SkillsRoute t={t} />} />
+            <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
             <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
             <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
             <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
