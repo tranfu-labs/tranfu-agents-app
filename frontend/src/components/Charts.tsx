@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
+import { resolveSkillsChartLayout } from '../lib/skillsChartLayout'
 import type { SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
@@ -122,6 +123,7 @@ export function StackedSkillChart({
   selectedSegment?: string
   topN?: number
 }) {
+  const chartBoxRef = useRef<HTMLDivElement | null>(null)
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
@@ -153,6 +155,14 @@ export function StackedSkillChart({
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
   }, [axisEnd, days, rows, segmentKey, topN])
+  const layout = resolveSkillsChartLayout(model.axis.length)
+
+  useLayoutEffect(() => {
+    if (!layout.scrollToEnd) return
+    const box = chartBoxRef.current
+    if (!box) return
+    box.scrollLeft = Math.max(0, box.scrollWidth - box.clientWidth)
+  }, [axisEnd, days, layout.scrollToEnd, layout.trackWidth, segmentKey])
 
   if (!rows.length || !model.totals.some(Boolean)) {
     return (
@@ -164,8 +174,7 @@ export function StackedSkillChart({
   }
 
   const max = Math.max(...model.totals, 1)
-  const compactWindow = days <= 7
-  const w = compactWindow ? Math.max(300, model.axis.length * 34 + 50) : Math.max(680, model.axis.length * 28 + 50)
+  const w = layout.trackWidth
   const h = 220
   const base = 190
   const bh = 165
@@ -175,7 +184,8 @@ export function StackedSkillChart({
 
   return (
     <div
-      className="chart-box"
+      ref={chartBoxRef}
+      className={`chart-box skill-chart-box ${layout.rightAlign ? 'align-end' : ''}`}
       onMouseLeave={() => setTip(null)}
       onPointerDown={(event) => {
         const target = event.target
@@ -183,7 +193,7 @@ export function StackedSkillChart({
       }}
       onScroll={() => setTip(null)}
     >
-      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }} role="img" aria-label={ariaLabel || t('dailyUsed')}>
+      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ width: w, minWidth: w }} role="img" aria-label={ariaLabel || t('dailyUsed')}>
         <defs>
           <pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <path d="M 0 0 L 0 6" stroke="var(--text)" strokeOpacity=".22" strokeWidth="2" />

@@ -32,9 +32,9 @@ function parseIntParam(value?: string | number | null) {
 function keyFromParams(params: Partial<SkillQueryState>): SkillsWindowKey {
   const raw = String(params.w || '').trim()
   if (VALID_KEYS.has(raw as SkillsWindowKey)) return raw as SkillsWindowKey
-  const win = Number(params.win || 30)
+  const win = Number(params.win || 7)
   if (win === 7 || win === 30 || win === 90) return `${win}d` as SkillsWindowKey
-  return '30d'
+  return '7d'
 }
 
 export function resolveSkillsWindow(params: Partial<SkillQueryState>, now = new Date()): SkillsWindow {
@@ -58,7 +58,7 @@ export function resolveSkillsWindow(params: Partial<SkillQueryState>, now = new 
   if (key === 'custom') {
     const start = parseIntParam(params.wstart)
     const end = parseIntParam(params.wend)
-    if (!start || !end || end < start) return { key: '30d', label: '30d', days: 30 }
+    if (!start || !end || end < start) return { key: '7d', label: '7d', days: 7 }
     return { key, label: 'custom', days: clampDays((end - start) / 86400 + 1), startTimestamp: start, endTimestamp: end }
   }
   const days = Number(key.slice(0, -1))

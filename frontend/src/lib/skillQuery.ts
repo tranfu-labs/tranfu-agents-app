@@ -1,7 +1,7 @@
 import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
 
 const queryParsers = {
-  win: parseAsInteger.withDefault(30),
+  win: parseAsInteger.withDefault(7),
   rt: parseAsString.withDefault(''),
   src: parseAsString.withDefault(''),
   q: parseAsString.withDefault(''),

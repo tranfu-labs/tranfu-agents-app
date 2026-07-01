@@ -9,7 +9,8 @@
 - `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=]` →
   `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, catalog }`(SKILLS 总览;
   `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
-  governance、period_comparison 与 attribution 窗口,默认 30 天。新增字段均为可选返回,前端读不到时降级。)
+  governance、period_comparison 与 attribution 窗口;服务端无参兼容默认 30 天,SKILLS 前端无 URL 窗口参数时默认请求 `7d`。
+  新增字段均为可选返回,前端读不到时降级。)
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
@@ -77,14 +78,15 @@
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
   `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)。
   旧参数 `win` 保留向下兼容并在没有 `w` 时映射为 `w`;旧参数 `lens` 保留但不再驱动 UI。筛选变化使用 replace,
-  不污染浏览器历史;详情跳转使用 push。
+  不污染浏览器历史;详情跳转使用 push。`/skills` 无 `w` 且无合法旧 `win` 参数时前端默认 `w=7d`;无效 custom 也回退 `7d`。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按服务端返回的 `window.start..window.end`
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
-- SKILLS 总览采用八层仪表盘结构:控制条 → KPI 环带(8 格) → 治理健康条(5 项) → 每日堆叠柱(全宽独占) →
-  主视图并列(排行 Bar | 治理待办) → 归因 Donut(来源+runtime) → 明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。
+- SKILLS 总览采用仪表盘结构:控制条 → KPI 环带(8 格) → 治理健康条(5 项) →
+  主分析区并列(左:排行 Bar/操作员排行 + 每日使用趋势图;右:治理待办) → 归因 Donut(来源+runtime) →
+  明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。
   首次加载只保留控制条和 skeleton/Empty;增量刷新保留旧数据并在标题 `cnt` 标记 loading/error。
 - 控制条承载视角切换、时间窗、环比开关、搜索、runtime、来源、Top N、隐藏 0 使用和导出入口。视角切换使用 32px 高分段按钮,
   选中态使用品牌色 `--brand`;切换视角不重置时间窗。公司库漏斗常驻且始终使用 skill/catalog 口径。
@@ -96,8 +98,9 @@
   只做信号不承载点击;阈值为未收录 `<10%/10-25%/>25%`、装了没用 `<20%/20-40%/>40%`、覆盖率 `>50%/30-50%/<30%`、
   Top3 `30-60% good,60-80% 或 <30% warn,>80% bad`、平均 skill/会 `>1.5 good,0.8-1.5 warn,<0.8 bad`。
   按人视角治理健康条换为 operator 使用健康信号,至少包含活跃率、人均 skill、Top3 集中度、runtime 覆盖和活跃操作员数。
-- 主视图排行 Bar 在按 Skill 视角显示 Top N + 长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;点行设置全局 `sel`,
-  再点取消,并与每日堆叠柱和 Donut 联动。按人视角主视图显示操作员排行表并继续下钻 `/operator/:name`。
+- 主分析区排行 Bar 在按 Skill 视角显示 Top N + 长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;点行设置全局 `sel`,
+  再点取消,并与其下方每日使用趋势图和 Donut 联动。按人视角主分析区显示操作员排行表并继续下钻 `/operator/:name`,
+  不新增与行跳转冲突的选中态;其下方趋势图展示当前筛选后的 operator 分布。
 - 按 Skill 视角治理待办 3 组:有使用但未收录、装了窗口内没用、收录但零装机。按人视角待办换为重度使用者、近 7 天沉睡、
   低覆盖使用者。每组 Top 8 + 查看全部/忽略入口;忽略是当前页面会话态,不写入浏览器持久化,避免突破 ADR-0023 的 localStorage 边界。
 - 归因 Donut 两张:按来源为双层 Sunburst(内环=已收录 vs 未收录;外环=own/meta/external/non_catalog),按 runtime 为单层 Donut;
@@ -141,12 +144,13 @@
 - SKILLS 统计域(`/skills`、`/skill/:name`、`/operator/:name`)使用专用响应式规则:
   桌面 `>1080px` 保持现有信息架构;平板 `601px-1080px`;手机 `≤600px`。
   该域页面根节点不得出现横向滚动;趋势图只允许在 `.chart-box` 内部横向滚动。
-- `/skills` 在平板与手机下必须保持单列主内容流:控制条 → KPI 环带 → 治理健康条 → 趋势图 → 排行/治理待办 →
-  归因 → 明细 → 公司库漏斗。漏斗下沉到底部,不得在窄屏下挤到排行右侧导致主体过窄。
+- `/skills` 在平板与手机下必须保持单列主内容流:控制条 → KPI 环带 → 治理健康条 →
+  排行/操作员排行 → 趋势图 → 治理待办 → 归因 → 明细 → 公司库漏斗。漏斗下沉到底部,不得在窄屏下挤到排行右侧导致主体过窄。
 - `/skills` 的控制条在手机下仍须显示当前视角说明文案;分段按钮等分占满可用宽度。
   搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。
-- `/skills` 的 7 天趋势图在手机下应铺满图表容器,不得强制用户横向滚动才能看到完整 7 天槽位;
-  30/90 天趋势图和详情页固定 30 天趋势图允许在 `.chart-box` 内部横向滚动。
+- `/skills` 的趋势图使用固定单日槽宽(按 30d 观感定标),日期轨道长度与图表视窗尺寸解耦:
+  1-7 天窗口右对齐显示且不拉伸;30/90 天、自选超过 7 天和详情页固定 30 天趋势图允许在 `.chart-box` 内部横向滚动,
+  并默认显示最新日期。页面根不得因趋势图横向滚动。
 - `/skills` 的排行 Bar、Skill 明细表和按人主榜在手机下须从桌面表格/横条压缩为摘要行或单列条:
   首行展示主语名称与来源/占比,后续行展示 W 内、W′、Δ%、用户/会话、最近使用日等关键指标。
   Skill 明细整行可点打开抽屉且键盘可达;按人主榜整行可点进入 `/operator/:name` 且键盘可达。
@@ -196,7 +200,8 @@
 - SKILLS 总览 Skill 明细表默认按当前窗口 `W` 内会话数降序,平手按累计;按人主表保留 30 天会话数降序,平手按累计。
 - 进入某操作员详情 → 左侧为 runtime 分布、右侧为「使用 Skill 排行」,排行默认按 7 天列降序。
 - /skills 视角切换位于控制条内,内容行按钮为 32px 高分段控件;切换后整页换主语且说明文案随之变化,时间窗不重置。
-- `/skills?view=skill&w=7d&topn=8` 显示 KPI 环带 8 格、治理健康 5 项、全宽每日柱、排行 Bar、治理待办、两张 Donut、明细表和下沉漏斗。
+- `/skills` 无窗口参数 → 前端默认 `w=7d`。
+- `/skills?view=skill&w=7d&topn=8` 显示 KPI 环带 8 格、治理健康 5 项、排行 Bar 下方每日趋势图、治理待办、两张 Donut、明细表和下沉漏斗。
 - `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过 KPI、健康条和治理待办 A 组呈现。
 - 点击 Skill 明细表任意行 → 同页打开右侧抽屉并写入 `sel=<skill>`;抽屉内点「前往详情页」才跳 `/skill/:name`。
 - 浏览器时区为 Asia/Shanghai,当前本地时间为 `2026-06-28 01:00:00`,记录
@@ -219,7 +224,7 @@
 - 键盘聚焦某可操作行并按 Enter/Space → 触发与点击相同的抽屉或跳转行为。
 - "最近记录"表行 hover/点击 → 不跳转,指针为默认。
 - 375x812 打开 `/skills?view=skill&w=7d` → 页面根无横向滚动,控制条说明可见,筛选控件逐行铺满,
-  7 天趋势图铺满图表容器且无需横向滚动即可看到全部 7 天槽位,排行 Bar 与明细表为移动摘要/单列样式,点 Skill 明细行打开全屏抽屉。
+  排行摘要行之后显示 7 天趋势图;趋势图保持 30d 单日槽宽并右对齐显示最新 7 天,不拉伸到整行;Skill 明细行为移动摘要/单列样式,点 Skill 明细行打开全屏抽屉。
 - 375x812 打开 `/skills?view=skill&w=30d` → 页面根无横向滚动,30 天趋势图只在 `.chart-box` 内横滚,
   治理待办位于排行之后,公司库漏斗位于页面底部。
 - 375x812 打开 `/skills?view=operator&w=30d` → 页面根无横向滚动,按人榜为摘要行且整行点击进入 `/operator/:name`,
