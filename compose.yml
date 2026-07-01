@@ -1,6 +1,7 @@
 services:
   server:
-    image: ghcr.io/tranfu-labs/tranfu-agents-app:latest
+    image: ${IMAGE_REF:-ghcr.io/tranfu-labs/tranfu-agents-app:latest}
+    pull_policy: always
     environment:
       TF_DB: /data/tf.db
       PORT: "8788"

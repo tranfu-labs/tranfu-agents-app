@@ -20,9 +20,9 @@ jobs:
       packages: write
 
     env:
-      COOLIFY_APP_UUID:     ${{ vars.COOLIFY_APP_UUID }}
-      IMAGE_TAG_ROLLING:    ${{ vars.IMAGE_TAG_ROLLING }}
-      IMAGE_TAG_SHA_PREFIX: ${{ vars.IMAGE_TAG_SHA_PREFIX }}
+      COOLIFY_APP_UUID:  ${{ vars.COOLIFY_APP_UUID }}
+      IMAGE_TAG_ROLLING: ${{ vars.IMAGE_TAG_ROLLING || 'latest' }}
+      IMAGE_REF:         ghcr.io/tranfu-labs/tranfu-agents-app:${{ vars.IMAGE_TAG_SHA_PREFIX || 'sha-' }}${{ github.sha }}
 
     steps:
       - name: 前置检查（Coolify 部署所需配置）
@@ -33,9 +33,7 @@ jobs:
           missing=()
           [ -z "$TOKEN" ] && missing+=("repo secret: COOLIFY_API_TOKEN")
           [ -z "$BASE"  ] && missing+=("repo secret: COOLIFY_BASE_URL")
-          [ -z "$COOLIFY_APP_UUID" ]  && missing+=("environment '${{ github.ref_name }}' var: COOLIFY_APP_UUID")
-          [ -z "$IMAGE_TAG_ROLLING" ] && missing+=("environment '${{ github.ref_name }}' var: IMAGE_TAG_ROLLING")
-          [ -z "$IMAGE_TAG_SHA_PREFIX" ] && missing+=("environment '${{ github.ref_name }}' var: IMAGE_TAG_SHA_PREFIX")
+          [ -z "$COOLIFY_APP_UUID" ] && missing+=("environment '${{ github.ref_name }}' var: COOLIFY_APP_UUID")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::缺少 Coolify 部署配置，构建已中止："
             for m in "${missing[@]}"; do echo "  - $m"; done
@@ -85,9 +83,22 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG_ROLLING }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG_SHA_PREFIX }}${{ github.sha }}
+            ${{ env.IMAGE_REF }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: 写入 Coolify 运行镜像引用
+        env:
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          BASE:  ${{ secrets.COOLIFY_BASE_URL }}
+        run: |
+          BASE="${BASE%/}"
+          jq -nc --arg k IMAGE_REF --arg v "$IMAGE_REF" '{key: $k, value: $v, is_literal: true}' \
+            | curl -sSL --fail-with-body -X PATCH \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d @- \
+                "$BASE/api/v1/applications/$COOLIFY_APP_UUID/envs"
 
       - name: 触发 Coolify 部署
         env:
@@ -95,4 +106,6 @@ jobs:
           BASE:  ${{ secrets.COOLIFY_BASE_URL }}
         run: |
           BASE="${BASE%/}"
-          curl -sSL --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false"
+          curl -sSL --fail-with-body -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false"
