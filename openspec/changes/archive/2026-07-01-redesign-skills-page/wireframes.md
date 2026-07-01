@@ -1,6 +1,7 @@
-# SKILLS 统计 · 线框图
+# SKILLS 页仪表盘化 · 线框图
 
-> 路由：`/skills`（`frontend/src/views/Skills.tsx`）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
+> 路由：`/skills`（`frontend/src/views/Skills.tsx`）。画法与硬规则见 [../../../docs/wireframes/AGENTS.md](../../../docs/wireframes/AGENTS.md)，控件画法见 [../../../docs/wireframes/legend.md](../../../docs/wireframes/legend.md)。
+> 基线：[../../../docs/wireframes/pages/skills.md](../../../docs/wireframes/pages/skills.md)。本文件在其之上做**结构级重画**（原页面 6 块 → 新页面 7 层）。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 平板 768×1024（64 列）｜ 手机 375×812（31 列）

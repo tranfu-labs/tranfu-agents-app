@@ -130,6 +130,8 @@ export type SkillTableRow = {
   source?: string
   sessions_7d: number
   sessions_30d: number
+  sessions_window?: number
+  previous_sessions?: number
   sessions_total: number
   users_30d: number
   runtime_counts?: Record<string, number>
@@ -168,6 +170,42 @@ export type CatalogSkill = {
   type?: string
 }
 
+export type GovernanceBucketSkill = {
+  name: string
+  source?: string
+  sessions?: number
+  installed_at?: string | null
+  installers?: number
+  cataloged_at?: string | null
+}
+
+export type SkillsPeriodComparison = {
+  window?: string
+  current_window_start?: string
+  current_window_end?: string
+  previous_window_start?: string
+  previous_window_end?: string
+  current_sessions?: number
+  previous_sessions?: number
+  current_operators?: number
+  previous_operators?: number
+  current_session_count?: number
+  previous_session_count?: number
+  current_avg_skills_per_session?: number
+  previous_avg_skills_per_session?: number
+  current_top3_share?: number
+  previous_top3_share?: number
+  current_untracked_share?: number
+  previous_untracked_share?: number
+  current_company_skill_count?: number
+  previous_company_skill_count?: number
+}
+
+export type SkillsAttribution = {
+  by_source?: Array<{ source: string; sessions: number }>
+  by_runtime?: Array<{ runtime: string; sessions: number }>
+}
+
 export type SkillsOverview = {
   days?: number
   today: string
@@ -183,7 +221,17 @@ export type SkillsOverview = {
       skill_count: number
       top: GovernanceUntrackedSkill[]
     }
+    idle_installed?: {
+      count: number
+      top: GovernanceBucketSkill[]
+    }
+    cataloged_not_installed?: {
+      count: number
+      top: GovernanceBucketSkill[]
+    }
   }
+  period_comparison?: SkillsPeriodComparison
+  attribution?: SkillsAttribution
   funnel?: {
     available: boolean
     catalog?: CatalogSkill[]

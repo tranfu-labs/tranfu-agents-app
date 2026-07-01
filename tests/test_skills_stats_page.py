@@ -212,6 +212,51 @@ def test_skills_overview_governance_empty_and_tie_sort(client, app_mod):
     ]
 
 
+def test_skills_overview_dashboard_optional_aggregates(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="cur-a", skill="alpha", current_step="cur-a")
+    ev(client, operator="bob", runtime="claude-code", session_id="cur-b", skill="ghost", current_step="cur-b")
+    ev(client, operator="bob", runtime="hermes", session_id="cur-c", skill="ghost", current_step="cur-c")
+    ev(client, operator="alice", runtime="codex", session_id="prev-a", skill="alpha", current_step="prev-a")
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+    _set_skill_day(app_mod, "cur-a", "alpha", 1)
+    _set_skill_day(app_mod, "cur-b", "ghost", 1)
+    _set_skill_day(app_mod, "cur-c", "ghost", 1)
+    _set_skill_day(app_mod, "prev-a", "alpha", 9)
+
+    data = client.get("/api/skills?w=7d").json()
+    period = data["period_comparison"]
+    assert period["window"] == "7d"
+    assert period["current_sessions"] == 3
+    assert period["previous_sessions"] == 1
+    assert period["current_operators"] == 2
+    assert period["current_avg_skills_per_session"] == 1
+    assert period["current_top3_share"] == 1
+    assert period["current_untracked_share"] == pytest.approx(2 / 3)
+
+    attrs = data["attribution"]
+    assert {r["source"]: r["sessions"] for r in attrs["by_source"]} == {
+        "own": 1,
+        "meta": 0,
+        "external": 0,
+        "non_catalog": 2,
+    }
+    assert {r["runtime"]: r["sessions"] for r in attrs["by_runtime"]} == {
+        "claude-code": 1,
+        "codex": 1,
+        "hermes": 1,
+    }
+
+    assert data["governance"]["idle_installed"]["count"] == 1
+    assert data["governance"]["idle_installed"]["top"][0]["name"] == "idle-own"
+    assert data["governance"]["cataloged_not_installed"]["count"] == 1
+    assert data["governance"]["cataloged_not_installed"]["top"][0]["name"] == "meta-tool"
+    alpha = next(row for row in data["table"] if row["name"] == "alpha")
+    assert alpha["sessions_window"] == 1
+    assert alpha["previous_sessions"] == 1
+
+
 def test_skills_overview_today_and_daily_window_use_shanghai_stats_day(client, app_mod, monkeypatch):
     class FixedDatetime(datetime):
         @classmethod

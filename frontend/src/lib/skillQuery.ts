@@ -9,6 +9,13 @@ const queryParsers = {
   dir: parseAsString.withDefault('desc'),
   view: parseAsString.withDefault('skill'),
   lens: parseAsString.withDefault('all'),
+  w: parseAsString.withDefault(''),
+  wstart: parseAsString.withDefault(''),
+  wend: parseAsString.withDefault(''),
+  cmp: parseAsString.withDefault('1'),
+  topn: parseAsInteger.withDefault(8),
+  hz: parseAsString.withDefault('0'),
+  sel: parseAsString.withDefault(''),
 }
 
 export function useSkillQueryState() {

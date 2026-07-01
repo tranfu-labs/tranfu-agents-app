@@ -33,13 +33,14 @@ agent 机器                         中心服务器(单容器)                 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
   `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 图表按服务端 `Asia/Shanghai` `today`
-  铺满 7/30/90 天或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
-  SKILLS 总览的按 Skill/按人视角切换使用独立标准 `frame` 卡片(标题栏说明 + 内容行 32px 分段按钮),可下钻表格整行跳转,
+  铺满所选 `w/days` 窗口或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
+  SKILLS 总览使用 dashboard 结构(控制条/KPI/健康条/全宽趋势/排行+治理待办/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
+  Skill 明细整行打开抽屉并由抽屉按钮跳详情,按人主榜和操作员详情 Skill 排行整行跳转,
   最近记录按浏览器本地时区展示 `first_seen`(本地今天内相对时间,昨天显示`昨天 HH:mm`,近 7 天显示星期+时刻,
   今年更早显示`MM-DD HH:mm`,跨年显示`YYYY-MM-DD HH:mm`,hover 显示完整本地绝对时间+时区;
   缺失 `first_seen` 时按服务端统计 `day` 显示今天/昨天/星期/MM-DD/YYYY-MM-DD,hover 保留原始日期)且不呈现可点态;
-  `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;按 Skill 视角的使用排行内部提供管理者筛选 Lens(`all`/`untracked`),
-  `untracked` 只切换该排行表为未收录使用占比列表,不改变趋势图、全局过滤条或公司库漏斗;
+  `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
+  未收录使用占比由 KPI、健康条与治理待办呈现;
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自

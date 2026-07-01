@@ -179,7 +179,7 @@ export function usePollingState(): Loadable<StatePayload> {
   return { data, loading, error, demo, refresh }
 }
 
-export function useSkillsOverview(enabled: boolean, days: number): Loadable<SkillsOverview> {
+export function useSkillsOverview(enabled: boolean, days: number, query = `days=${days}`): Loadable<SkillsOverview> {
   const [data, setData] = useState<SkillsOverview | null>(null)
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
@@ -192,7 +192,7 @@ export function useSkillsOverview(enabled: boolean, days: number): Loadable<Skil
       if (!enabled || (!force && now - lastFetch.current < 9500)) return
       setLoading(true)
       try {
-        const next = await fetchJson<SkillsOverview>(`/api/skills?days=${days}`)
+        const next = await fetchJson<SkillsOverview>(`/api/skills?${query}`)
         setData(next)
         setError('')
         setDemo(false)
@@ -205,7 +205,7 @@ export function useSkillsOverview(enabled: boolean, days: number): Loadable<Skil
         setLoading(false)
       }
     },
-    [days, enabled],
+    [days, enabled, query],
   )
 
   useEffect(() => {

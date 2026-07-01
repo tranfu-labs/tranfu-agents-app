@@ -5,6 +5,7 @@ import { Toast } from './components/Toast'
 import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsOverview, useTokenUsage } from './lib/api'
 import { makeT } from './lib/i18n'
 import { useSkillQueryState } from './lib/skillQuery'
+import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
 import { applyTheme, getBrowserPrefersDark, getBrowserThemeStorage, readStoredThemeMode, resolveTheme, writeStoredThemeMode, type ThemeMode } from './lib/theme'
 import { initialTokenUsageQuery } from './lib/tokenUsageRange'
 import type { Lang } from './lib/types'
@@ -19,8 +20,8 @@ import { TokenUsageView } from './views/TokenUsage'
 
 function SkillsRoute({ t }: { t: (key: string) => string }) {
   const [params] = useSkillQueryState()
-  const days = [7, 30, 90].includes(params.win) ? params.win : 30
-  const overview = useSkillsOverview(true, days)
+  const skillsWindow = resolveSkillsWindow(params)
+  const overview = useSkillsOverview(true, skillsWindow.days, skillsWindowQuery(params))
   return <SkillsView data={overview.data} loading={overview.loading} error={overview.error} t={t} />
 }
 

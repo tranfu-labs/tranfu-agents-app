@@ -105,6 +105,8 @@ export function StackedSkillChart({
   emptyTitle,
   emptyHint,
   ariaLabel,
+  selectedSegment,
+  topN = 8,
 }: {
   rows: StackRow[]
   overview?: SkillsOverview | null
@@ -115,6 +117,8 @@ export function StackedSkillChart({
   emptyTitle?: string
   emptyHint?: string
   ariaLabel?: string
+  selectedSegment?: string
+  topN?: number
 }) {
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
@@ -138,13 +142,13 @@ export function StackedSkillChart({
     })
     const top = Object.entries(totalBySegment)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 8)
+      .slice(0, topN)
       .map(([name]) => name)
     const totals = axis.map((day) => Object.values(byDay[day] || {}).reduce((a, b) => a + b, 0))
     const legend = [...top]
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
-  }, [days, overview, rows, segmentKey, today])
+  }, [days, overview, rows, segmentKey, today, topN])
 
   if (!rows.length || !model.totals.some(Boolean)) {
     return (
@@ -208,8 +212,10 @@ export function StackedSkillChart({
                 if (!value) return null
                 const height = Math.max(2, Math.round((value / max) * bh))
                 y -= height
-                const dim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
-                return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={dim ? 0.45 : 1} />
+                const selectedDim = selectedSegment && selectedSegment !== name
+                const hoverDim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
+                const emphasized = selectedSegment === name
+                return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={selectedDim || hoverDim ? 0.4 : 1} stroke={emphasized ? 'var(--text)' : undefined} strokeWidth={emphasized ? 1.4 : undefined} />
               })}
               {day === end && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
               <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: day === end, items, total })} onClick={(event) => showTip(event, { day, today: day === end, items, total })} />
