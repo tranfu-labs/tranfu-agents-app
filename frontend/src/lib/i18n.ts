@@ -2,7 +2,7 @@ import type { Lang, Status } from './types'
 
 export const I18N = {
   zh: {
-    board: 'Pods 看板', agents: 'Agents 列表', skillsNav: 'SKILLS', tokenUsageNav: 'Token 用量', demo: '演示数据 · 未连接',
+    board: 'Pods 看板', agents: 'Agents 列表', skillsNav: 'SKILLS 统计', tokenUsageNav: 'Token 用量', demo: '演示数据 · 未连接',
     themeMode: '主题模式', themeSystem: '系统', themeLight: '浅色', themeDark: '深色',
     ro_skill: '新增 Skill', ro_assets: '资产总数', ro_live: '在线',
     pods: 'Mission Pods', running: '运行', of: '共', dispatcher: '调度员', squad: '编队', live: '在线', feed: '活动流', silent: '静默中…', noPods: '尚无 Pod 上报', noPodsH: '成员入职后在此出现',
