@@ -3,6 +3,7 @@ import type { Lang, Status } from './types'
 export const I18N = {
   zh: {
     board: 'Pods 看板', agents: 'Agents 列表', skillsNav: 'SKILLS', tokenUsageNav: 'Token 用量', demo: '演示数据 · 未连接',
+    themeMode: '主题模式', themeSystem: '系统', themeLight: '浅色', themeDark: '深色',
     ro_skill: '新增 Skill', ro_assets: '资产总数', ro_live: '在线',
     pods: 'Mission Pods', running: '运行', of: '共', dispatcher: '调度员', squad: '编队', live: '在线', feed: '活动流', silent: '静默中…', noPods: '尚无 Pod 上报', noPodsH: '成员入职后在此出现',
     skillsRank: 'Skills 排行', skillName: 'Skill', skill7: '7 天', skill30: '30 天', skillTotal: '累计', skillUsers30: '人数', skillLast: '最近', skillEquipped: '装备', noSkills: '暂无 Skill 使用数据', noSkillsH: '新版 shim 上报后在此出现',
@@ -22,6 +23,7 @@ export const I18N = {
   },
   en: {
     board: 'Pods', agents: 'Agents', skillsNav: 'SKILLS', tokenUsageNav: 'Token usage', demo: 'Demo · offline',
+    themeMode: 'Theme mode', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark',
     ro_skill: 'New skills/wk', ro_assets: 'Assets', ro_live: 'Live',
     pods: 'Mission Pods', running: 'running', of: 'of', dispatcher: 'dispatcher', squad: 'squad', live: 'live', feed: 'Activity', silent: 'quiet…', noPods: 'No pods yet', noPodsH: 'appears after onboarding',
     skillsRank: 'Skills ranking', skillName: 'Skill', skill7: '7d', skill30: '30d', skillTotal: 'Total', skillUsers30: 'Users', skillLast: 'Last', skillEquipped: 'equipped', noSkills: 'No skill usage yet', noSkillsH: 'appears after updated shims report',

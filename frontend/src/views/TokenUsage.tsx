@@ -853,13 +853,7 @@ export function TokenUsageView({
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null)
   const [hideZero, setHideZero] = useState(false)
   const [sort, setSort] = useState<SortState>({ field: 'quota', dir: 'desc' })
-  const [ignoredRisks, setIgnoredRisks] = useState<Set<string>>(() => {
-    try {
-      return new Set((JSON.parse(window.localStorage.getItem('token-usage-ignored-risks') || '[]') as Array<string | number>).map(String))
-    } catch {
-      return new Set()
-    }
-  })
+  const [ignoredRisks, setIgnoredRisks] = useState<Set<string>>(() => new Set())
   const payload = data?.data
   const comparisonPayload = data?.comparison?.data
   const enriched = useMemo(() => enrichRows(payload?.summary || [], payload?.trend || [], payload?.models || []), [payload])
@@ -901,12 +895,10 @@ export function TokenUsageView({
     setIgnoredRisks((old) => {
       const next = new Set(old)
       next.add(alertId)
-      window.localStorage.setItem('token-usage-ignored-risks', JSON.stringify([...next]))
       return next
     })
   }
   const clearIgnoredRisks = () => {
-    window.localStorage.removeItem('token-usage-ignored-risks')
     setIgnoredRisks(new Set())
   }
   const isInitialLoading = loading && !payload

@@ -5,6 +5,7 @@ import { Toast } from './components/Toast'
 import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsOverview, useTokenUsage } from './lib/api'
 import { makeT } from './lib/i18n'
 import { useSkillQueryState } from './lib/skillQuery'
+import { applyTheme, getBrowserPrefersDark, getBrowserThemeStorage, readStoredThemeMode, resolveTheme, writeStoredThemeMode, type ThemeMode } from './lib/theme'
 import { initialTokenUsageQuery } from './lib/tokenUsageRange'
 import type { Lang } from './lib/types'
 import { Board } from './views/Board'
@@ -49,19 +50,38 @@ function TokenUsageRoute({ t }: { t: (key: string) => string }) {
 
 export default function App() {
   const [lang, setLang] = useState<Lang>('zh')
-  const [light, setLight] = useState(false)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode(getBrowserThemeStorage()))
+  const [prefersDark, setPrefersDark] = useState(getBrowserPrefersDark)
   const [toast, setToast] = useState('')
   const state = usePollingState()
   const location = useLocation()
   const t = useMemo(() => makeT(lang), [lang])
+  const resolvedTheme = useMemo(() => resolveTheme(themeMode, prefersDark), [themeMode, prefersDark])
+  const changeThemeMode = useCallback((mode: ThemeMode) => {
+    setThemeMode(mode)
+    writeStoredThemeMode(getBrowserThemeStorage(), mode)
+  }, [])
 
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
   }, [lang])
 
   useEffect(() => {
-    document.body.classList.toggle('light', light)
-  }, [light])
+    applyTheme(themeMode, resolvedTheme)
+  }, [themeMode, resolvedTheme])
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!media) return undefined
+    const sync = () => setPrefersDark(media.matches)
+    sync()
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', sync)
+      return () => media.removeEventListener('change', sync)
+    }
+    media.addListener(sync)
+    return () => media.removeListener(sync)
+  }, [])
 
   useEffect(() => {
     document.body.classList.toggle('is-demo', state.demo)
@@ -75,7 +95,16 @@ export default function App() {
 
   return (
     <>
-      <TopBar lang={lang} setLang={setLang} light={light} setLight={setLight} state={state.data} demo={state.demo} t={t} />
+      <TopBar
+        lang={lang}
+        setLang={setLang}
+        themeMode={themeMode}
+        resolvedTheme={resolvedTheme}
+        setThemeMode={changeThemeMode}
+        state={state.data}
+        demo={state.demo}
+        t={t}
+      />
       <main>
         {state.data ? (
           <Routes>

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test:unit": "tsc -p tsconfig.test.json && node node_modules/.tmp/test/lib/run-tests.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

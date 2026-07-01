@@ -113,7 +113,13 @@
 - 卡片/详情显示本机上报的 `shim_version` 短码,并按三态(current/outdated/unknown)切换样式:
   current 为常态;outdated 显示"旧 shim"橙色角标;unknown 显示"等待客户端心跳"灰色虚线角标,
   且字段位置渲染占位符(如 "—"),不显示空字符串。
-- 暗/亮双主题;通用手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
+- 主题模式为 `system` / `light` / `dark` 三态:`system` 为默认并跟随浏览器 `prefers-color-scheme`;
+  `light` / `dark` 为显式模式,不受系统偏好变化影响。顶部导航须提供可键盘操作的三态主题控件,
+  当前模式须有明确选中态;前端须在 root 元素反映 `data-theme-mode` 与实际 `data-theme`,
+  CSS 主题变量以 root 实际主题为准,并设置 `color-scheme`。主题变化时须同步当前文档
+  `<meta name="theme-color">`,深色 `#0b0b0c`,浅色 `#f6f7f8`;`manifest.json.theme_color`
+  与静态默认 meta 保持一致,运行时不动态改写 manifest。
+- 通用手机窄屏(≤600px)头部分行、表格横向滚动、详情单栏。
 - SKILLS 统计域(`/skills`、`/skill/:name`、`/operator/:name`)使用专用响应式规则:
   桌面 `>1080px` 保持现有信息架构;平板 `601px-1080px`;手机 `≤600px`。
   该域页面根节点不得出现横向滚动;趋势图只允许在 `.chart-box` 内部横向滚动。
@@ -131,7 +137,10 @@
   `/operator/:name` 的 runtime 分布与使用 Skill 排行在平板和手机下为单列,使用 Skill 排行位于 runtime 分布之后。
 - `/skill/:name` 与 `/operator/:name` 的最近记录表在手机下须展示为摘要行;
   最近记录无下钻目标,仍不得呈现为可点击行。
-- 不得使用浏览器本地存储;不得写死后端端口(同源相对路径)。
+- 除 `/admin` 管理钥匙的 `sessionStorage` 例外外,前端仅可使用 `localStorage` 固定 key
+  `tf-theme-mode` 保存主题模式 `system | light | dark`;不得保存语言、筛选条件、业务数据、身份数据、
+  上报内容或任意其它前端状态。读取或写入失败时须静默回退,不得阻塞看板渲染。
+- 不得写死后端端口(同源相对路径)。
 - 前端源码在 `frontend/`;生产由 Docker/CI 构建 `frontend/dist`,运行容器不依赖 node,仓库不提交 dist。
 
 ## 可验证行为
@@ -205,6 +214,15 @@
   使用 Skill 排行摘要行可点击,最近记录摘要行不可点击。
 - 1440x900 打开 `/skills`、`/skill/:name`、`/operator/:name` → 桌面布局与既有信息架构保持一致,
   不因移动端样式退化。
+- 首次打开看板且无主题偏好时,实际主题跟随浏览器 `prefers-color-scheme`。
+- 选择 `light` 后刷新页面,页面在 React 应用启动前即呈现浅色主题,`data-theme="light"`、
+  `color-scheme: light` 与 `theme-color=#f6f7f8` 一致。
+- 选择 `dark` 后刷新页面,页面在 React 应用启动前即呈现深色主题,`data-theme="dark"`、
+  `color-scheme: dark` 与 `theme-color=#0b0b0c` 一致。
+- 选择 `system` 后,浏览器系统偏好从深色切到浅色时,看板无需刷新即可更新为浅色;从浅色切到深色亦然。
+- localStorage 不可用或存储值非法时,看板仍能渲染,并回退为 `system`。
+- `manifest.json.theme_color` 与静态默认 meta 均为 `#0b0b0c`;浅色运行时只更新当前文档 meta 为 `#f6f7f8`。
+- 375x812 打开 `/` 与 `/skills` → 顶部三态主题控件可见且不造成页面根横向滚动。
 - 看板页面不再渲染 skills 区块,原有卡片与轮询行为不变。
 - 同一 `TF_STATE_TTL` 窗口内连续请求 `/api/state` → 响应可完全相同,`now` 不随每次请求刷新;超过 TTL 后重新计算。
 - 100 并发 `/api/state` 期间请求 `/healthz` → 返回 `ok`,且不因 `/api/state` 聚合占用 threadpool 而排队超时。

@@ -27,3 +27,4 @@
 | 0020 | 后台清理:硬删+回收站+审计(不软删);管理鉴权 TF_ADMIN_KEY 与 TF_KEY 隔离 | Proposed |
 | 0021 | 按 operator 删除收口到本人行(session 不再是 operator 路径的删除原子单位;修订 0020) | Proposed |
 | 0022 | Hermes 钩子链路常态结构化诊断日志(默认开 / 双文件 5MB rotate / 不与 harden-codex 重复 raw dump) | Proposed |
+| 0023 | 主题偏好的 localStorage 窄例外 | Proposed |

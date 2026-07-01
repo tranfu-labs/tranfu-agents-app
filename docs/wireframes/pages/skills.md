@@ -10,7 +10,7 @@
 ```
 ━━ 桌面 1440×900（120 列 × 38 行）━━
 ┌─ 顶部导航 ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◆ TRANFU//AGENTS   标签页 ‹Pods› Agents  SKILLS        +N Skill/周  N 资产  ● N Live   ⧗ 00:00:00  [中|EN] [🌙]      │
+│ ◆ TRANFU//AGENTS   标签页 Pods Agents ‹SKILLS›        +N Skill/周  N 资产  ● N Live   ⧗ 00:00:00  [中|EN] [系统|浅色|深色] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ ① 视角 ─────────────────────────────────────────────────────────────── 按 Skill:看哪个能力最热 ───────────────────┐
@@ -38,7 +38,8 @@
 ━━ 平板 768×1024（64 列 × 43 行）━━
 ┌─ 顶部导航 ───────────────────────────────────────────────────┐
 │ ◆ TRANFU  ‹Pods› Agents SKILLS   ● N Live  ⧗00:00:00         │
-│ +N Skill/周  N 资产                     [中|EN] [🌙]         │
+│ +N Skill/周  N 资产                     [中|EN]              │
+│ [系统][浅色][深色]                                           │
 └──────────────────────────────────────────────────────────────┘
 
 ┌─ ① 视角 ──────────────────────────── 按 Skill:看哪个能力最热 ┐
@@ -67,9 +68,10 @@
 
 ━━ 手机 375×812（31 列 × 34 行）━━
 ┌─ 顶部导航 ──────────────────┐
-│ ☰ ◆ TRANFU      [中|EN] [🌙]│
+│ ☰ ◆ TRANFU      [中|EN]     │
 │ ‹Pods› Agents SKILLS        │
 │ ● N Live   ⧗ 00:00:00       │
+│ [系统][浅色][深色]          │
 └─────────────────────────────┘
 
 ┌─ ① 视角 ────────────────────┐
@@ -120,3 +122,4 @@
 | ③ | 每日使用 Top8 堆叠柱状图 | 按当前视角用 skill/operator 分段；悬停看当天分项；7d 手机铺满容器，30/90d 只在图表内横滚 | overview.daily / overview.operator_daily（only used） | StackedSkillChart |
 | ④ | 使用排行主榜（只排 used）+ 管理者 Lens | 按 Skill 视角显示 Lens；默认"全部 Skill"；选"未收录使用占比"后只切本表为未收录列表；手机为摘要行；整行可点 → `/skill/:name` 或 `/operator/:name`；Enter/Space 可达；表头排序不触发行跳转 | overview.table / overview.operator_table / overview.governance.untracked_usage | SkillsTable · OperatorTable · GovernanceLens · GovernanceSkillTable |
 | ⑤ | 公司库采纳漏斗：采集/已装/近30天用/闲置（own+meta） | 展开看清单；平板/手机位于使用排行之后 | overview.funnel | Funnel · details |
+| ⑥ | 三态主题控件 | `system` / `light` / `dark` 三态；当前模式选中；键盘可达；刷新后保留显式选择；`system` 跟随系统偏好 | `tf-theme-mode` + `prefers-color-scheme` | SegmentedControl |

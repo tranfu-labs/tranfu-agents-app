@@ -30,6 +30,7 @@ _ROOT_STATIC_FILES = {
     "android-chrome-512x512-20260530.png",
     "manifest.json",
     "og-image-1200x630.png",
+    "theme-init.js",
 }
 
 
@@ -168,6 +169,12 @@ def manifest_json():
 @router.head("/og-image-1200x630.png")
 def og_image_1200x630_png():
     return _frontend_root_static("og-image-1200x630.png")
+
+
+@router.get("/theme-init.js")
+@router.head("/theme-init.js")
+def theme_init_js():
+    return _frontend_root_static("theme-init.js")
 
 
 @router.get("/shims/manifest")
