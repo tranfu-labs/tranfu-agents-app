@@ -34,7 +34,7 @@ agent 机器                         中心服务器(单容器)                 
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
   `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
   `window.start..window.end` 铺满所选 `w/days` 窗口,详情页按 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
-  SKILLS 总览使用 dashboard 结构(控制条/KPI/健康条/全宽趋势/排行+治理待办/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
+  SKILLS 总览使用 dashboard 结构(控制条/KPI/健康条/主分析区:排行+趋势图|治理待办/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
   Skill 明细整行打开抽屉并由抽屉按钮跳详情,抽屉展示 W/环比/装机、14/30/90 趋势、runtime、使用操作员 Top 与装备未使用差集;按人主榜和操作员详情 Skill 排行整行跳转,
   最近记录按浏览器本地时区展示 `first_seen`(本地今天内相对时间,昨天显示`昨天 HH:mm`,近 7 天显示星期+时刻,
   今年更早显示`MM-DD HH:mm`,跨年显示`YYYY-MM-DD HH:mm`,hover 显示完整本地绝对时间+时区;

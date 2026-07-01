@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { angleSpan, buildDonutSegments, buildSourceDonutSegments } from './skillsAttribution.ts'
 import { buildRankItems, deltaRatio, formatDelta } from './skillsDashboard.ts'
+import { resolveSkillsChartLayout } from './skillsChartLayout.ts'
 import { classifySkillHealth } from './skillsThresholds.ts'
 import { resolveSkillsWindow } from './skillsWindow.ts'
 import type { SkillTableRow } from './types.ts'
@@ -13,9 +14,25 @@ test('skills window resolves presets and custom fallback', () => {
   assert.equal(resolveSkillsWindow({ w: 'this_week' }, now).days, 3)
   assert.equal(resolveSkillsWindow({ w: 'last_week' }, now).days, 7)
   assert.equal(resolveSkillsWindow({ w: '14d' }, now).days, 14)
-  assert.equal(resolveSkillsWindow({ w: 'custom' }, now).days, 30)
+  assert.equal(resolveSkillsWindow({ w: 'custom' }, now).key, '7d')
+  assert.equal(resolveSkillsWindow({}, now).key, '7d')
   assert.equal(resolveSkillsWindow({ w: 'custom', wstart: '1782864000', wend: '1783123200' }, now).days, 4)
   assert.equal(resolveSkillsWindow({ win: 7 }, now).key, '7d')
+  assert.equal(resolveSkillsWindow({ win: 30 }, now).key, '30d')
+})
+
+test('skills chart layout keeps a fixed day slot and scrolls longer windows to the end', () => {
+  const oneDay = resolveSkillsChartLayout(1)
+  const sevenDays = resolveSkillsChartLayout(7)
+  const thirtyDays = resolveSkillsChartLayout(30)
+  const ninetyDays = resolveSkillsChartLayout(90)
+  assert.equal(sevenDays.daySlot, thirtyDays.daySlot)
+  assert.equal(sevenDays.trackWidth - oneDay.trackWidth, 6 * sevenDays.daySlot)
+  assert.equal(thirtyDays.trackWidth - sevenDays.trackWidth, 23 * sevenDays.daySlot)
+  assert.equal(sevenDays.rightAlign, true)
+  assert.equal(sevenDays.scrollToEnd, false)
+  assert.equal(thirtyDays.scrollToEnd, true)
+  assert.equal(ninetyDays.scrollToEnd, true)
 })
 
 test('skill health thresholds keep boundary values in expected buckets', () => {

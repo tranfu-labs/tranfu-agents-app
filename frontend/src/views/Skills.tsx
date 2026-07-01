@@ -251,13 +251,6 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
       {error ? <div className="note-warn">{t(error)}</div> : null}
       <KpiStrip data={data} view={view} showComparison={params.cmp !== '0'} />
       <HealthBar data={data} view={view} />
-      <section className="frame">
-        <h2>
-          <span><span className="sl">//</span>{view === 'operator' ? t('dailyByOperator') : t('dailyUsed')}</span>
-          <span className="cnt">{skillsWindow.label}</span>
-        </h2>
-        <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
-      </section>
       <div className="skills-main-split">
         <section className="frame">
           <SectionTitle title={view === 'operator' ? t('operatorRank') : '排行 Bar'} count={view === 'operator' ? operatorRows.length : rankRows.length} />
@@ -269,6 +262,13 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           ) : (
             <RankBars rows={rankRows} topN={topN} selected={selected} onSelect={selectSkill} t={t} />
           )}
+          <div className="skills-rank-chart">
+            <div className="skills-rank-chart-head">
+              <b><span className="sl">//</span>{view === 'operator' ? t('dailyByOperator') : t('dailyUsed')}</b>
+              <span className="cnt">{skillsWindow.label}</span>
+            </div>
+            <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
+          </div>
         </section>
         <section className="frame">
           <GovernanceTodo data={data} view={view} onOpen={view === 'skill' ? openSkill : undefined} />

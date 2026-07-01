@@ -122,6 +122,9 @@
   .field input{min-width:220px}.field select{min-width:108px}
   .chart-box{padding:16px;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .chart-box svg{display:block;min-width:640px;width:100%;height:auto}
+  .skill-chart-box>svg{width:auto}
+  .skill-chart-box.align-end>svg{margin-left:auto}
+  .skill-chart-box.align-end .legend2{justify-content:flex-end}
   .skill-chart.hovering .day-col{opacity:.32}
   .skill-chart.hovering .day-col.hovered{opacity:1}
   .skill-chart .day-col{transition:opacity .12s ease}
@@ -202,6 +205,10 @@
   .skills-rank-tail{display:grid;gap:5px;margin-left:22px;padding:2px 0 4px;border-left:1px solid var(--line)}
   .skills-rank-tail button{grid-template-columns:minmax(0,1fr) 70px 82px;margin-left:9px;padding:6px 8px}
   .skills-rank-tail span{min-width:0;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .skills-rank-chart{border-top:1px solid var(--line);margin-top:6px}
+  .skills-rank-chart-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px 0}
+  .skills-rank-chart-head b{display:flex;align-items:center;gap:4px;font-size:13px}
+  .skills-rank-chart-head .cnt{font-family:var(--mono);font-size:11px;color:var(--faint)}
   .skills-panel-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
   .skills-panel-title b{font-size:13px}.skills-panel-title button{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
   .skills-panel-title .seg.compact{height:28px;border-radius:7px;padding:2px}.skills-panel-title .seg.compact button{min-width:46px;padding:0 8px;border:0}
@@ -507,6 +514,7 @@
     .skills-page .lens-seg{height:auto;flex-wrap:wrap;width:100%}
     .skills-page .lens-seg button{flex:1 1 130px;min-height:30px}
     .skills-page .chart-box,.skill-detail-page .chart-box,.operator-detail-page .chart-box{padding:12px}
+    .skills-rank-chart-head{align-items:flex-start;flex-direction:column;gap:5px;padding:12px 14px 0}
     .skills-page .legend2,.skill-detail-page .legend2,.operator-detail-page .legend2{gap:6px}
     .skills-page .funnel{padding:14px}
     .skill-detail-page .statgrid,.operator-detail-page .statgrid,.operator-detail-page .statgrid.operator-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
