@@ -5,7 +5,7 @@ const queryParsers = {
   rt: parseAsString.withDefault(''),
   src: parseAsString.withDefault(''),
   q: parseAsString.withDefault(''),
-  sort: parseAsString.withDefault('sessions_30d'),
+  sort: parseAsString.withDefault('sessions_window'),
   dir: parseAsString.withDefault('desc'),
   view: parseAsString.withDefault('skill'),
   lens: parseAsString.withDefault('all'),

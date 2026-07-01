@@ -24,6 +24,19 @@ type FilterableOperator = { operator?: string; runtime?: string; source?: string
 const WINDOW_OPTIONS = ['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'] as const
 const TOP_OPTIONS = [5, 8, 10, 20]
 
+function unixToInput(value: string) {
+  const ts = Number(value)
+  if (!Number.isFinite(ts) || ts <= 0) return ''
+  const date = new Date(ts * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function inputToUnix(value: string) {
+  const ts = new Date(value).getTime()
+  return Number.isFinite(ts) ? String(Math.floor(ts / 1000)) : ''
+}
+
 function skillPass(row: FilterableSkill, q: string, runtime: string, source: string) {
   const needle = q.trim().toLowerCase()
   const name = String(row.name || row.skill || '')
@@ -77,7 +90,7 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
   const currentWindow = params.w || `${params.win || 30}d`
   const setView = (next: 'skill' | 'operator') => {
     if (next === view) return
-    update({ view: next, sort: 'sessions_30d', dir: 'desc' })
+    update({ view: next, sort: next === 'operator' ? 'sessions_30d' : 'sessions_window', dir: 'desc' })
   }
   return (
     <section className="frame skills-toolbar-frame">
@@ -93,6 +106,18 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
             {WINDOW_OPTIONS.map((key) => <option value={key} key={key}>{key}</option>)}
           </select>
         </label>
+        {currentWindow === 'custom' ? (
+          <>
+            <label className="field">
+              <span>开始</span>
+              <input type="datetime-local" value={unixToInput(params.wstart)} onChange={(event) => update({ w: 'custom', wstart: inputToUnix(event.target.value) })} />
+            </label>
+            <label className="field">
+              <span>结束</span>
+              <input type="datetime-local" value={unixToInput(params.wend)} onChange={(event) => update({ w: 'custom', wend: inputToUnix(event.target.value) })} />
+            </label>
+          </>
+        ) : null}
         <label className="field inline-check">
           <input type="checkbox" checked={params.cmp !== '0'} onChange={(event) => update({ cmp: event.target.checked ? '1' : '0' })} />
           <span>环比</span>
@@ -199,7 +224,8 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
     .filter((row) => params.hz !== '1' || Number(row.sessions_window ?? row.sessions_30d ?? 0) > 0)
   const skillRows = sortedRows(skillRowsBase, params.sort, params.dir) as SkillTableRow[]
   const rankRows = useMemo(() => skillRowsBase.slice().sort((a, b) => Number(b.sessions_window ?? b.sessions_30d ?? 0) - Number(a.sessions_window ?? a.sessions_30d ?? 0)), [skillRowsBase])
-  const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorPass(row, params.q, params.rt, params.src)), params.sort, params.dir) as OperatorTableRow[]
+  const operatorSort = params.sort === 'sessions_window' || params.sort === 'previous_sessions' ? 'sessions_30d' : params.sort
+  const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorPass(row, params.q, params.rt, params.src)), operatorSort, params.dir) as OperatorTableRow[]
   const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
   const chartDays = data?.days || skillsWindow.days
 
@@ -223,7 +249,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
     <div className={`skills-page skills-dashboard ${loading ? 'is-refreshing' : ''}`}>
       <SkillsToolbar data={data} params={params} setParams={setParams} view={view} t={t} />
       {error ? <div className="note-warn">{t(error)}</div> : null}
-      <KpiStrip data={data} view={view} />
+      <KpiStrip data={data} view={view} showComparison={params.cmp !== '0'} />
       <HealthBar data={data} view={view} />
       <section className="frame">
         <h2>
@@ -245,13 +271,13 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           )}
         </section>
         <section className="frame">
-          <GovernanceTodo data={data} view={view} />
+          <GovernanceTodo data={data} view={view} onOpen={view === 'skill' ? openSkill : undefined} />
         </section>
       </div>
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
       {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
       <FunnelSection data={data} t={t} />
-      {drawerSkill ? <SkillDrawer name={drawerSkill} search={location.search} onClose={() => setDrawerSkill('')} t={t} /> : null}
+      {drawerSkill ? <SkillDrawer name={drawerSkill} row={(data?.table || []).find((row) => row.name === drawerSkill)} search={location.search} onClose={() => setDrawerSkill('')} t={t} /> : null}
     </div>
   )
 }

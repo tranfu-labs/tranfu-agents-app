@@ -1,19 +1,46 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { GovernanceBucketSkill, GovernanceUntrackedSkill, OperatorTableRow, SkillsOverview } from '../../lib/types'
 
-type TodoItem = { id: string; title: string; detail: string; severity: 'warn' | 'bad' | 'info' }
+type TodoItem = { id: string; title: string; detail: string; severity: 'warn' | 'bad' | 'info'; openable?: boolean }
 
-function Section({ title, items, ignored, ignore }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void }) {
-  const visible = items.filter((item) => !ignored.has(item.id)).slice(0, 8)
+function rowKey(event: KeyboardEvent<HTMLDivElement>, action: () => void) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  action()
+}
+
+function Section({ title, items, ignored, ignore, onOpen }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void; onOpen?: (name: string) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const allVisible = items.filter((item) => !ignored.has(item.id))
+  const visible = expanded ? allVisible : allVisible.slice(0, 8)
+  const stopIgnore = (event: MouseEvent<HTMLButtonElement>, id: string) => {
+    event.stopPropagation()
+    ignore(id)
+  }
   return (
     <details className="skills-gov-group" open>
       <summary>{title} <span>{visible.length}/{items.length}</span></summary>
-      {visible.length ? visible.map((item) => (
-        <div className={`skills-gov-item ${item.severity}`} key={item.id}>
-          <span>{item.title}<em>{item.detail}</em></span>
-          <button type="button" onClick={() => ignore(item.id)}>忽略</button>
-        </div>
-      )) : <div className="hint">暂无待办</div>}
+      {visible.length ? visible.map((item) => {
+        const open = onOpen && item.openable !== false ? onOpen : undefined
+        return (
+          <div
+            className={`skills-gov-item ${item.severity} ${open ? 'clickable' : ''}`}
+            key={item.id}
+            role={open ? 'button' : undefined}
+            tabIndex={open ? 0 : undefined}
+            onClick={open ? () => open(item.title) : undefined}
+            onKeyDown={open ? (event) => rowKey(event, () => open(item.title)) : undefined}
+          >
+            <span>{item.title}<em>{item.detail}</em></span>
+            <button type="button" onClick={(event) => stopIgnore(event, item.id)}>忽略</button>
+          </div>
+        )
+      }) : <div className="hint">暂无待办</div>}
+      {allVisible.length > 8 ? (
+        <button type="button" className="skills-gov-more" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? '收起' : `查看全部 ${allVisible.length}`}
+        </button>
+      ) : null}
     </details>
   )
 }
@@ -40,7 +67,7 @@ function operatorGroups(rows: OperatorTableRow[]) {
   return { heavy, sleeping, narrow, untracked: [], idle: [], missing: [] }
 }
 
-export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview | null; view?: 'skill' | 'operator' }) {
+export function GovernanceTodo({ data, view = 'skill', onOpen }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; onOpen?: (name: string) => void }) {
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const groups = useMemo(() => {
     if (view === 'operator') return operatorGroups(data?.operator_table || [])
@@ -61,6 +88,7 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
       title: row.name,
       detail: row.cataloged_at ? `${String(row.cataloged_at).slice(0, 10)} 收录` : '已收录 · 0 装机',
       severity: 'info' as const,
+      openable: false,
     }))
     return { untracked, idle, missing, heavy: [], sleeping: [], narrow: [] }
   }, [data, view])
@@ -84,9 +112,9 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
         <b>治理待办</b>
         {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>恢复已忽略</button> : null}
       </div>
-      <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} />
-      <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} />
-      <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} />
+      <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} onOpen={onOpen} />
+      <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} onOpen={onOpen} />
+      <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} onOpen={onOpen} />
     </div>
   )
 }

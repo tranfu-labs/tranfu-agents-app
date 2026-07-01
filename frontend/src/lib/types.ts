@@ -208,6 +208,14 @@ export type SkillsAttribution = {
 
 export type SkillsOverview = {
   days?: number
+  window?: {
+    key?: string
+    days?: number
+    start?: string
+    end?: string
+    previous_start?: string
+    previous_end?: string
+  }
   today: string
   daily: SkillDailyRow[]
   table: SkillTableRow[]
@@ -294,6 +302,7 @@ export type SkillDetail = {
     last_day?: string
     equipped_total?: number
     equipped_30d?: number
+    installed_count?: number
   }
   daily?: Array<{ day: string; used?: number; equipped?: number }>
   runtime?: Array<{ runtime: string; used?: number; equipped?: number }>

@@ -7,8 +7,8 @@
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
 - `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=]` →
-  `{ today, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, catalog }`(SKILLS 总览;
-  `today` 为服务端统计时区 `Asia/Shanghai` 当日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
+  `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, catalog }`(SKILLS 总览;
+  `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
   governance、period_comparison 与 attribution 窗口,默认 30 天。新增字段均为可选返回,前端读不到时降级。)
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
@@ -79,9 +79,10 @@
   旧参数 `win` 保留向下兼容并在没有 `w` 时映射为 `w`;旧参数 `lens` 保留但不再驱动 UI。筛选变化使用 replace,
   不污染浏览器历史;详情跳转使用 push。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
-- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按所选 `Asia/Shanghai` 统计日窗口逐日铺满:
-  右端取服务端 `today`,左端为 `today-(N-1)`;每一天占一个槽位,有 used 数据才长堆叠柱,无数据留空槽。
-  前端取窗口内使用量 Top N(`topn`,默认 8)分色,其余合并为"其它"段;窗口选择器不含"全部"档。
+- SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按服务端返回的 `window.start..window.end`
+  逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
+  无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
+  其余合并为"其它"段;窗口选择器不含"全部"档。
 - SKILLS 总览采用八层仪表盘结构:控制条 → KPI 环带(8 格) → 治理健康条(5 项) → 每日堆叠柱(全宽独占) →
   主视图并列(排行 Bar | 治理待办) → 归因 Donut(来源+runtime) → 明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。
   首次加载只保留控制条和 skeleton/Empty;增量刷新保留旧数据并在标题 `cnt` 标记 loading/error。
@@ -102,7 +103,8 @@
 - 归因 Donut 两张:按来源为双层 Sunburst(内环=已收录 vs 未收录;外环=own/meta/external/non_catalog),按 runtime 为单层 Donut;
   权重均为当前窗口 used sessions。零值扇区不画;来源父子角度一致性容差 <0.5°;点击来源扇区联动全局 `src`。
 - 明细表列为名称/来源/W 内/W′ 上期/Δ%/用户/runtime/趋势/最近。按 Skill 视角点行默认打开右侧抽屉而不是直接跳详情;
-  抽屉显示 KPI4 格、趋势、runtime 拆分、最近 5 次触发,并提供「前往详情页」按钮作为 `/skill/:name` 逃逸口。
+  抽屉显示 KPI4 格(W 触发、环比、活跃者、装机数)、14/30/90 趋势切换、runtime 拆分、使用操作员 Top、
+  装备但未使用差集和最近 5 次触发,并提供「前往详情页」按钮作为 `/skill/:name` 逃逸口。
 - SKILLS 柱状图悬停某日列时,该列高亮、其余列降透明,并显示锚定柱子的明细浮窗(日期、当天各 skill 降序明细、
   Top8 外并"其它"、合计);浮窗锚定柱子几何而非光标——默认贴柱子右侧、顶部对齐图表绘图区顶,
   碰视口右边界翻到柱子左侧、碰下边界上移贴视口底。今日列作为最后一格,以进行中视觉区分并在浮窗标注。

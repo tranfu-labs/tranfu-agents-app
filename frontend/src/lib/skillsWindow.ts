@@ -69,7 +69,7 @@ export function skillsWindowQuery(params: Partial<SkillQueryState>) {
   const window = resolveSkillsWindow(params)
   const out = new URLSearchParams()
   out.set('w', window.key)
-  out.set('days', String(window.days === 14 || window.days === 1 ? 30 : window.days))
+  out.set('days', String(window.days))
   if (window.key === 'custom' && window.startTimestamp && window.endTimestamp) {
     out.set('wstart', String(window.startTimestamp))
     out.set('wend', String(window.endTimestamp))

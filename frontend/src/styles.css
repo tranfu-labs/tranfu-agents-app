@@ -199,13 +199,19 @@
   .rank-name{display:flex;align-items:center;gap:7px;min-width:0;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rank-name i{width:8px;height:8px;border-radius:2px;flex:none}.rank-track{height:12px;background:var(--line);border-radius:2px;overflow:hidden}.rank-track i{display:block;height:100%;min-width:2px}
   .skills-rank-bars strong{font-family:var(--mono);font-size:12px;color:var(--text);text-align:right}.skills-rank-bars em{font-style:normal;font-size:10px;color:var(--faint);white-space:nowrap;text-align:right}
+  .skills-rank-tail{display:grid;gap:5px;margin-left:22px;padding:2px 0 4px;border-left:1px solid var(--line)}
+  .skills-rank-tail button{grid-template-columns:minmax(0,1fr) 70px 82px;margin-left:9px;padding:6px 8px}
+  .skills-rank-tail span{min-width:0;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .skills-panel-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
   .skills-panel-title b{font-size:13px}.skills-panel-title button{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
+  .skills-panel-title .seg.compact{height:28px;border-radius:7px;padding:2px}.skills-panel-title .seg.compact button{min-width:46px;padding:0 8px;border:0}
   .skills-governance{display:grid}.skills-gov-group{border-bottom:1px solid var(--line);padding:10px 16px}.skills-gov-group:last-child{border-bottom:0}
   .skills-gov-group summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:700}.skills-gov-group summary span{float:right;font-family:var(--mono);font-weight:400}
   .skills-gov-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+  .skills-gov-item.clickable{cursor:pointer}.skills-gov-item.clickable:hover,.skills-gov-item.clickable:focus-visible{background:var(--hover);outline:0;margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:7px}
   .skills-gov-item:last-child{border-bottom:0}.skills-gov-item span{min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.skills-gov-item em{display:block;font-style:normal;color:var(--muted);font-size:11px;font-weight:400}
   .skills-gov-item button{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:3px 7px}.skills-gov-item.bad span{color:var(--err)}.skills-gov-item.warn span{color:var(--wait)}
+  .skills-gov-more{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:7px;padding:6px 8px;color:var(--muted);font-size:11px}
   .skills-attribution{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .skills-donut{position:relative;display:grid;grid-template-columns:210px minmax(0,1fr);align-items:center;min-height:220px;border:1px solid var(--line);border-radius:var(--r);background:var(--elev);padding:38px 16px 16px}
   .skills-donut>b{position:absolute;left:16px;top:12px;font-size:13px}.skills-donut svg{width:190px;height:190px}.skills-donut path{cursor:pointer}
@@ -217,6 +223,7 @@
   .skills-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.skills-drawer-head>div{display:flex;align-items:center;gap:8px;min-width:0}.skills-drawer-head b{font-size:18px;overflow-wrap:anywhere}
   .skills-drawer-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}.skills-drawer-kpis .stat{padding:10px}.skills-drawer-kpis .stat .v{font-size:17px}
   .skills-drawer-section{border-top:1px solid var(--line);padding:12px 0}.skills-drawer-section b{display:block;margin-bottom:8px}.skills-drawer-section p{margin:4px 0;color:var(--muted);font-size:12px}
+  .skills-drawer-section p.danger{color:var(--err)}
   .skills-funnel{padding:14px 16px}.skills-funnel>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}.skills-funnel>summary span{color:var(--muted);font-size:12px}
   .empty.compact{padding:18px}
 

@@ -9,8 +9,9 @@ function pct(value?: number) {
   return `${((Number(value || 0)) * 100).toFixed(1)}%`
 }
 
-function Delta({ current, previous, snapshot }: { current?: number; previous?: number; snapshot?: boolean }) {
+function Delta({ current, previous, snapshot, show = true }: { current?: number; previous?: number; snapshot?: boolean; show?: boolean }) {
   if (snapshot) return <span className="delta snapshot">快照</span>
+  if (!show) return <span className="delta snapshot">环比关</span>
   const ratio = deltaRatio(Number(current || 0), Number(previous || 0))
   const cls = ratio === null ? '' : ratio >= 0 ? 'up' : 'down'
   return <span className={`delta ${cls}`}>{formatDelta(ratio)}</span>
@@ -42,7 +43,7 @@ function operatorCards(data: SkillsOverview | null) {
   ] as const
 }
 
-export function KpiStrip({ data, view = 'skill' }: { data: SkillsOverview | null; view?: 'skill' | 'operator' }) {
+export function KpiStrip({ data, view = 'skill', showComparison = true }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; showComparison?: boolean }) {
   if (view === 'operator') {
     const cards = operatorCards(data)
     return (
@@ -90,7 +91,7 @@ export function KpiStrip({ data, view = 'skill' }: { data: SkillsOverview | null
         {cards.map(([label, value, current, previous, kind]) => (
           <div className="stat skills-kpi-card" key={label}>
             <div className="v">{value}</div>
-            <Delta current={kind === 'pct' ? Number(current) : Number(current || 0)} previous={kind === 'pct' ? Number(previous) : Number(previous || 0)} snapshot={kind === 'snapshot'} />
+            <Delta current={kind === 'pct' ? Number(current) : Number(current || 0)} previous={kind === 'pct' ? Number(previous) : Number(previous || 0)} snapshot={kind === 'snapshot'} show={showComparison} />
             <div className="l">{label}</div>
           </div>
         ))}
