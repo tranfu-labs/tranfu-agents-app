@@ -9,6 +9,8 @@ import type {
   Loadable,
   OperatorDetail,
   SkillDetail,
+  SkillsEvidenceKind,
+  SkillsEvidencePayload,
   SkillsOverview,
   StatePayload,
   TokenUsageQuery,
@@ -48,6 +50,23 @@ function tokenUsageUrl(query: TokenUsageQuery) {
 
 async function fetchTokenUsagePayload(query: TokenUsageQuery, signal?: AbortSignal) {
   return fetchJson<TokenUsagePayload>(tokenUsageUrl(query), signal ? { signal } : undefined)
+}
+
+function emptySkillsEvidence(query: string): SkillsEvidencePayload {
+  const params = new URLSearchParams(query)
+  return {
+    kind: (params.get('kind') || 'total') as SkillsEvidenceKind,
+    today: new Date().toISOString().slice(0, 10),
+    summary: {},
+    actions: [],
+    applied_filters: {},
+    ignored_filters: [],
+    top_skills: [],
+    top_operators: [],
+    daily: [],
+    records: [],
+    items: [],
+  }
 }
 
 async function fetchTokenUsageWithComparison(query: TokenUsageQuery, signal?: AbortSignal) {
@@ -206,6 +225,48 @@ export function useSkillsOverview(enabled: boolean, days: number, query = `days=
       }
     },
     [days, enabled, query],
+  )
+
+  useEffect(() => {
+    if (!enabled) return
+    const first = window.setTimeout(() => void refresh(true), 0)
+    const timer = window.setInterval(() => void refresh(false), 10000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+    }
+  }, [enabled, refresh])
+
+  return { data, loading, error, demo, refresh }
+}
+
+export function useSkillsEvidence(enabled: boolean, query: string): Loadable<SkillsEvidencePayload> {
+  const [data, setData] = useState<SkillsEvidencePayload | null>(null)
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  const [demo, setDemo] = useState(false)
+  const lastFetch = useRef(0)
+
+  const refresh = useCallback(
+    async (force = false) => {
+      const now = Date.now()
+      if (!enabled || (!force && now - lastFetch.current < 9500)) return
+      setLoading(true)
+      try {
+        const next = await fetchJson<SkillsEvidencePayload>(`/api/skills/evidence?${query}`)
+        setData(next)
+        setError('')
+        setDemo(false)
+        lastFetch.current = Date.now()
+      } catch {
+        setData((old) => old || emptySkillsEvidence(query))
+        setError('loadError')
+        setDemo(true)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [enabled, query],
   )
 
   useEffect(() => {

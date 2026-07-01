@@ -256,6 +256,52 @@ export type SkillsOverview = {
   }
 }
 
+export type SkillsEvidenceKind =
+  | 'total'
+  | 'untracked'
+  | 'coverage'
+  | 'operators'
+  | 'avg_per_session'
+  | 'idle'
+  | 'unused_ratio'
+  | 'zero_install'
+  | 'top3'
+  | 'runtime'
+  | 'source'
+
+export type SkillsEvidenceRecord = {
+  day?: string
+  first_seen?: string
+  skill?: string
+  operator?: string
+  runtime?: string
+  source?: string
+  session_id?: string
+}
+
+export type SkillsEvidenceItem = {
+  name: string
+  source?: string
+  installers?: number
+  last_day?: string | null
+}
+
+export type SkillsEvidencePayload = {
+  kind: SkillsEvidenceKind
+  today: string
+  window?: SkillsOverview['window']
+  summary?: Record<string, number | string | undefined>
+  actions?: Array<{ id: string; label: string }>
+  applied_filters?: Record<string, string | number | undefined>
+  ignored_filters?: Array<{ name: string; value?: string; reason?: string }>
+  top_skills?: Array<{ name: string; source?: string; records?: number; operators?: number; last_day?: string }>
+  top_operators?: Array<{ operator: string; records?: number; skills?: number; last_day?: string }>
+  daily?: Array<{ day: string; records: number }>
+  records?: SkillsEvidenceRecord[]
+  items?: SkillsEvidenceItem[]
+  catalog?: Record<string, unknown>
+}
+
 export type OperatorDetail = {
   operator: string
   today: string

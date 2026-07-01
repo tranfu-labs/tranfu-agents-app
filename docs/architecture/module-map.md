@@ -20,7 +20,7 @@ agent 机器                         中心服务器(单容器)                 
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 高频轮询快照必须经进程内 TTL 缓存复用,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
-- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skill/{name}`、
+- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skills/evidence`、`GET /api/skill/{name}`、
   `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
   `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
   `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
@@ -32,20 +32,21 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
-  `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
+  `/api/skills`、`/api/skills/evidence`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / 证据页 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
   `window.start..window.end` 铺满所选 `w/days` 窗口,详情页按 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
-  SKILLS 总览使用 dashboard 结构(控制条/KPI/健康条/主分析区:排行+趋势图|治理待办/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
+  SKILLS 总览使用证据导向 dashboard 结构(控制条/过去 W 变化/问题线索/主分析区:排行+趋势图|待处理线索/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
+  首屏聚合数字必须能下钻到 `/skills/evidence` 或同页名单证据,证据页继承当前时间窗和筛选并展示下一步动作、分组证据、原始记录或名单;
   Skill 明细整行打开抽屉并由抽屉按钮跳详情,抽屉展示 W/环比/装机、14/30/90 趋势、runtime、使用操作员 Top 与装备未使用差集;按人主榜和操作员详情 Skill 排行整行跳转,
   最近记录按浏览器本地时区展示 `first_seen`(本地今天内相对时间,昨天显示`昨天 HH:mm`,近 7 天显示星期+时刻,
   今年更早显示`MM-DD HH:mm`,跨年显示`YYYY-MM-DD HH:mm`,hover 显示完整本地绝对时间+时区;
   缺失 `first_seen` 时按服务端统计 `day` 显示今天/昨天/星期/MM-DD/YYYY-MM-DD,hover 保留原始日期)且不呈现可点态;
   `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
-  未收录使用占比由 KPI、健康条与治理待办呈现;
+  未收录使用占比由过去 W 变化、问题线索与待处理线索呈现;
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
-  `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
-  `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
-- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
+  `/agents`、`/agent/:key`、`/skills`、`/skills/evidence`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
+  `/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
+- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);

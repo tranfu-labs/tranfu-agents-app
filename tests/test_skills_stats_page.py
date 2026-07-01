@@ -213,6 +213,113 @@ def test_skills_overview_governance_empty_and_tie_sort(client, app_mod):
     ]
 
 
+def test_skills_evidence_total_and_untracked_records_are_windowed_used_only(client, app_mod):
+    _set_catalog(app_mod)
+
+    def report_many(skill, count, prefix, mode="used"):
+        for i in range(count):
+            sid = f"{prefix}-{i}"
+            ev(client, operator=f"op-{i % 2}", runtime="codex", session_id=sid,
+               skill=skill, skill_mode=mode, current_step=sid)
+            _set_skill_day(app_mod, sid, skill, 1, mode=mode)
+
+    report_many("alpha", 2, "own")
+    report_many("beta", 1, "external")
+    report_many("ghost", 3, "ghost")
+    report_many("ghost", 2, "equipped", mode="equipped")
+
+    overview = client.get("/api/skills?w=7d").json()
+    total = client.get("/api/skills/evidence?kind=total&w=7d").json()
+    assert total["summary"]["records"] == overview["period_comparison"]["current_sessions"] == 6
+    assert total["summary"]["skills"] == 3
+    assert total["summary"]["untracked_records"] == 3
+    assert total["summary"]["external_records"] == 1
+    assert {row["skill"] for row in total["records"]} == {"alpha", "beta", "ghost"}
+    assert all(row["skill"] != "ghost" or row["source"] == "非公司库" for row in total["records"])
+
+    untracked = client.get("/api/skills/evidence?kind=untracked&w=7d").json()
+    assert untracked["summary"]["records"] == 3
+    assert {row["skill"] for row in untracked["records"]} == {"ghost"}
+    assert {row["source"] for row in untracked["records"]} == {"非公司库"}
+    assert "beta" not in {row["skill"] for row in untracked["records"]}
+
+
+def test_skills_evidence_untracked_ignores_conflicting_source_filter(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="own", skill="alpha", current_step="own")
+    ev(client, operator="bob", runtime="codex", session_id="ghost", skill="ghost", current_step="ghost")
+    _set_skill_day(app_mod, "own", "alpha", 1)
+    _set_skill_day(app_mod, "ghost", "ghost", 1)
+
+    data = client.get("/api/skills/evidence?kind=untracked&w=7d&src=own").json()
+    assert data["summary"]["records"] == 1
+    assert data["records"][0]["skill"] == "ghost"
+    assert data["applied_filters"]["src"] == "non_catalog"
+    assert data["ignored_filters"] == [{
+        "name": "src",
+        "value": "own",
+        "reason": "kind_untracked_forces_non_catalog",
+    }]
+
+
+def test_skills_evidence_filters_affect_records_and_groups(client, app_mod):
+    _set_catalog(app_mod)
+    rows = [
+        ("keep", "alice", "codex", "alpha"),
+        ("operator-out", "bob", "codex", "alpha"),
+        ("runtime-out", "alice", "hermes", "alpha"),
+        ("skill-out", "alice", "codex", "ghost"),
+    ]
+    for session_id, operator, runtime, skill in rows:
+        ev(client, operator=operator, runtime=runtime, session_id=session_id,
+           skill=skill, current_step=session_id)
+        _set_skill_day(app_mod, session_id, skill, 1)
+
+    data = client.get(
+        "/api/skills/evidence?kind=total&w=7d&q=alp&rt=codex&src=own&skill=alpha&operator=alice"
+    ).json()
+    assert data["summary"]["records"] == 1
+    assert data["records"][0]["session_id"] == "keep"
+    assert data["records"][0]["skill"] == "alpha"
+    assert data["records"][0]["operator"] == "alice"
+    assert data["records"][0]["runtime"] == "codex"
+    assert [(row["name"], row["records"]) for row in data["top_skills"]] == [("alpha", 1)]
+    assert [(row["operator"], row["records"]) for row in data["top_operators"]] == [("alice", 1)]
+    assert data["applied_filters"]["q"] == "alp"
+    assert data["applied_filters"]["rt"] == "codex"
+    assert data["applied_filters"]["src"] == "own"
+    assert data["applied_filters"]["skill"] == "alpha"
+    assert data["applied_filters"]["operator"] == "alice"
+
+
+def test_skills_evidence_idle_returns_installed_unused_items(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="alpha", skill="alpha", current_step="alpha")
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+    _set_skill_day(app_mod, "alpha", "alpha", 1)
+
+    data = client.get("/api/skills/evidence?kind=idle&w=7d").json()
+    assert data["summary"]["records"] == 0
+    assert data["summary"]["items"] == 1
+    assert data["summary"]["installed"] == 2
+    assert data["records"] == []
+    assert [item["name"] for item in data["items"]] == ["idle-own"]
+    assert data["items"][0]["installers"] == 1
+
+    zero = client.get("/api/skills/evidence?kind=zero_install&w=7d").json()
+    assert zero["summary"]["records"] == 0
+    assert zero["summary"]["items"] == 1
+    assert [item["name"] for item in zero["items"]] == ["meta-tool"]
+    assert zero["items"][0]["installers"] == 0
+
+
+def test_skills_evidence_rejects_invalid_kind_and_limit(client):
+    assert client.get("/api/skills/evidence?kind=nope").status_code == 400
+    assert client.get("/api/skills/evidence?limit=0").status_code == 400
+    assert client.get("/api/skills/evidence?offset=-1").status_code == 400
+
+
 def test_skills_overview_dashboard_optional_aggregates(client, app_mod):
     _set_catalog(app_mod)
     ev(client, operator="alice", runtime="codex", session_id="cur-a", skill="alpha", current_step="cur-a")

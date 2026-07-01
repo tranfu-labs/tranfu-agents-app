@@ -1,8 +1,10 @@
 import type { KeyboardEvent } from 'react'
 import { useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { buildRankItems } from '../../lib/skillsDashboard'
 import type { SkillTableRow } from '../../lib/types'
 import { sourceLabel, skillColor } from '../../lib/utils'
+import { evidencePath } from '../../lib/skillsEvidence'
 
 function n(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(Math.round(Number(value || 0)))
@@ -16,6 +18,8 @@ function rowKey(event: KeyboardEvent<HTMLButtonElement>, action: () => void) {
 
 export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTableRow[]; topN: number; selected: string; onSelect: (name: string) => void; t: (key: string) => string }) {
   const [expanded, setExpanded] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
   const items = buildRankItems(rows, topN)
   const other = items.find((item) => item.isOther)
   const tailRows = useMemo(() => {
@@ -41,7 +45,22 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
             </span>
             <span className="rank-track"><i style={{ width: `${Math.max(3, (item.value / max) * 100)}%`, background: skillColor(item.name) }} /></span>
             <strong>{n(item.value)}</strong>
-            <em>{item.isOther ? (expanded ? '收起' : '展开') : sourceLabel(item.source, t)}</em>
+            <em>
+              {item.isOther ? (expanded ? '收起' : '展开') : sourceLabel(item.source, t)}
+              {!item.isOther ? (
+                <span
+                  className="rank-evidence"
+                  role="link"
+                  tabIndex={-1}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    navigate(evidencePath(location.search, 'total', { skill: item.name }))
+                  }}
+                >
+                  看证据
+                </span>
+              ) : null}
+            </em>
           </button>
         )
       })}

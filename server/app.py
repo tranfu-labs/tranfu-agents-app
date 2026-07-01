@@ -16,6 +16,8 @@ Read:
   GET  /api/state        snapshot the dashboard polls (sessions + profile +
                          computed quality + leverage + 90d activity)
   GET  /api/skills       SKILLS overview (skill and operator aggregates)
+  GET  /api/skills/evidence
+                         windowed evidence records/lists behind SKILLS signals
   GET  /api/skill/{name} single skill detail
   GET  /api/operator/{name}
                          single operator skill-usage detail
@@ -186,8 +188,8 @@ from server.routes.onboarding import (  # noqa: E402,F401
 from server.routes.board import (  # noqa: E402,F401
     _state_cache, _state_cache_lock,
     _snapshot, _state_compute_or_cache, metrics, leverage, skill_usage,
-    skills_overview, operator_detail_payload, skill_detail_payload,
-    state, skills_stats, skill_detail, operator_detail, agent_detail,
+    skills_overview, skills_evidence_payload, operator_detail_payload, skill_detail_payload,
+    state, skills_stats, skills_evidence, skill_detail, operator_detail, agent_detail,
 )
 
 # _day_cutoff 搬到 server.db(admin 与 board 共享)。
