@@ -61,32 +61,37 @@
 
 ## SKILLS 统计下钻
 
-过滤条与视角切换只改 URL query、同页刷新；点可下钻表格整行进入 skill 或操作员详情，返回时带回 query。
+控制条、选中态和视角切换只改 URL query、同页刷新；按 Skill 视角点明细行先开抽屉，抽屉内保留「前往详情页」逃逸口；按人视角仍点整行进入操作员详情，返回时带回 query。
 
 ```
-┌─ SKILLS 统计 /skills ─┐   ② 点 skill 名       ┌─ Skill 详情 /skill/:name ─┐
-│ → pages/skills.md     │ ───────────────────▶ │ → pages/skill-detail.md   │
-│                       │ ◀── ③ ←SKILLS(query) │                            │
+┌─ SKILLS 统计 /skills ─┐   ② 点 Skill 明细行   ┌┄ 右侧 Skill 抽屉 ┄┐
+│ → pages/skills.md     │ ───────────────────▶ ┊ 同页态 sel=skill  ┊
+│                       │ ◀────── ③ 关闭抽屉 ─ └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+│                       │   ④ 前往详情页        ┌─ Skill 详情 /skill/:name ─┐
+│                       │ ───────────────────▶ │ → pages/skill-detail.md   │
+│                       │ ◀── ⑤ ←SKILLS(query) │                            │
 │                       │                       └───────────────────────────┘
-│                       │   ④ 点操作员          ┌─ Operator 详情 /operator/:name ─┐
+│                       │   ⑥ 点操作员          ┌─ Operator 详情 /operator/:name ─┐
 │                       │ ───────────────────▶ │ → pages/operator-detail.md      │
-│                       │ ◀── ⑤ ←SKILLS(view)  │                                  │
+│                       │ ◀── ⑦ ←SKILLS(view)  │                                  │
 └───────────────────────┘                       └──────────────────────────────────┘
         │  ▲
-        ① 改过滤条/视角/Lens（搜索/runtime/来源/时间窗/view/lens）
+        ① 改控制条/视角/选中态（搜索/runtime/来源/w/topn/hz/view/sel）
         ▼  │
-┌┄ 同页态：query 写入 URL，表格/图表原地重筛 ┄┐
-┊（无跳转）                                    ┊
-└┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+┌┄ 同页态：query 写入 URL，KPI/图表/排行/明细原地重筛 ┄┐
+┊（无跳转）                                             ┊
+└┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
 ```
 
 | 步 | 从 | 到 | 触发 |
 |---|---|---|---|
-| ① | SKILLS `/skills` | 同页（query 变化） | 改过滤条、视角或管理者 Lens（搜索框 / runtime / 来源 / 时间窗 / 按 skill / 按人 / 未收录使用占比） |
-| ② | SKILLS `/skills` | Skill 详情 `/skill/:name` | 在按 Skill 视角点排行表任意行（整行跳转，附带 `location.search`） |
-| ③ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
-| ④ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
-| ⑤ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
+| ① | SKILLS `/skills` | 同页（query 变化） | 改控制条、视角或选中态（搜索框 / runtime / 来源 / 时间窗 `w` / Top N / 隐藏 0 / 按 skill / 按人 / `sel`） |
+| ② | SKILLS `/skills` | 右侧 Skill 抽屉（同页） | 在按 Skill 视角点明细表任意行；写入 `sel` 并打开抽屉 |
+| ③ | 右侧 Skill 抽屉 | SKILLS 同页 | 点关闭按钮或 backdrop |
+| ④ | 右侧 Skill 抽屉 | Skill 详情 `/skill/:name` | 点「前往详情页」按钮（附带 `location.search`） |
+| ⑤ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
+| ⑥ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
+| ⑦ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
 
 ## 后台清理台进入与删除流程
 

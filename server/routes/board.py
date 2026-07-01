@@ -11,7 +11,7 @@ import time
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -152,27 +152,27 @@ def skill_usage(conn):
     } for r in rows]
 
 
-def _skills_governance_untracked(conn, daily_start, d30, trend_days, catalog_by):
+def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by):
     total = conn.execute("""
       SELECT COUNT(*) c FROM skill_uses
-      WHERE mode='used' AND day >= ?
-    """, (daily_start,)).fetchone()["c"] or 0
+      WHERE mode='used' AND day >= ? AND day <= ?
+    """, (window_start, window_end)).fetchone()["c"] or 0
     window_rows = conn.execute("""
       SELECT skill,
         COUNT(*) sessions,
         COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
         MAX(day) last_day
       FROM skill_uses
-      WHERE mode='used' AND day >= ?
+      WHERE mode='used' AND day >= ? AND day <= ?
       GROUP BY skill
-    """, (d30, daily_start)).fetchall()
+    """, (d30, window_start, window_end)).fetchall()
     runtime_counts = {}
     for r in conn.execute("""
       SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
-      WHERE mode='used' AND day >= ?
+      WHERE mode='used' AND day >= ? AND day <= ?
       GROUP BY skill, runtime
-    """, (daily_start,)):
+    """, (window_start, window_end)):
         runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
     trend = {}
     if trend_days:
@@ -217,20 +217,202 @@ def _skills_governance_untracked(conn, daily_start, d30, trend_days, catalog_by)
     }
 
 
-def skills_overview(conn, days):
+def _skill_source_key(value):
+    return "non_catalog" if value == CATALOG_SOURCE_UNKNOWN else value
+
+
+def _skills_window(days, w=None, wstart=None, wend=None):
+    today = stats_today()
+
+    def make(key, start, end):
+        span = (end - start).days + 1
+        return {
+            "key": key,
+            "days": max(1, span),
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "previous_start": (start - timedelta(days=max(1, span))).isoformat(),
+            "previous_end": (start - timedelta(days=1)).isoformat(),
+        }
+
+    if w:
+        key = str(w).strip()
+        if key == "today":
+            return make(key, today, today)
+        if key == "this_week":
+            start = today - timedelta(days=today.weekday())
+            return make(key, start, today)
+        if key == "last_week":
+            end = today - timedelta(days=today.weekday() + 1)
+            start = end - timedelta(days=6)
+            return make(key, start, end)
+        if key == "custom":
+            try:
+                start = datetime.fromtimestamp(int(wstart), tz=STATS_TZ)
+                end = datetime.fromtimestamp(int(wend), tz=STATS_TZ)
+                start_day = start.date()
+                end_day = end.date()
+                if end_day < start_day:
+                    raise ValueError("custom end before start")
+                if (end_day - start_day).days >= 90:
+                    end_day = start_day + timedelta(days=89)
+                return make(key, start_day, end_day)
+            except Exception:
+                return make("30d", today - timedelta(days=29), today)
+        if key.endswith("d") and key[:-1].isdigit():
+            value = int(key[:-1])
+            if value in (7, 14, 30, 90):
+                return make(key, today - timedelta(days=value - 1), today)
+        raise HTTPException(400, "w must be one of today,this_week,last_week,7d,14d,30d,90d,custom")
     if days not in (7, 30, 90):
         raise HTTPException(400, "days must be one of 7, 30, 90")
+    return make(f"{days}d", today - timedelta(days=days - 1), today)
+
+
+def _period_comparison(conn, window, catalog_by):
+    current_start = window["start"]
+    current_end = window["end"]
+    previous_start = window["previous_start"]
+    previous_end = window["previous_end"]
+
+    def stats(start, end):
+        params = [start, end]
+        row = conn.execute(f"""
+          SELECT COUNT(*) sessions,
+            COUNT(DISTINCT CASE WHEN trim(COALESCE(operator,'')) <> '' THEN operator END) operators,
+            COUNT(DISTINCT session_id) session_count
+          FROM skill_uses
+          WHERE mode='used' AND day >= ? AND day <= ?
+        """, params).fetchone()
+        skill_rows = conn.execute(f"""
+          SELECT skill, COUNT(*) sessions
+          FROM skill_uses
+          WHERE mode='used' AND day >= ? AND day <= ?
+          GROUP BY skill
+        """, params).fetchall()
+        sessions = int(row["sessions"] or 0)
+        session_count = int(row["session_count"] or 0)
+        top3 = sum(int(r["sessions"] or 0) for r in sorted(skill_rows, key=lambda r: int(r["sessions"] or 0), reverse=True)[:3])
+        untracked = sum(int(r["sessions"] or 0) for r in skill_rows if _skill_source(r["skill"], catalog_by) == CATALOG_SOURCE_UNKNOWN)
+        company_skills = {r["skill"] for r in skill_rows if _skill_source(r["skill"], catalog_by) in CATALOG_COMPANY_TYPES and int(r["sessions"] or 0) > 0}
+        return {
+            "sessions": sessions,
+            "operators": int(row["operators"] or 0),
+            "session_count": session_count,
+            "avg_skills_per_session": (sessions / session_count) if session_count else 0,
+            "top3_share": (top3 / sessions) if sessions else 0,
+            "untracked_share": (untracked / sessions) if sessions else 0,
+            "company_skill_count": len(company_skills),
+        }
+
+    cur = stats(current_start, current_end)
+    prev = stats(previous_start, previous_end)
+    return {
+        "window": window["key"],
+        "current_window_start": current_start,
+        "current_window_end": current_end,
+        "previous_window_start": previous_start,
+        "previous_window_end": previous_end,
+        "current_sessions": cur["sessions"],
+        "previous_sessions": prev["sessions"],
+        "current_operators": cur["operators"],
+        "previous_operators": prev["operators"],
+        "current_session_count": cur["session_count"],
+        "previous_session_count": prev["session_count"],
+        "current_avg_skills_per_session": cur["avg_skills_per_session"],
+        "previous_avg_skills_per_session": prev["avg_skills_per_session"],
+        "current_top3_share": cur["top3_share"],
+        "previous_top3_share": prev["top3_share"],
+        "current_untracked_share": cur["untracked_share"],
+        "previous_untracked_share": prev["untracked_share"],
+        "current_company_skill_count": cur["company_skill_count"],
+        "previous_company_skill_count": prev["company_skill_count"],
+    }
+
+
+def _installed_skill_counts(conn):
+    counts = {}
+    for r in conn.execute("SELECT json FROM profiles"):
+        try:
+            profile = json.loads(r["json"])
+        except Exception:  # pragma: no cover  — profile JSON 损坏兜底
+            continue
+        for name in _skill_names(profile.get("skills")):
+            clean = _skill_use_name(name)
+            if clean:
+                counts[clean] = counts.get(clean, 0) + 1
+    return counts
+
+
+def _skills_attribution(conn, window_start, window_end, catalog_by):
+    by_source = {}
+    for r in conn.execute("""
+      SELECT skill, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND day >= ? AND day <= ?
+      GROUP BY skill
+    """, (window_start, window_end)):
+        source = _skill_source_key(_skill_source(r["skill"], catalog_by))
+        by_source[source] = by_source.get(source, 0) + int(r["sessions"] or 0)
+    by_runtime = [{
+        "runtime": r["runtime"] or "unknown",
+        "sessions": int(r["sessions"] or 0),
+    } for r in conn.execute("""
+      SELECT COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND day >= ? AND day <= ?
+      GROUP BY runtime
+      ORDER BY sessions DESC, runtime ASC
+    """, (window_start, window_end))]
+    return {
+        "by_source": [{"source": key, "sessions": by_source.get(key, 0)} for key in ("own", "meta", "external", "non_catalog")],
+        "by_runtime": by_runtime,
+    }
+
+
+def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names, installed_names, used_names):
+    install_counts = _installed_skill_counts(conn)
+    first_seen = {r["name"]: r["first_day"] for r in conn.execute("SELECT name,first_day FROM skills_seen")}
+    idle = []
+    for name in installed_names - used_names:
+        idle.append({
+            "name": name,
+            "source": catalog_by.get(name),
+            "installed_at": first_seen.get(name),
+            "installers": int(install_counts.get(name, 0)),
+        })
+    idle.sort(key=lambda item: (item.get("installed_at") or "", item["name"]), reverse=True)
+    missing = []
+    for name in company_names - installed_names:
+        missing.append({
+            "name": name,
+            "source": catalog_by.get(name),
+            "cataloged_at": catalog_meta.get("fetched_at"),
+        })
+    missing.sort(key=lambda item: (item.get("cataloged_at") or "", item["name"]))
+    return {
+        "idle_installed": {"count": len(idle), "top": idle[:50]},
+        "cataloged_not_installed": {"count": len(missing), "top": missing[:50]},
+    }
+
+
+def skills_overview(conn, days, w=None, wstart=None, wend=None):
+    window = _skills_window(days, w, wstart, wend)
+    days = window["days"]
     today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     d14 = (today - timedelta(days=13)).isoformat()
-    daily_start = _day_cutoff(days)
+    window_start = window["start"]
+    window_end = window["end"]
+    previous_start = window["previous_start"]
+    previous_end = window["previous_end"]
     _items, catalog_by, catalog_meta = _catalog_context(conn)
 
     daily_where, daily_params = ["mode='used'", "day IS NOT NULL"], []
-    if daily_start:
-        daily_where.append("day >= ?")
-        daily_params.append(daily_start)
+    daily_where.append("day >= ?")
+    daily_where.append("day <= ?")
+    daily_params.extend([window_start, window_end])
     daily_rows = conn.execute(f"""
       SELECT day, skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
@@ -248,9 +430,9 @@ def skills_overview(conn, days):
 
     operator_daily_where = ["mode='used'", "day IS NOT NULL", "trim(COALESCE(operator,'')) <> ''"]
     operator_daily_params = []
-    if daily_start:
-        operator_daily_where.append("day >= ?")
-        operator_daily_params.append(daily_start)
+    operator_daily_where.append("day >= ?")
+    operator_daily_where.append("day <= ?")
+    operator_daily_params.extend([window_start, window_end])
     operator_daily_rows = conn.execute(f"""
       SELECT day, operator, COALESCE(runtime,'') runtime, skill, COUNT(*) sessions
       FROM skill_uses
@@ -270,13 +452,23 @@ def skills_overview(conn, days):
       SELECT skill,
         SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
         SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) sessions_window,
+        SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) previous_sessions,
         COUNT(*) sessions_total,
         COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
         MAX(day) last_day
       FROM skill_uses
       WHERE mode='used'
       GROUP BY skill
-    """, (d7, d30, d30)).fetchall()
+    """, (
+        d7,
+        d30,
+        window_start,
+        window_end,
+        previous_start,
+        previous_end,
+        d30,
+    )).fetchall()
     runtime_counts = {}
     for r in conn.execute("""
       SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
@@ -302,6 +494,8 @@ def skills_overview(conn, days):
             "source": _skill_source(skill, catalog_by),
             "sessions_7d": int(r["sessions_7d"] or 0),
             "sessions_30d": int(r["sessions_30d"] or 0),
+            "sessions_window": int(r["sessions_window"] or 0),
+            "previous_sessions": int(r["previous_sessions"] or 0),
             "sessions_total": int(r["sessions_total"] or 0),
             "users_30d": int(r["users_30d"] or 0),
             "runtime_counts": runtime_counts.get(skill, {}),
@@ -309,7 +503,7 @@ def skills_overview(conn, days):
             "trend_days": trend_days,
             "last_day": r["last_day"],
         })
-    table.sort(key=lambda x: (-x["sessions_30d"], -x["sessions_total"], x["name"]))
+    table.sort(key=lambda x: (-x["sessions_window"], -x["sessions_total"], x["name"]))
 
     operator_rows = conn.execute("""
       SELECT operator,
@@ -369,28 +563,32 @@ def skills_overview(conn, days):
 
     company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
     installed_names = _installed_skill_names(conn) & company_names
-    used_30d_names = {r["skill"] for r in conn.execute("""
+    used_window_names = {r["skill"] for r in conn.execute("""
       SELECT DISTINCT skill FROM skill_uses
-      WHERE mode='used' AND day >= ?
-    """, (d30,)) if r["skill"] in company_names}
+      WHERE mode='used' AND day >= ? AND day <= ?
+    """, (window_start, window_end)) if r["skill"] in company_names}
     funnel = {
         "available": bool(company_names),
         "catalog": _catalog_list(company_names, catalog_by),
         "installed": _catalog_list(installed_names, catalog_by),
-        "used_30d": _catalog_list(used_30d_names, catalog_by),
-        "idle": _catalog_list(installed_names - used_30d_names, catalog_by),
+        "used_30d": _catalog_list(used_window_names, catalog_by),
+        "idle": _catalog_list(installed_names - used_window_names, catalog_by),
     }
     governance = {
-        "untracked_usage": _skills_governance_untracked(conn, daily_start, d30, trend_days, catalog_by),
+        "untracked_usage": _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by),
     }
+    governance.update(_governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names, installed_names, used_window_names))
     return {
         "days": days,
+        "window": window,
         "today": today.isoformat(),
         "daily": daily,
         "table": table,
         "operator_daily": operator_daily,
         "operator_table": operator_table,
         "governance": governance,
+        "period_comparison": _period_comparison(conn, window, catalog_by),
+        "attribution": _skills_attribution(conn, window_start, window_end, catalog_by),
         "funnel": funnel,
         "catalog": catalog_meta,
     }
@@ -511,6 +709,7 @@ def skill_detail_payload(conn, name):
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
     _items, catalog_by, catalog_meta = _catalog_context(conn)
+    installed_count = _installed_skill_counts(conn).get(name, 0)
     m = conn.execute("""
       SELECT
         SUM(CASE WHEN mode='used' AND day >= ? THEN 1 ELSE 0 END) sessions_7d,
@@ -576,6 +775,7 @@ def skill_detail_payload(conn, name):
             "equipped_30d": int(m["equipped_30d"] or 0),
             "equipped_total": int(m["equipped_total"] or 0),
             "equipped_users_30d": int(m["equipped_users_30d"] or 0),
+            "installed_count": int(installed_count or 0),
         },
         "daily": list(daily_map.values()),
         "runtime": sorted(runtime_map.values(), key=lambda x: (-(x["used"] + x["equipped"]), x["runtime"])),
@@ -688,9 +888,9 @@ async def state():
 
 
 @router.get("/api/skills")
-def skills_stats(days: int = 30):
+def skills_stats(days: int = 30, w: str | None = None, wstart: int | None = Query(None), wend: int | None = Query(None)):
     with closing(db()) as conn:
-        return JSONResponse(skills_overview(conn, days))
+        return JSONResponse(skills_overview(conn, days, w, wstart, wend))
 
 
 @router.get("/api/skill/{name}")

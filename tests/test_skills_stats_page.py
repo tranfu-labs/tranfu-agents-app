@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 from conftest import ev
+from server.db import STATS_TZ
 
 
 CATALOG = [
@@ -210,6 +211,95 @@ def test_skills_overview_governance_empty_and_tie_sort(client, app_mod):
         ("ghost-newer", new_day),
         ("ghost-older", old_day),
     ]
+
+
+def test_skills_overview_dashboard_optional_aggregates(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="cur-a", skill="alpha", current_step="cur-a")
+    ev(client, operator="bob", runtime="claude-code", session_id="cur-b", skill="ghost", current_step="cur-b")
+    ev(client, operator="bob", runtime="hermes", session_id="cur-c", skill="ghost", current_step="cur-c")
+    ev(client, operator="alice", runtime="codex", session_id="prev-a", skill="alpha", current_step="prev-a")
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+    _set_skill_day(app_mod, "cur-a", "alpha", 1)
+    _set_skill_day(app_mod, "cur-b", "ghost", 1)
+    _set_skill_day(app_mod, "cur-c", "ghost", 1)
+    _set_skill_day(app_mod, "prev-a", "alpha", 9)
+
+    data = client.get("/api/skills?w=7d").json()
+    period = data["period_comparison"]
+    assert period["window"] == "7d"
+    assert period["current_sessions"] == 3
+    assert period["previous_sessions"] == 1
+    assert period["current_operators"] == 2
+    assert period["current_avg_skills_per_session"] == 1
+    assert period["current_top3_share"] == 1
+    assert period["current_untracked_share"] == pytest.approx(2 / 3)
+
+    attrs = data["attribution"]
+    assert {r["source"]: r["sessions"] for r in attrs["by_source"]} == {
+        "own": 1,
+        "meta": 0,
+        "external": 0,
+        "non_catalog": 2,
+    }
+    assert {r["runtime"]: r["sessions"] for r in attrs["by_runtime"]} == {
+        "claude-code": 1,
+        "codex": 1,
+        "hermes": 1,
+    }
+
+    assert data["governance"]["idle_installed"]["count"] == 1
+    assert data["governance"]["idle_installed"]["top"][0]["name"] == "idle-own"
+    assert data["governance"]["cataloged_not_installed"]["count"] == 1
+    assert data["governance"]["cataloged_not_installed"]["top"][0]["name"] == "meta-tool"
+    alpha = next(row for row in data["table"] if row["name"] == "alpha")
+    assert alpha["sessions_window"] == 1
+    assert alpha["previous_sessions"] == 1
+
+
+def test_skills_overview_named_windows_use_explicit_date_ranges(client, app_mod):
+    _set_catalog(app_mod)
+    today = app_mod.stats_today()
+    last_week_days_ago = today.weekday() + 2
+    previous_week_days_ago = last_week_days_ago + 7
+
+    ev(client, operator="alice", runtime="codex", session_id="current", skill="alpha", current_step="current")
+    ev(client, operator="bob", runtime="codex", session_id="last-week", skill="beta", current_step="last")
+    ev(client, operator="chen", runtime="codex", session_id="previous-week", skill="ghost", current_step="previous")
+    _set_skill_day(app_mod, "current", "alpha", 0)
+    last_week_day = _set_skill_day(app_mod, "last-week", "beta", last_week_days_ago)
+    previous_week_day = _set_skill_day(app_mod, "previous-week", "ghost", previous_week_days_ago)
+
+    data = client.get("/api/skills?w=last_week").json()
+    assert {row["skill"] for row in data["daily"]} == {"beta"}
+    assert data["period_comparison"]["current_window_start"] <= last_week_day <= data["period_comparison"]["current_window_end"]
+    assert data["period_comparison"]["previous_window_start"] <= previous_week_day <= data["period_comparison"]["previous_window_end"]
+    assert data["period_comparison"]["current_sessions"] == 1
+    assert data["period_comparison"]["previous_sessions"] == 1
+    assert next(row for row in data["table"] if row["name"] == "beta")["sessions_window"] == 1
+    assert next(row for row in data["table"] if row["name"] == "alpha")["sessions_window"] == 0
+
+
+def test_skills_overview_custom_window_respects_start_and_end(client, app_mod):
+    _set_catalog(app_mod)
+    today = app_mod.stats_today()
+    window_day = today - timedelta(days=10)
+    outside_day = today - timedelta(days=8)
+
+    ev(client, operator="alice", runtime="codex", session_id="inside", skill="alpha", current_step="inside")
+    ev(client, operator="bob", runtime="codex", session_id="outside", skill="beta", current_step="outside")
+    _set_skill_day(app_mod, "inside", "alpha", 10)
+    _set_skill_day(app_mod, "outside", "beta", 8)
+
+    start = int(datetime(window_day.year, window_day.month, window_day.day, tzinfo=STATS_TZ).timestamp())
+    end = int((datetime(window_day.year, window_day.month, window_day.day, tzinfo=STATS_TZ) + timedelta(hours=23, minutes=59)).timestamp())
+    data = client.get(f"/api/skills?w=custom&wstart={start}&wend={end}").json()
+    assert data["window"]["start"] == window_day.isoformat()
+    assert data["window"]["end"] == window_day.isoformat()
+    assert {row["skill"] for row in data["daily"]} == {"alpha"}
+    assert next(row for row in data["table"] if row["name"] == "alpha")["sessions_window"] == 1
+    assert next(row for row in data["table"] if row["name"] == "beta")["sessions_window"] == 0
 
 
 def test_skills_overview_today_and_daily_window_use_shanghai_stats_day(client, app_mod, monkeypatch):

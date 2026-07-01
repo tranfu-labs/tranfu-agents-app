@@ -102,9 +102,12 @@ export function StackedSkillChart({
   t,
   segmentKey = 'skill',
   today,
+  currentDay,
   emptyTitle,
   emptyHint,
   ariaLabel,
+  selectedSegment,
+  topN = 8,
 }: {
   rows: StackRow[]
   overview?: SkillsOverview | null
@@ -112,17 +115,22 @@ export function StackedSkillChart({
   t: (key: string) => string
   segmentKey?: SegmentKey
   today?: string
+  currentDay?: string
   emptyTitle?: string
   emptyHint?: string
   ariaLabel?: string
+  selectedSegment?: string
+  topN?: number
 }) {
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
+  const axisEnd = today || overview?.window?.end || apiToday(overview)
+  const currentMarkerDay = currentDay || overview?.today || today || apiToday(overview)
   const model = useMemo(() => {
-    const axis = daySeries(today || apiToday(overview), days)
+    const axis = daySeries(axisEnd, days)
     const daySet = new Set(axis)
     const byDay: Record<string, Record<string, number>> = {}
     const totalBySegment: Record<string, number> = {}
@@ -138,13 +146,13 @@ export function StackedSkillChart({
     })
     const top = Object.entries(totalBySegment)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 8)
+      .slice(0, topN)
       .map(([name]) => name)
     const totals = axis.map((day) => Object.values(byDay[day] || {}).reduce((a, b) => a + b, 0))
     const legend = [...top]
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
-  }, [days, overview, rows, segmentKey, today])
+  }, [axisEnd, days, rows, segmentKey, topN])
 
   if (!rows.length || !model.totals.some(Boolean)) {
     return (
@@ -163,7 +171,6 @@ export function StackedSkillChart({
   const bh = 165
   const step = (w - 54) / model.axis.length
   const bw = Math.max(8, step - 5)
-  const end = model.axis[model.axis.length - 1]
   const patternId = `skillStripe-${segmentKey}-${days}-${model.axis.length}`
 
   return (
@@ -202,17 +209,20 @@ export function StackedSkillChart({
             .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
             .map(([name, value]) => ({ name: name === '__other' ? t('other') : name, value, color: skillColor(name) }))
           const totalHeight = total ? Math.max(2, Math.round((total / max) * bh)) : 0
+          const isCurrent = day === currentMarkerDay
           return (
             <g key={day} className={`day-col ${tip?.day === day ? 'hovered' : ''}`}>
               {vals.map(([name, value]) => {
                 if (!value) return null
                 const height = Math.max(2, Math.round((value / max) * bh))
                 y -= height
-                const dim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
-                return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={dim ? 0.45 : 1} />
+                const selectedDim = selectedSegment && selectedSegment !== name
+                const hoverDim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
+                const emphasized = selectedSegment === name
+                return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={selectedDim || hoverDim ? 0.4 : 1} stroke={emphasized ? 'var(--text)' : undefined} strokeWidth={emphasized ? 1.4 : undefined} />
               })}
-              {day === end && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
-              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: day === end, items, total })} onClick={(event) => showTip(event, { day, today: day === end, items, total })} />
+              {isCurrent && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
+              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: isCurrent, items, total })} onClick={(event) => showTip(event, { day, today: isCurrent, items, total })} />
             </g>
           )
         })}
@@ -254,17 +264,17 @@ export function RuntimeBars({ counts }: { counts?: Record<string, number> }) {
   )
 }
 
-export function DetailTrend({ detail, t }: { detail: SkillDetail; t: (key: string) => string }) {
+export function DetailTrend({ detail, t, days = 30 }: { detail: SkillDetail; t: (key: string) => string; days?: number }) {
   const [tip, setTip] = useState<Tip | null>(null)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
-  const days = daySeries(detail.today || apiToday(detail), 30)
+  const axis = daySeries(detail.today || apiToday(detail), days)
   const byDay: Record<string, { used: number; equipped: number }> = {}
   ;(detail.daily || []).forEach((row) => {
     byDay[row.day] = { used: Number(row.used || 0), equipped: Number(row.equipped || 0) }
   })
-  const series = days.map((day) => ({ day, used: byDay[day]?.used || 0, equipped: byDay[day]?.equipped || 0 }))
+  const series = axis.map((day) => ({ day, used: byDay[day]?.used || 0, equipped: byDay[day]?.equipped || 0 }))
   const max = Math.max(...series.map((row) => Math.max(row.used, row.equipped)), 1)
   const w = Math.max(680, series.length * 28 + 50)
   const h = 210
@@ -272,7 +282,7 @@ export function DetailTrend({ detail, t }: { detail: SkillDetail; t: (key: strin
   const bh = 140
   const step = (w - 54) / series.length
   const bw = Math.max(8, step - 5)
-  const end = days[days.length - 1]
+  const end = axis[axis.length - 1]
   const points = series.map((row, index) => {
     const x = 38 + index * step
     const mid = x + bw / 2
