@@ -6,6 +6,7 @@ import { buildRankItems, deltaRatio, formatDelta } from './skillsDashboard.ts'
 import { SKILLS_CHART_MAX_BAR_WIDTH, resolveSkillsChartLayout } from './skillsChartLayout.ts'
 import { classifySkillHealth } from './skillsThresholds.ts'
 import { resolveSkillsWindow } from './skillsWindow.ts'
+import { skillsWindowQuery } from './skillsWindow.ts'
 import type { SkillTableRow } from './types.ts'
 
 test('skills window resolves presets and custom fallback', () => {
@@ -19,6 +20,28 @@ test('skills window resolves presets and custom fallback', () => {
   assert.equal(resolveSkillsWindow({ w: 'custom', wstart: '1782864000', wend: '1783123200' }, now).days, 4)
   assert.equal(resolveSkillsWindow({ win: 7 }, now).key, '7d')
   assert.equal(resolveSkillsWindow({ win: 30 }, now).key, '30d')
+})
+
+test('skills overview query sends only window and evidence-scope filters', () => {
+  const query = skillsWindowQuery({
+    w: '7d',
+    rt: 'codex',
+    src: 'own',
+    q: 'openspec',
+    topn: 20,
+    hz: '1',
+    cmp: '0',
+    sel: 'alpha',
+  })
+  const params = new URLSearchParams(query)
+  assert.equal(params.get('w'), '7d')
+  assert.equal(params.get('rt'), 'codex')
+  assert.equal(params.get('src'), 'own')
+  assert.equal(params.has('q'), false)
+  assert.equal(params.has('topn'), false)
+  assert.equal(params.has('hz'), false)
+  assert.equal(params.has('cmp'), false)
+  assert.equal(params.has('sel'), false)
 })
 
 test('skills chart layout fits short windows and scrolls longer windows to the end', () => {

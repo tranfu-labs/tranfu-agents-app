@@ -70,6 +70,8 @@ export function skillsWindowQuery(params: Partial<SkillQueryState>) {
   const out = new URLSearchParams()
   out.set('w', window.key)
   out.set('days', String(window.days))
+  if (params.rt) out.set('rt', params.rt)
+  if (params.src) out.set('src', params.src)
   if (window.key === 'custom' && window.startTimestamp && window.endTimestamp) {
     out.set('wstart', String(window.startTimestamp))
     out.set('wend', String(window.endTimestamp))

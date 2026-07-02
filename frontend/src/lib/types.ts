@@ -155,11 +155,16 @@ export type OperatorTableRow = {
   operator: string
   sessions_7d: number
   sessions_30d: number
+  sessions_window?: number
+  previous_sessions?: number
   sessions_total: number
   skill_count: number
+  window_skill_count?: number
   session_count: number
   runtime_counts?: Record<string, number>
   source_counts?: Record<string, number>
+  window_runtime_counts?: Record<string, number>
+  window_source_counts?: Record<string, number>
   trend_14d?: number[]
   last_day?: string
 }

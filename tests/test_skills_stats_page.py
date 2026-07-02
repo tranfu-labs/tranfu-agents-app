@@ -143,6 +143,49 @@ def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_
     }
 
 
+def test_skills_overview_operator_table_follows_window_runtime_and_source(client, app_mod):
+    _set_catalog(app_mod)
+
+    def report_many(operator, runtime, skill, count, prefix, days_ago):
+        for i in range(count):
+            sid = f"{prefix}-{i}"
+            ev(client, operator=operator, runtime=runtime, session_id=sid, skill=skill, current_step=sid)
+            _set_skill_day(app_mod, sid, skill, days_ago)
+
+    report_many("alice", "codex", "alpha", 3, "alice-current", 1)
+    report_many("alice", "codex", "alpha", 1, "alice-prev", 9)
+    report_many("bob", "codex", "alpha", 1, "bob-current", 1)
+    report_many("bob", "codex", "alpha", 10, "bob-history", 20)
+    report_many("chen", "codex", "beta", 2, "chen-external", 1)
+    report_many("dora", "hermes", "alpha", 4, "dora-runtime", 1)
+    report_many("", "codex", "alpha", 5, "blank-operator", 1)
+    ev(client, operator="erin", runtime="codex", session_id="equipped", skill="alpha",
+       skill_mode="equipped", current_step="equipped")
+    _set_skill_day(app_mod, "equipped", "alpha", 1, mode="equipped")
+
+    data7 = client.get("/api/skills?w=7d").json()
+    assert [row["operator"] for row in data7["operator_table"]] == ["dora", "alice", "chen", "bob"]
+    assert next(row for row in data7["operator_table"] if row["operator"] == "alice")["sessions_window"] == 3
+    assert next(row for row in data7["operator_table"] if row["operator"] == "bob")["sessions_window"] == 1
+
+    data30 = client.get("/api/skills?w=30d").json()
+    assert data30["operator_table"][0]["operator"] == "bob"
+    assert data30["operator_table"][0]["sessions_window"] == 11
+
+    scoped = client.get("/api/skills?w=7d&rt=codex&src=own").json()
+    assert [row["operator"] for row in scoped["operator_table"]] == ["alice", "bob"]
+    alice = scoped["operator_table"][0]
+    assert alice["sessions_window"] == 3
+    assert alice["previous_sessions"] == 1
+    assert alice["sessions_30d"] == 4
+    assert alice["window_runtime_counts"] == {"codex": 3}
+    assert alice["window_source_counts"] == {"own": 3}
+    assert alice["window_skill_count"] == 1
+    assert {row["operator"] for row in scoped["operator_daily"]} == {"alice", "bob"}
+    assert {row["runtime"] for row in scoped["operator_daily"]} == {"codex"}
+    assert {row["source"] for row in scoped["operator_daily"]} == {"own"}
+
+
 def test_skills_overview_governance_untracked_usage_is_windowed_used_only(client, app_mod):
     _set_catalog(app_mod)
 

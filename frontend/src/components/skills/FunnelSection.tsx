@@ -1,5 +1,6 @@
 import { Empty } from '../Common'
 import type { SkillsOverview } from '../../lib/types'
+import { windowUsedLabel } from '../../lib/skillsPresentation'
 
 export function FunnelSection({ data, t }: { data: SkillsOverview | null; t: (key: string) => string }) {
   const funnel = data?.funnel
@@ -11,10 +12,12 @@ export function FunnelSection({ data, t }: { data: SkillsOverview | null; t: (ke
     )
   }
   const max = Math.max((funnel.catalog || []).length, 1)
+  const windowKey = data?.window?.key || `${data?.days || 7}d`
+  const usedLabel = windowUsedLabel(windowKey, t)
   const rows = [
     ['catalog', t('catalogCollected'), funnel.catalog || []],
     ['installed', t('installed'), funnel.installed || []],
-    ['used_30d', `${data?.days || 30}d 使用`, funnel.used_30d || []],
+    ['used_30d', usedLabel, funnel.used_30d || []],
     ['idle', t('idleSkills'), funnel.idle || []],
   ] as const
   return (
@@ -22,7 +25,7 @@ export function FunnelSection({ data, t }: { data: SkillsOverview | null; t: (ke
       <details className="skills-funnel">
         <summary>
           <b>{t('companyFunnel')}</b>
-          <span>采集 {(funnel.catalog || []).length} · 已装 {(funnel.installed || []).length} · W 用 {(funnel.used_30d || []).length} · 闲置 {(funnel.idle || []).length}</span>
+          <span>采集 {(funnel.catalog || []).length} · 已装 {(funnel.installed || []).length} · {usedLabel} {(funnel.used_30d || []).length} · 闲置 {(funnel.idle || []).length}</span>
         </summary>
         {data?.catalog?.stale ? <div className="note-warn">{t('catalogStale')}</div> : null}
         {rows.map(([key, label, list]) => {

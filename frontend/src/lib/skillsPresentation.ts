@@ -46,6 +46,42 @@ export function windowDisplayLabel(key: string | number | undefined, t: T) {
   return map[normalized] ? t(map[normalized]) : normalized
 }
 
+export function windowPeriodLabel(key: string | number | undefined, t: T) {
+  const value = String(key || '7d')
+  const normalized = value === '30' ? '30d' : value
+  const map: Record<string, string> = {
+    today: 'window_period_today',
+    this_week: 'window_period_this_week',
+    last_week: 'window_period_last_week',
+    '7d': 'window_period_7d',
+    '14d': 'window_period_14d',
+    '30d': 'window_period_30d',
+    '90d': 'window_period_90d',
+    custom: 'window_period_custom',
+  }
+  return map[normalized] ? t(map[normalized]) : windowDisplayLabel(normalized, t)
+}
+
+function fillWindowPattern(pattern: string, label: string) {
+  return pattern.includes('{window}') ? pattern.replace('{window}', label) : `${label} ${pattern}`
+}
+
+export function windowChangeLabel(key: string | number | undefined, t: T) {
+  return `${windowPeriodLabel(key, t)}${t('changesSuffix')}`
+}
+
+export function windowUsedLabel(key: string | number | undefined, t: T) {
+  return fillWindowPattern(t('usedInWindow'), windowPeriodLabel(key, t))
+}
+
+export function windowZeroUsageLabel(key: string | number | undefined, t: T) {
+  return fillWindowPattern(t('zeroUsageInWindow'), windowPeriodLabel(key, t))
+}
+
+export function windowTriggersLabel(key: string | number | undefined, t: T) {
+  return fillWindowPattern(t('triggersInWindow'), windowPeriodLabel(key, t))
+}
+
 function sourceText(src: string | undefined, t: T) {
   if (!src) return t('allSource')
   if (src === 'non_catalog' || src === '非公司库') return t('source_non_catalog')
@@ -81,7 +117,7 @@ export function evidenceSummaryLine(data: SkillsEvidencePayload | null) {
   const sessions = summary.sessions ?? 0
   const items = summary.items ?? records
   const installed = summary.installed ?? summary.installs ?? 0
-  const windowKey = data?.window?.key || 'W'
+  const windowKey = data?.window?.key || 'window'
   if (kind === 'total') {
     const base = `${fmt(records)} records · ${fmt(skills)} skills · ${fmt(operators)} operators · ${fmt(sessions)} sessions`
     const untracked = Number(summary.untracked_records || 0)

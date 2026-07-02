@@ -29,6 +29,19 @@ test('skills first screen copy avoids KPI score language', () => {
   }
 })
 
+test('skills controls and issue signals avoid removed comparison and example-name copy', () => {
+  const skillsView = readSource('src/views/Skills.tsx')
+  assert.equal(skillsView.includes('compareToggle'), false)
+  assert.equal(skillsView.includes('showComparison'), false)
+
+  const healthBar = readSource('src/components/skills/HealthBar.tsx')
+  assert.equal(healthBar.includes('compactNameList'), false)
+  assert.equal(healthBar.includes('classifySkillHealth'), false)
+  assert.equal(healthBar.includes('autoUsed'), false)
+  assert.equal(healthBar.includes('installedUnusedText'), false)
+  assert.equal(healthBar.includes('top3Concentrated'), false)
+})
+
 test('skills todo dismissal does not persist to browser storage', () => {
   const source = readSource('src/components/skills/GovernanceTodo.tsx')
   assert.equal(source.includes('localStorage'), false)

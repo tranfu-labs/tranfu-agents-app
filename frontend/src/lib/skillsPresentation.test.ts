@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeT } from './i18n.ts'
-import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary, windowDisplayLabel } from './skillsPresentation.ts'
+import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary, windowChangeLabel, windowDisplayLabel, windowTriggersLabel, windowUsedLabel, windowZeroUsageLabel } from './skillsPresentation.ts'
 import type { SkillsEvidencePayload } from './types.ts'
 
 test('mobileFilterSummary defaults to a single compressed line', () => {
@@ -19,6 +19,17 @@ test('windowDisplayLabel localizes window query keys', () => {
   assert.equal(windowDisplayLabel('this_week', makeT('en')), 'This week')
   assert.equal(windowDisplayLabel('custom', makeT('zh')), '自定义')
   assert.equal(windowDisplayLabel('14d', makeT('en')), '14d')
+})
+
+test('window labels derive human-readable period copy without raw W', () => {
+  assert.equal(windowChangeLabel('last_week', makeT('zh')), '上周变化')
+  assert.equal(windowChangeLabel('7d', makeT('zh')), '近 7 天变化')
+  assert.equal(windowChangeLabel('last_week', makeT('en')), 'Last week changes')
+  assert.equal(windowChangeLabel('7d', makeT('en')), 'Last 7 days changes')
+  assert.equal(windowUsedLabel('30d', makeT('zh')), '近 30 天使用')
+  assert.equal(windowZeroUsageLabel('7d', makeT('en')), '0 in Last 7 days')
+  assert.equal(windowTriggersLabel('14d', makeT('zh')), '近 14 天触发')
+  assert.ok(!windowChangeLabel('7d', makeT('zh')).includes('W'))
 })
 
 test('compactNameList truncates long skill names and avoids long slash chains', () => {

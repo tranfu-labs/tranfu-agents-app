@@ -2,6 +2,7 @@ import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { GovernanceBucketSkill, GovernanceUntrackedSkill, OperatorTableRow, SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
 import { evidencePath } from '../../lib/skillsEvidence'
+import { windowZeroUsageLabel } from '../../lib/skillsPresentation'
 
 type TodoItem = {
   id: string
@@ -113,6 +114,7 @@ function operatorGroups(rows: OperatorTableRow[], t: (key: string) => string) {
 
 export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; t: (key: string) => string }) {
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
+  const windowKey = data?.window?.key || `${data?.days || 7}d`
   const groups = useMemo(() => {
     if (view === 'operator') return operatorGroups(data?.operator_table || [], t)
     const untracked = (data?.governance?.untracked_usage?.top || []).map((row: GovernanceUntrackedSkill, index) => ({
@@ -127,7 +129,7 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
     const idle = (data?.governance?.idle_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `idle:${row.name}`,
       title: row.name,
-      detail: `${t('installs')} ${row.installers || 0} · ${t('zeroTimesInWindow')}`,
+      detail: `${t('installs')} ${row.installers || 0} · ${windowZeroUsageLabel(windowKey, t)}`,
       severity: 'warn' as const,
       evidenceKind: 'idle' as const,
       evidenceParams: { skill: row.name },
@@ -142,7 +144,7 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
       openable: false,
     }))
     return { untracked, idle, missing, heavy: [], sleeping: [], narrow: [] }
-  }, [data, view, t])
+  }, [data, view, windowKey, t])
   const ignore = (id: string) => setIgnored((old) => new Set([...old, id]))
   if (view === 'operator') {
     return (
