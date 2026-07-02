@@ -186,6 +186,41 @@ def test_skills_overview_operator_table_follows_window_runtime_and_source(client
     assert {row["source"] for row in scoped["operator_daily"]} == {"own"}
 
 
+def test_skills_overview_operator_rollup_keeps_distinct_session_count(client, app_mod):
+    _set_catalog(app_mod, CATALOG + [{"name": "gamma", "type": "own", "description": "second own skill"}])
+
+    ev(client, operator="alice", runtime="codex", session_id="shared", skill="alpha", current_step="shared-alpha")
+    ev(client, operator="alice", runtime="codex", session_id="shared", skill="gamma", current_step="shared-gamma")
+    ev(client, operator="alice", runtime="codex", session_id="solo", skill="alpha", current_step="solo-alpha")
+    _set_skill_day(app_mod, "shared", "alpha", 1)
+    _set_skill_day(app_mod, "shared", "gamma", 1)
+    _set_skill_day(app_mod, "solo", "alpha", 1)
+
+    data = client.get("/api/skills?w=7d").json()
+    alice = next(row for row in data["operator_table"] if row["operator"] == "alice")
+    assert alice["sessions_window"] == 3
+    assert alice["sessions_total"] == 3
+    assert alice["session_count"] == 2
+    assert alice["skill_count"] == 2
+    assert alice["window_skill_count"] == 2
+
+    scoped = client.get("/api/skills?w=7d&rt=codex&src=own").json()
+    scoped_alice = next(row for row in scoped["operator_table"] if row["operator"] == "alice")
+    assert scoped_alice["sessions_window"] == 3
+    assert scoped_alice["session_count"] == 2
+    assert sum(row["sessions"] for row in scoped["operator_daily"] if row["operator"] == "alice") == 3
+
+
+def test_skill_uses_has_skills_overview_query_indexes(app_mod):
+    with app_mod.db() as conn:
+        indexes = {row["name"] for row in conn.execute("PRAGMA index_list(skill_uses)")}
+    assert {
+        "idx_skill_uses_mode_day_skill_runtime_operator",
+        "idx_skill_uses_mode_operator_day_skill_runtime_session",
+        "idx_skill_uses_mode_skill_day_operator_runtime",
+    } <= indexes
+
+
 def test_skills_overview_new_scope_uses_first_used_day_and_operator_contribution(client, app_mod):
     _set_catalog(app_mod)
 

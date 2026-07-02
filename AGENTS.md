@@ -45,6 +45,9 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - `/api/state` 是高频轮询读路径,服务端必须做进程内 TTL 缓存(默认 `TF_STATE_TTL=1.5` 秒);
   响应 `now` 表示"上次服务端计算时间",不是每次请求的当前时间。`/healthz` 必须是 async 轻量 handler,
   固定返回 `ok`,不得打开 DB 或触发 IO,避免被 `/api/state` 聚合压力拖慢。
+- `/api/skills` 是低频但重聚合读路径,必须优先通过 SQLite 组合索引与 SQL 预聚合优化,避免把 raw
+  `skill_uses` 全历史逐行交给 Python 处理;不得优先用缓存掩盖聚合根因。只有 SQL/索引优化后仍无法达标时,
+  才允许引入有界短 TTL 缓存(默认 5 秒,键按 `days/w/wstart/wend/rt/src/scope` 归一化)。
 - **shim 只用 Python 标准库,且绝不抛错**——上报/更新失败必须静默,不能影响使用者的 agent 运行。
 - `shim_version` 是事件**顶层可选字段**(不再是 profile 子字段),`tf_report.py` 每次心跳兜底自动注入;
   服务端按身份 sticky(独立表 `agent_shim_versions`),profile 全量替换不得清掉它;前端三态判定

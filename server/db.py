@@ -256,6 +256,12 @@ def _ensure_skill_uses_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill ON skill_uses(skill)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill_mode ON skill_uses(skill, mode)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_day ON skill_uses(day)")
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_skill_uses_mode_day_skill_runtime_operator
+      ON skill_uses(mode, day, skill, runtime, operator)""")
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_skill_uses_mode_operator_day_skill_runtime_session
+      ON skill_uses(mode, operator, day, skill, runtime, session_id)""")
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_skill_uses_mode_skill_day_operator_runtime
+      ON skill_uses(mode, skill, day, operator, runtime)""")
 
 
 # ---- 审计 + 保留 ---------------------------------------------------------
