@@ -33,6 +33,7 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
       {items.map((item) => {
         const active = selected && selected === item.name
         const dim = selected && !active
+        const displayName = item.isOther ? `${t('other')} ${item.names?.length || 0} ${t('skillsUnit')}` : item.name
         const click = () => {
           if (item.isOther) setExpanded((value) => !value)
           else onSelect(item.name)
@@ -41,19 +42,19 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
           <button type="button" key={item.name} aria-expanded={item.isOther ? expanded : undefined} className={`${active ? 'selected' : ''} ${dim ? 'dimmed' : ''}`} onClick={click} onKeyDown={(event) => rowKey(event, click)}>
             <span className="rank-name">
               <i style={{ background: skillColor(item.name) }} />
-              {item.name}
+              {displayName}
             </span>
             <span className="rank-track"><i style={{ width: `${Math.max(3, (item.value / max) * 100)}%`, background: skillColor(item.name) }} /></span>
             <strong>{n(item.value)}</strong>
             <em>
-              {item.isOther ? (expanded ? '收起' : '展开') : sourceLabel(item.source, t)}
+              {item.isOther ? (expanded ? t('collapse') : t('expand')) : sourceLabel(item.source, t)}
               {!item.isOther ? (
                 <span
                   className="rank-evidence evidence-icon-link"
                   role="link"
                   tabIndex={-1}
-                  aria-label={`查看 ${item.name} 证据`}
-                  title="查看证据"
+                  aria-label={`${t('viewEvidence')}: ${item.name}`}
+                  title={t('viewEvidence')}
                   onClick={(event) => {
                     event.stopPropagation()
                     navigate(evidencePath(location.search, 'total', { skill: item.name }))

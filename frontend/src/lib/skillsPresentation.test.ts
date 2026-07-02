@@ -1,14 +1,24 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary } from './skillsPresentation.ts'
+import { makeT } from './i18n.ts'
+import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary, windowDisplayLabel } from './skillsPresentation.ts'
 import type { SkillsEvidencePayload } from './types.ts'
 
 test('mobileFilterSummary defaults to a single compressed line', () => {
-  assert.equal(mobileFilterSummary({}, 'skill'), '7d · 按 Skill · 全部 runtime/source · 筛选')
+  assert.equal(mobileFilterSummary({}, 'skill', makeT('zh')), '7 天 · 按 Skill · 全部 runtime/source · 筛选')
+  assert.equal(mobileFilterSummary({}, 'skill', makeT('en')), '7d · By skill · All runtime/source · Filters')
 })
 
 test('mobileFilterSummary reflects active runtime and source filters', () => {
-  assert.equal(mobileFilterSummary({ w: '30d', rt: 'codex', src: 'non_catalog' }, 'operator'), '30d · 按人 · codex · 非公司库 · 筛选')
+  assert.equal(mobileFilterSummary({ w: '30d', rt: 'codex', src: 'non_catalog' }, 'operator', makeT('zh')), '30 天 · 按人 · codex · 非公司库 · 筛选')
+  assert.equal(mobileFilterSummary({ w: '30d', rt: 'codex', src: 'non_catalog' }, 'operator', makeT('en')), '30d · By operator · codex · non-catalog · Filters')
+})
+
+test('windowDisplayLabel localizes window query keys', () => {
+  assert.equal(windowDisplayLabel('today', makeT('zh')), '今天')
+  assert.equal(windowDisplayLabel('this_week', makeT('en')), 'This week')
+  assert.equal(windowDisplayLabel('custom', makeT('zh')), '自定义')
+  assert.equal(windowDisplayLabel('14d', makeT('en')), '14d')
 })
 
 test('compactNameList truncates long skill names and avoids long slash chains', () => {

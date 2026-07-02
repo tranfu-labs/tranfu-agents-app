@@ -15,7 +15,7 @@ import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
 import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
-import { mobileFilterSummary } from '../lib/skillsPresentation'
+import { mobileFilterSummary, windowDisplayLabel } from '../lib/skillsPresentation'
 import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
@@ -94,10 +94,10 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
     if (next === view) return
     update({ view: next, sort: next === 'operator' ? 'sessions_30d' : 'sessions_window', dir: 'desc' })
   }
-  const filterSummary = mobileFilterSummary(params, view)
+  const filterSummary = mobileFilterSummary(params, view, t)
   return (
     <section className="frame skills-toolbar-frame">
-      <h2><span><span className="sl">//</span>控制条</span><span className="cnt">{view === 'operator' ? t('viewOperatorHint') : t('viewSkillHint')}</span></h2>
+      <h2><span><span className="sl">//</span>{t('skillsControls')}</span><span className="cnt">{view === 'operator' ? t('viewOperatorHint') : t('viewSkillHint')}</span></h2>
       <button
         type="button"
         className="skills-mobile-filter-summary"
@@ -115,24 +115,24 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
         <label className="field">
           <span>{t('windowFilter')}</span>
           <select value={currentWindow} onChange={(event) => update({ w: event.target.value, win: event.target.value.endsWith('d') ? Number(event.target.value.slice(0, -1)) : params.win })}>
-            {WINDOW_OPTIONS.map((key) => <option value={key} key={key}>{key}</option>)}
+            {WINDOW_OPTIONS.map((key) => <option value={key} key={key}>{windowDisplayLabel(key, t)}</option>)}
           </select>
         </label>
         {currentWindow === 'custom' ? (
           <>
             <label className="field">
-              <span>开始</span>
+              <span>{t('customStart')}</span>
               <input type="datetime-local" value={unixToInput(params.wstart)} onChange={(event) => update({ w: 'custom', wstart: inputToUnix(event.target.value) })} />
             </label>
             <label className="field">
-              <span>结束</span>
+              <span>{t('customEnd')}</span>
               <input type="datetime-local" value={unixToInput(params.wend)} onChange={(event) => update({ w: 'custom', wend: inputToUnix(event.target.value) })} />
             </label>
           </>
         ) : null}
         <label className="field inline-check">
           <input type="checkbox" checked={params.cmp !== '0'} onChange={(event) => update({ cmp: event.target.checked ? '1' : '0' })} />
-          <span>环比</span>
+          <span>{t('compareToggle')}</span>
         </label>
         <label className="field search-field">
           <span>{view === 'operator' ? t('operatorSearch') : t('skillSearch')}</span>
@@ -160,7 +160,7 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
         </label>
         <label className="field inline-check">
           <input type="checkbox" checked={params.hz === '1'} onChange={(event) => update({ hz: event.target.checked ? '1' : '0' })} />
-          <span>隐藏0使用</span>
+          <span>{t('hideZeroUsage')}</span>
         </label>
       </div>
     </section>
@@ -262,11 +262,11 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
     <div className={`skills-page skills-dashboard ${loading ? 'is-refreshing' : ''}`}>
       <SkillsToolbar data={data} params={params} setParams={setParams} view={view} t={t} />
       {error ? <div className="note-warn">{t(error)}</div> : null}
-      <KpiStrip data={data} view={view} showComparison={params.cmp !== '0'} />
-      <HealthBar data={data} view={view} />
+      <KpiStrip data={data} view={view} showComparison={params.cmp !== '0'} t={t} />
+      <HealthBar data={data} view={view} t={t} />
       <div className={`skills-analysis ${isShortWindow ? 'skills-analysis--short' : 'skills-analysis--long'}`}>
         <section className="frame skills-rank-panel">
-          <SectionTitle title={view === 'operator' ? t('operatorRank') : '排行 Bar'} count={view === 'operator' ? operatorRows.length : rankRows.length} />
+          <SectionTitle title={view === 'operator' ? t('operatorRank') : t('mainRank')} count={view === 'operator' ? operatorRows.length : rankRows.length} />
           {view === 'operator' ? (
             <>
               <div className="usage-note">{t('operatorMetricNote')}</div>
@@ -282,7 +282,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
         </section>
       </div>
       <section className="frame skills-governance-row-frame">
-        <GovernanceTodo data={data} view={view} />
+        <GovernanceTodo data={data} view={view} t={t} />
       </section>
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
       {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
