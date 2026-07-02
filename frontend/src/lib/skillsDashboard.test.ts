@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { angleSpan, buildDonutSegments, buildSourceDonutSegments } from './skillsAttribution.ts'
 import { buildRankItems, deltaRatio, formatDelta } from './skillsDashboard.ts'
-import { resolveSkillsChartLayout } from './skillsChartLayout.ts'
+import { SKILLS_CHART_MAX_BAR_WIDTH, resolveSkillsChartLayout } from './skillsChartLayout.ts'
 import { classifySkillHealth } from './skillsThresholds.ts'
 import { resolveSkillsWindow } from './skillsWindow.ts'
 import type { SkillTableRow } from './types.ts'
@@ -21,18 +21,28 @@ test('skills window resolves presets and custom fallback', () => {
   assert.equal(resolveSkillsWindow({ win: 30 }, now).key, '30d')
 })
 
-test('skills chart layout keeps a fixed day slot and scrolls longer windows to the end', () => {
-  const oneDay = resolveSkillsChartLayout(1)
-  const sevenDays = resolveSkillsChartLayout(7)
-  const thirtyDays = resolveSkillsChartLayout(30)
-  const ninetyDays = resolveSkillsChartLayout(90)
-  assert.equal(sevenDays.daySlot, thirtyDays.daySlot)
-  assert.equal(sevenDays.trackWidth - oneDay.trackWidth, 6 * sevenDays.daySlot)
-  assert.equal(thirtyDays.trackWidth - sevenDays.trackWidth, 23 * sevenDays.daySlot)
-  assert.equal(sevenDays.rightAlign, true)
+test('skills chart layout fits short windows and scrolls longer windows to the end', () => {
+  const oneDay = resolveSkillsChartLayout(1, 800)
+  const sevenDays = resolveSkillsChartLayout(7, 800)
+  const fourteenDays = resolveSkillsChartLayout(14, 800)
+  const thirtyDays = resolveSkillsChartLayout(30, 800)
+  const ninetyDays = resolveSkillsChartLayout(90, 800)
+  assert.equal(oneDay.mode, 'fit')
+  assert.equal(sevenDays.mode, 'fit')
+  assert.equal(fourteenDays.mode, 'fit')
+  assert.equal(sevenDays.trackWidth, 800)
+  assert.equal(fourteenDays.trackWidth, 800)
+  assert.equal(sevenDays.rightAlign, false)
   assert.equal(sevenDays.scrollToEnd, false)
+  assert.equal(fourteenDays.scrollToEnd, false)
+  assert.equal(thirtyDays.mode, 'scroll')
+  assert.equal(ninetyDays.mode, 'scroll')
   assert.equal(thirtyDays.scrollToEnd, true)
   assert.equal(ninetyDays.scrollToEnd, true)
+  assert.equal(thirtyDays.rightAlign, true)
+  assert.equal(oneDay.barWidth, SKILLS_CHART_MAX_BAR_WIDTH)
+  assert.ok(sevenDays.barWidth <= SKILLS_CHART_MAX_BAR_WIDTH)
+  assert.ok(thirtyDays.trackWidth > sevenDays.trackWidth)
 })
 
 test('skill health thresholds keep boundary values in expected buckets', () => {

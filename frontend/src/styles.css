@@ -178,7 +178,7 @@
   .skills-page>.frame,.skills-page>.split,.skill-detail-page>.frame,.skill-detail-page>.dist,.operator-detail-page>.frame,.operator-detail-page>.dist-mirror{min-width:0;max-width:100%}
   .skills-page .skills-wrap,.skill-detail-page .skills-wrap,.operator-detail-page .skills-wrap,.skills-page .chart-box,.skill-detail-page .chart-box,.operator-detail-page .chart-box{min-width:0;max-width:100%}
   .skills-dashboard{display:grid;gap:16px;overflow-x:hidden}
-  .skills-dashboard>.frame,.skills-dashboard>.skills-main-split,.skills-dashboard>.skills-attribution{min-width:0;max-width:100%}
+  .skills-dashboard>.frame,.skills-dashboard>.skills-main-split,.skills-dashboard>.skills-analysis,.skills-dashboard>.skills-attribution{min-width:0;max-width:100%}
   .skills-dashboard-toolbar{align-items:flex-end}
   .skills-dashboard-toolbar .search-field{flex:1 1 260px}.skills-dashboard-toolbar .search-field input{width:100%;min-width:0}
   .skills-mobile-filter-summary{display:none}
@@ -200,6 +200,10 @@
   .skills-health i{width:8px;height:8px;border-radius:50%;background:var(--run)}.skills-health .warn i{background:var(--wait)}.skills-health .bad i{background:var(--err)}
   .skills-health strong{font-family:var(--mono);color:var(--text)}.skills-health em{font-style:normal;color:var(--faint);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.skills-health a{color:var(--info);font-weight:700}
   .skills-main-split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:16px;align-items:start}
+  .skills-analysis{display:grid;gap:16px;align-items:start;min-width:0;max-width:100%}
+  .skills-analysis--short{grid-template-columns:minmax(0,.95fr) minmax(360px,1.05fr)}
+  .skills-analysis--long{grid-template-columns:1fr}
+  .skills-rank-panel,.skills-trend-panel{min-width:0;max-width:100%}
   .skills-rank-bars{display:grid;gap:7px;padding:14px 16px}
   .skills-rank-bars button{display:grid;grid-template-columns:minmax(120px,190px) minmax(140px,1fr) 72px 82px;gap:10px;align-items:center;text-align:left;border:1px solid transparent;border-radius:7px;padding:7px 9px;color:var(--muted)}
   .skills-rank-bars button:hover,.skills-rank-bars button.selected{background:var(--hover);border-color:var(--line)}
@@ -219,6 +223,9 @@
   .skills-panel-title b{font-size:13px}.skills-panel-title button{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
   .skills-panel-title .seg.compact{height:28px;border-radius:7px;padding:2px}.skills-panel-title .seg.compact button{min-width:46px;padding:0 8px;border:0}
   .skills-governance{display:grid}.skills-gov-group{border-bottom:1px solid var(--line);padding:10px 16px}.skills-gov-group:last-child{border-bottom:0}
+  .skills-governance-blocks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 16px}
+  .skills-governance-block{min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--elev2);padding:10px 12px;overflow:hidden}
+  .skills-governance-block.skills-gov-group{border-bottom:1px solid var(--line)}
   .skills-gov-group summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:700}.skills-gov-group summary span{float:right;font-family:var(--mono);font-weight:400}
   .skills-gov-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
   .skills-gov-item.clickable{cursor:pointer}.skills-gov-item.clickable:hover,.skills-gov-item.clickable:focus-visible{background:var(--hover);outline:0;margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:7px}
@@ -471,7 +478,7 @@
   @media(max-width:1080px) and (min-width:601px){
     .skills-page .split{grid-template-columns:1fr}
     .skills-kpi{grid-template-columns:repeat(4,minmax(0,1fr))}
-    .skills-main-split,.skills-attribution{grid-template-columns:1fr}
+    .skills-main-split,.skills-analysis,.skills-analysis--short,.skills-analysis--long,.skills-attribution,.skills-governance-blocks{grid-template-columns:1fr}
     .skills-drawer{width:80%}
     .skills-page .toolbar .field{flex:1 1 190px;min-width:0}
     .skills-page .toolbar .field input,.skills-page .toolbar .field select{width:100%;min-width:0}
@@ -542,10 +549,12 @@
     .skills-dashboard:not(.skills-evidence-page)>.skills-health-frame{order:3}
     .skills-dashboard:not(.skills-evidence-page) .skills-main-split{order:4}
     .skills-dashboard:not(.skills-evidence-page) .skills-main-split>section:last-child{order:-1}
-    .skills-dashboard:not(.skills-evidence-page)>.skills-kpi-frame{order:5}
-    .skills-dashboard:not(.skills-evidence-page)>.skills-attribution{order:6}
+    .skills-dashboard:not(.skills-evidence-page)>.skills-governance-row-frame{order:4}
+    .skills-dashboard:not(.skills-evidence-page)>.skills-analysis{order:5}
+    .skills-dashboard:not(.skills-evidence-page)>.skills-kpi-frame{order:6}
+    .skills-dashboard:not(.skills-evidence-page)>.skills-attribution{order:7}
     .skills-kpi{grid-template-columns:repeat(2,minmax(0,1fr));padding:12px}
-    .skills-main-split,.skills-attribution{grid-template-columns:1fr}
+    .skills-main-split,.skills-analysis,.skills-analysis--short,.skills-analysis--long,.skills-attribution,.skills-governance-blocks{grid-template-columns:1fr}
     .skills-evidence-page .evidence-hero .pad{grid-template-columns:1fr}.evidence-summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:12px}.evidence-list-row{grid-template-columns:1fr}.evidence-list-row span{text-align:left}
     .evidence-summary-line{align-items:flex-start}.evidence-summary-line span{white-space:normal}
     .skills-gov-item{grid-template-columns:1fr auto;gap:8px}.skills-gov-actions{justify-content:flex-end;flex-wrap:nowrap}
