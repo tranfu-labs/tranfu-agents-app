@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import type { SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
 import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import { evidencePath } from '../../lib/skillsEvidence'
+import { compactNameList, kpiShortConclusion } from '../../lib/skillsPresentation'
 
 type EvidenceCard = {
   label: string
@@ -10,6 +11,8 @@ type EvidenceCard = {
   previous?: number
   kind: SkillsEvidenceKind
   names: string[]
+  detail?: string
+  records?: number
   pct?: boolean
   snapshot?: boolean
 }
@@ -45,14 +48,14 @@ function operatorCards(data: SkillsOverview | null): EvidenceCard[] {
   })
   const topOps = rows.slice().sort((a, b) => Number(b.sessions_30d || 0) - Number(a.sessions_30d || 0)).slice(0, 2).map((row) => row.operator)
   return [
-    { label: '30d 使用记录', value: n(sessions30), current: 0, previous: 0, kind: 'total', names: topOps, snapshot: true },
-    { label: '活跃操作员', value: `${n(active30)} 人`, current: 0, previous: 0, kind: 'operators', names: topOps, snapshot: true },
-    { label: '7d 活跃率', value: pct(rows.length ? active7 / rows.length : 0), current: 0, previous: 0, kind: 'operators', names: topOps, snapshot: true },
-    { label: '人均 skill', value: active30 ? (skillCount / active30).toFixed(2) : '0.00', current: 0, previous: 0, kind: 'avg_per_session', names: topOps, snapshot: true },
-    { label: '人均会话', value: active30 ? (sessionCount / active30).toFixed(2) : '0.00', current: 0, previous: 0, kind: 'avg_per_session', names: topOps, snapshot: true },
-    { label: 'Top3 集中度', value: pct(sessions30 ? top3 / sessions30 : 0), current: 0, previous: 0, kind: 'top3', names: topOps, snapshot: true },
-    { label: 'runtime 覆盖', value: `${n(runtimes.size)} 类`, current: 0, previous: 0, kind: 'runtime', names: [...runtimes].slice(0, 2), snapshot: true },
-    { label: '来源覆盖', value: `${n(sources.size)} 类`, current: 0, previous: 0, kind: 'source', names: [...sources].slice(0, 2), snapshot: true },
+    { label: '30d 使用记录', value: n(sessions30), current: 0, previous: 0, kind: 'total', names: topOps, detail: `${n(sessions30)} records`, snapshot: true },
+    { label: '活跃操作员', value: `${n(active30)} 人`, current: 0, previous: 0, kind: 'operators', names: topOps, detail: `${n(active30)} operators`, snapshot: true },
+    { label: '7d 活跃率', value: pct(rows.length ? active7 / rows.length : 0), current: 0, previous: 0, kind: 'operators', names: topOps, detail: `${n(active7)}/${n(rows.length)} active`, snapshot: true },
+    { label: '人均 skill', value: active30 ? (skillCount / active30).toFixed(2) : '0.00', current: 0, previous: 0, kind: 'avg_per_session', names: topOps, detail: '按人均值', snapshot: true },
+    { label: '人均会话', value: active30 ? (sessionCount / active30).toFixed(2) : '0.00', current: 0, previous: 0, kind: 'avg_per_session', names: topOps, detail: '按人均值', snapshot: true },
+    { label: 'Top3 集中度', value: pct(sessions30 ? top3 / sessions30 : 0), current: 0, previous: 0, kind: 'top3', names: topOps, detail: '使用集中在 3 人', snapshot: true },
+    { label: 'runtime 覆盖', value: `${n(runtimes.size)} 类`, current: 0, previous: 0, kind: 'runtime', names: [...runtimes].slice(0, 2), detail: compactNameList([...runtimes], 1), snapshot: true },
+    { label: '来源覆盖', value: `${n(sources.size)} 类`, current: 0, previous: 0, kind: 'source', names: [...sources].slice(0, 2), detail: compactNameList([...sources], 1), snapshot: true },
   ]
 }
 
@@ -67,8 +70,8 @@ export function KpiStrip({ data, view = 'skill', showComparison = true }: { data
           {cards.map((card) => (
             <div className="stat skills-kpi-card" key={card.label}>
               <div className="v">{card.value}</div>
-              <span className="evidence-names">{card.names.join(' / ') || '—'}</span>
-              <Link className="evidence-link" to={evidencePath(location.search, card.kind)}>{card.label}证据</Link>
+              <span className="evidence-names">{card.detail || compactNameList(card.names, 1)}</span>
+              <Link className="evidence-icon-link" to={evidencePath(location.search, card.kind)} aria-label={`查看${card.label}证据`} title={`查看${card.label}证据`}>↗</Link>
               <div className="l">{card.label}</div>
             </div>
           ))}
@@ -94,7 +97,8 @@ export function KpiStrip({ data, view = 'skill', showComparison = true }: { data
   const idleNames = (data?.governance?.idle_installed?.top || []).slice(0, 2).map((row) => row.name)
   const operatorNames = (data?.operator_table || []).slice(0, 2).map((row) => row.operator)
   const companyNames = (data?.funnel?.used_30d || []).slice(0, 2).map((row) => row.name)
-  const cards: EvidenceCard[] = [
+  const untrackedRecords = data?.governance?.untracked_usage?.used_sessions || 0
+  const baseCards: EvidenceCard[] = [
     { label: '总触发次数', value: n(currentSessions), current: currentSessions, previous: previousSessions, kind: 'total', names: topNames },
     { label: '公司库覆盖率', value: `${usedCompany}/${catalogCount}`, current: coverage, previous: previousCoverage, kind: 'coverage', names: companyNames, pct: true },
     { label: '活跃操作员数', value: `${n(period?.current_operators)} 人`, current: period?.current_operators, previous: period?.previous_operators, kind: 'operators', names: operatorNames },
@@ -104,19 +108,20 @@ export function KpiStrip({ data, view = 'skill', showComparison = true }: { data
     { label: '装了没用比例', value: pct(idleRatio), current: 0, previous: 0, kind: 'unused_ratio', names: idleNames, snapshot: true },
     { label: 'Top3 集中度', value: pct(top3Share), current: top3Share, previous: period?.previous_top3_share, kind: 'top3', names: topNames, pct: true },
   ]
+  const cards = baseCards.map((card) => ({ ...card, records: card.kind === 'untracked' ? untrackedRecords : undefined, detail: kpiShortConclusion(card.label, card.value, card.names, card.kind === 'untracked' ? untrackedRecords : undefined) }))
 
   return (
     <section className="frame skills-kpi-frame">
       <h2><span><span className="sl">//</span>过去 W 变化</span><span className="cnt">{period?.window || `${data?.days || 30}d`}</span></h2>
       <div className="skills-kpi">
         {cards.map((card) => (
-          <div className="stat skills-kpi-card" key={card.label}>
-            <div className="v">{card.value}</div>
-            <Delta current={card.pct ? Number(card.current) : Number(card.current || 0)} previous={card.pct ? Number(card.previous) : Number(card.previous || 0)} snapshot={card.snapshot} show={showComparison} />
-            <span className="evidence-names">{card.names.join(' / ') || '—'}</span>
-            <Link className="evidence-link" to={evidencePath(location.search, card.kind)}>{card.label}证据</Link>
-            <div className="l">{card.label}</div>
-          </div>
+            <div className="stat skills-kpi-card" key={card.label}>
+              <div className="v">{card.value}</div>
+              <Delta current={card.pct ? Number(card.current) : Number(card.current || 0)} previous={card.pct ? Number(card.previous) : Number(card.previous || 0)} snapshot={card.snapshot} show={showComparison} />
+              <span className="evidence-names">{card.detail || compactNameList(card.names, 1)}</span>
+              <Link className="evidence-icon-link" to={evidencePath(location.search, card.kind)} aria-label={`查看${card.label}证据`} title={`查看${card.label}证据`}>↗</Link>
+              <div className="l">{card.label}</div>
+            </div>
         ))}
       </div>
     </section>

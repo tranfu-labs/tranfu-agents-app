@@ -49,15 +49,17 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
               {item.isOther ? (expanded ? '收起' : '展开') : sourceLabel(item.source, t)}
               {!item.isOther ? (
                 <span
-                  className="rank-evidence"
+                  className="rank-evidence evidence-icon-link"
                   role="link"
                   tabIndex={-1}
+                  aria-label={`查看 ${item.name} 证据`}
+                  title="查看证据"
                   onClick={(event) => {
                     event.stopPropagation()
                     navigate(evidencePath(location.search, 'total', { skill: item.name }))
                   }}
                 >
-                  看证据
+                  ↗
                 </span>
               ) : null}
             </em>

@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { GovernanceBucketSkill, GovernanceUntrackedSkill, OperatorTableRow, SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
 import { evidencePath } from '../../lib/skillsEvidence'
 
@@ -20,42 +20,56 @@ function rowKey(event: KeyboardEvent<HTMLDivElement>, action: () => void) {
   action()
 }
 
-function Section({ title, items, ignored, ignore, onOpen }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void; onOpen?: (name: string) => void }) {
+function Section({ title, items, ignored, ignore }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
   const allVisible = items.filter((item) => !ignored.has(item.id))
   const visible = expanded ? allVisible : allVisible.slice(0, 8)
   const stopIgnore = (event: MouseEvent<HTMLButtonElement>, id: string) => {
     event.stopPropagation()
     ignore(id)
   }
+  const stopMenu = (event: MouseEvent<HTMLElement>) => event.stopPropagation()
   return (
     <details className="skills-gov-group" open>
       <summary>{title} <span>{visible.length}/{items.length}</span></summary>
       {visible.length ? visible.map((item) => {
-        const open = onOpen && item.openable !== false ? onOpen : undefined
+        const recordPath = item.evidenceKind ? evidencePath(location.search, item.evidenceKind, item.evidenceParams) : ''
+        const operatorPath = item.findOperators && item.evidenceKind ? evidencePath(location.search, item.evidenceKind, { ...item.evidenceParams, focus: 'operators' }) : ''
+        const open = recordPath ? () => navigate(recordPath) : undefined
         return (
           <div
             className={`skills-gov-item ${item.severity} ${open ? 'clickable' : ''}`}
             key={item.id}
-            role={open ? 'button' : undefined}
+            role={open ? 'link' : undefined}
             tabIndex={open ? 0 : undefined}
-            onClick={open ? () => open(item.title) : undefined}
-            onKeyDown={open ? (event) => rowKey(event, () => open(item.title)) : undefined}
+            onClick={open}
+            onKeyDown={open ? (event) => rowKey(event, open) : undefined}
           >
             <span>{item.title}<em>{item.detail}</em></span>
             <span className="skills-gov-actions">
-              {item.evidenceKind ? (
-                <Link to={evidencePath(location.search, item.evidenceKind, item.evidenceParams)} onClick={(event) => event.stopPropagation()}>
-                  看证据
-                </Link>
-              ) : null}
-              {item.findOperators && item.evidenceKind ? (
-                <Link to={evidencePath(location.search, item.evidenceKind, { ...item.evidenceParams, focus: 'operators' })} onClick={(event) => event.stopPropagation()}>
-                  找人
-                </Link>
-              ) : null}
-              <button type="button" onClick={(event) => stopIgnore(event, item.id)}>忽略</button>
+              <span className="skills-gov-inline-actions">
+                {recordPath ? (
+                  <Link className="skills-gov-icon-action" to={recordPath} onClick={(event) => event.stopPropagation()} aria-label={`查看 ${item.title} 原始记录`} title="查看原始记录">
+                    ▤
+                  </Link>
+                ) : null}
+                {operatorPath ? (
+                  <Link className="skills-gov-icon-action" to={operatorPath} onClick={(event) => event.stopPropagation()} aria-label={`按使用者看 ${item.title} 证据`} title="按使用者看证据">
+                    ◎
+                  </Link>
+                ) : null}
+                <button className="skills-gov-icon-action" type="button" onClick={(event) => stopIgnore(event, item.id)} aria-label={`忽略 ${item.title}`} title="忽略本页">×</button>
+              </span>
+              <details className="skills-gov-menu" onClick={stopMenu}>
+                <summary aria-label={`${item.title} 更多动作`}>⋯</summary>
+                <div>
+                  {recordPath ? <Link to={recordPath}>原始记录</Link> : null}
+                  {operatorPath ? <Link to={operatorPath}>按使用者看证据</Link> : null}
+                  <button type="button" onClick={(event) => stopIgnore(event, item.id)}>忽略本页</button>
+                </div>
+              </details>
             </span>
           </div>
         )
@@ -97,14 +111,14 @@ function operatorGroups(rows: OperatorTableRow[]) {
   return { heavy, sleeping, narrow, untracked: [], idle: [], missing: [] }
 }
 
-export function GovernanceTodo({ data, view = 'skill', onOpen }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; onOpen?: (name: string) => void }) {
+export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview | null; view?: 'skill' | 'operator' }) {
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const groups = useMemo(() => {
     if (view === 'operator') return operatorGroups(data?.operator_table || [])
     const untracked = (data?.governance?.untracked_usage?.top || []).map((row: GovernanceUntrackedSkill, index) => ({
       id: `untracked:${row.name}`,
       title: row.name,
-      detail: `${row.sessions} 次 · ${Math.round(row.share * 100)}%`,
+      detail: `${row.sessions} 次 · ${row.users_30d || 0} operators · 未收录`,
       severity: index < 3 ? 'bad' as const : 'warn' as const,
       evidenceKind: 'untracked' as const,
       evidenceParams: { skill: row.name },
@@ -121,7 +135,7 @@ export function GovernanceTodo({ data, view = 'skill', onOpen }: { data: SkillsO
     const missing = (data?.governance?.cataloged_not_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `missing:${row.name}`,
       title: row.name,
-      detail: row.cataloged_at ? `${String(row.cataloged_at).slice(0, 10)} 收录` : '已收录 · 0 装机',
+      detail: row.cataloged_at ? `${String(row.cataloged_at).slice(0, 10)} 收录 · 0 装机` : '已收录 · 0 装机',
       severity: 'info' as const,
       evidenceKind: 'zero_install' as const,
       evidenceParams: { skill: row.name },
@@ -149,9 +163,9 @@ export function GovernanceTodo({ data, view = 'skill', onOpen }: { data: SkillsO
         <b>待处理线索</b>
         {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>恢复已忽略</button> : null}
       </div>
-      <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} onOpen={onOpen} />
-      <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} onOpen={onOpen} />
-      <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} onOpen={onOpen} />
+      <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} />
+      <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} />
+      <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} />
     </div>
   )
 }
