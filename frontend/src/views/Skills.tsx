@@ -15,6 +15,7 @@ import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
 import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
+import { mobileFilterSummary } from '../lib/skillsPresentation'
 import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
@@ -81,6 +82,7 @@ function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
 }
 
 function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverview | null; params: SkillQueryState; setParams: SetSkillQueryState; view: 'skill' | 'operator'; t: (key: string) => string }) {
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const runtimes = new Set<string>()
   data?.daily?.forEach((row) => row.runtime && runtimes.add(row.runtime))
   data?.operator_daily?.forEach((row) => row.runtime && runtimes.add(row.runtime))
@@ -92,10 +94,20 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
     if (next === view) return
     update({ view: next, sort: next === 'operator' ? 'sessions_30d' : 'sessions_window', dir: 'desc' })
   }
+  const filterSummary = mobileFilterSummary(params, view)
   return (
     <section className="frame skills-toolbar-frame">
       <h2><span><span className="sl">//</span>控制条</span><span className="cnt">{view === 'operator' ? t('viewOperatorHint') : t('viewSkillHint')}</span></h2>
-      <div className="toolbar skills-dashboard-toolbar">
+      <button
+        type="button"
+        className="skills-mobile-filter-summary"
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen((value) => !value)}
+      >
+        <span>{filterSummary}</span>
+        <b aria-hidden="true">{filtersOpen ? '⌃' : '⌄'}</b>
+      </button>
+      <div className={`toolbar skills-dashboard-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
         <div className="seg skills-view-seg">
           <button type="button" aria-pressed={view === 'skill'} className={view === 'skill' ? 'on' : ''} onClick={() => setView('skill')}>{t('viewSkill')}</button>
           <button type="button" aria-pressed={view === 'operator'} className={view === 'operator' ? 'on' : ''} onClick={() => setView('operator')}>{t('viewOperator')}</button>
@@ -271,7 +283,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           </div>
         </section>
         <section className="frame">
-          <GovernanceTodo data={data} view={view} onOpen={view === 'skill' ? openSkill : undefined} />
+          <GovernanceTodo data={data} view={view} />
         </section>
       </div>
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}

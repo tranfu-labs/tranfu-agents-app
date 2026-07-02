@@ -1,6 +1,6 @@
 # SKILLS 证据页 · 线框图
 
-> 路由：`/skills/evidence`（`frontend/src/views/SkillsEvidence.tsx`）。从 `/skills` 首屏摘要格、问题线索、待处理线索或排行证据入口进入；保留当前 `w/wstart/wend/q/rt/src/view/topn` 等筛选语义。
+> 路由：`/skills/evidence`（`frontend/src/views/SkillsEvidence.tsx`）。从 `/skills` 摘要格、问题线索、待处理线索事实行或排行证据入口进入；保留当前 `w/wstart/wend/q/rt/src/view/topn` 等筛选语义。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 手机 375×812（31 列）
@@ -8,38 +8,46 @@
 ## 字符图
 
 ```text
-━━ 桌面 1440×900（120 列 × 60 行）━━
+━━ 桌面 1440×900（120 列 × 38 行）━━
 ┌─ 顶部导航 ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│◆ TRANFU//AGENTS  Pods Agents ‹SKILLS› Token用量  +N Skill/周 N 资产 ● N Live ⧗00:00:00 [中|EN][系统|浅色|深色]       │
+│◆ TRANFU//AGENTS  Pods Agents ‹SKILLS›  +N Skill/周  N 资产  ● N Live  [中|EN][系统|浅色|深色]                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-┌─ ① 证据页头 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│← SKILLS 统计                                                                                                        │
-│总触发次数证据                                  2026-06-25 .. 2026-07-01                                             │
-│w: 7d   rt: codex   src: non_catalog   q: figma     ignored: src=own ignored                                         │
+┌─ ① 紧凑页头 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│← SKILLS   总触发证据   2026-06-25..2026-07-01   w=7d · runtime=全部 · source=全部 · q=空                           │
+│284 records · 64 skills · 8 operators · 188 sessions，其中 92 条来自未收录 skill [↗]        tabs: ‹原始记录› 分组 ⋯ │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-┌─ ② 证据摘要 + 下一步 ───────────────────────────────────────────────────────────────────────────────────────────────┐
-│records 337        skills 42        operators 18        sessions 280        untracked 113        company 180          │
-│[看原始记录] [按 skill 分组] [找使用者]                                                                                │
+┌─ ② 主证据：原始记录优先（total / untracked / runtime / source / top3 等）──────────────────────────────────────────┐
+│Time                  Skill                          Operator   Runtime       Source       Session                   │
+│刚刚                  figma                          alice      codex         非公司库     s-123                     │
+│昨天 18:12            coolify-deploy                 bob        claude-code   非公司库     s-456                     │
+│周一 09:40            write-spec                     chen       codex         own          s-789                     │
+│...                                                                                                                   │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-┌─ ③ Top skills ────────────────────────────────────────────┐┌─ ④ Top operators ────────────────────────────────────┐
-│figma              非公司库 · 42 records · 5 operators      ││alice              30 records · 6 skills                │
-│coolify-deploy     非公司库 · 19 records · 2 operators      ││bob                24 records · 4 skills                │
-│openai-docs        own · 12 records · 3 operators           ││chen               11 records · 2 skills                │
-└────────────────────────────────────────────────────────────┘└────────────────────────────────────────────────────────┘
+┌─ ③ 辅助分组：Top skills ────────────────────────────────┐┌─ ④ 辅助分组：Top operators ────────────────────────┐
+│figma · 32 records · 2 operators                          ││alice · 21 records · 6 skills                       │
+│coolify-deploy · 12 records · 1 operator                  ││bob · 12 records · 4 skills                         │
+└──────────────────────────────────────────────────────────┘└─────────────────────────────────────────────────────┘
+```
 
-┌─ ⑤ 名单证据（idle / unused_ratio / zero_install 时出现）────────────────────────────────────────────────────────────┐
-│Skill                  Source        Installers       Last used                                                       │
-│idle-own               own           3                2026-06-01                                                      │
-│meta-tool              meta          0                —                                                               │
+```text
+━━ 桌面 1440×900（名单型 evidence）━━
+┌─ 顶部导航 ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│◆ TRANFU//AGENTS  Pods Agents ‹SKILLS›  +N Skill/周  N 资产  ● N Live  [中|EN][系统|浅色|深色]                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-┌─ ⑥ 原始记录 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│Time                  Skill            Operator   Runtime       Source       Session                                  │
-│刚刚                  figma            alice      codex         非公司库     s-123                                    │
-│昨天 18:12            coolify-deploy   bob        claude-code   非公司库     s-456                                    │
+┌─ ① 紧凑页头 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│← SKILLS   装了但没用证据   2026-06-25..2026-07-01   w=7d                                                            │
+│19 个装了但 7d 没用 · 33 installs                                                 tabs: ‹名单› 分组 ⋯              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ⑤ 主证据：名单优先（idle / unused_ratio / zero_install）──────────────────────────────────────────────────────────┐
+│Skill                         Source       Installers       Last used                                                 │
+│write-spec                    own          4                2026-06-01                                                │
+│tranfu-coolify-ops            meta         2                —                                                         │
+│github-delivery-check         own          1                2026-05-20                                                │
 │...                                                                                                                   │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -51,28 +59,15 @@
 │ Pods Agents SKILLS      │
 └─────────────────────────┘
 
-┌─ 证据页头 ──────────────┐
-│← SKILLS 统计            │
-│总触发次数证据           │
+┌─ ① 证据页头 ────────────┐
+│← SKILLS                 │
+│总触发证据               │
 │2026-06-25..2026-07-01   │
-│w=7d rt=codex            │
-│src=non_catalog          │
+│284 records · 64 skills  │
+│其中 92 条未收录 [↗]     │
 └─────────────────────────┘
 
-┌─ 摘要 + 下一步 ─────────┐
-│337 records   42 skills  │
-│18 operators  280 sess   │
-│[看记录] [按 skill] [找人]│
-└─────────────────────────┘
-
-┌─ Top skills ────────────┐
-│figma                    │
-│非公司库 · 42 records    │
-│coolify-deploy           │
-│非公司库 · 19 records    │
-└─────────────────────────┘
-
-┌─ 记录摘要行 ────────────┐
+┌─ ② 原始记录 ────────────┐
 │figma · alice            │
 │codex · 非公司库         │
 │刚刚 · s-123             │
@@ -87,9 +82,8 @@
 
 | 编号 | 元素 | 状态 / 交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
-| ① | 证据页头 | 返回 `/skills` 时删除 evidence-only 参数并保留原窗口和筛选；展示实际生效筛选与 ignored filters | URL query + `/api/skills/evidence` | SkillsEvidenceView |
-| ② | 证据摘要 + 下一步 | 展示 summary 与非破坏 action 文案；不表示已经收录、已经复制或永久忽略 | `summary/actions` | SectionTitle · StatCard |
-| ③ | Top skills | 当前证据集合按 used records 分组；空态显示 `暂无 skill 分组` | `top_skills` | evidence-list |
-| ④ | Top operators | 当前证据集合按 operator 分组；空 operator 不进入 Top | `top_operators` | evidence-list |
-| ⑤ | 名单证据 | 仅名单型 evidence kind 展示；最近使用日保持服务端 `day` 语义 | `items` | mobile-card-table |
-| ⑥ | 原始记录 | 无下钻目标，不呈现可点态；具体时间按浏览器本地时区展示，缺失 `first_seen` 时按 `day` date-only 规则展示 | `records` | records-table |
+| ① | 紧凑页头 | 返回 `/skills` 时删除 evidence-only 参数并保留原窗口和筛选；展示实际生效筛选与 ignored filters；`kind=total` 的未收录数量作为句内切片跳 `kind=untracked` | URL query + `/api/skills/evidence` | SkillsEvidenceView |
+| ② | 原始记录主表 | 有 raw records 的 kind 默认停在原始记录；1440×900 第一屏露出表头和前几行；无下钻目标，不呈现可点态；时间按浏览器本地时区展示 | `records` | records-table |
+| ③ | Top skills | 辅助分组，排在主表之后；不足以并排时下置，不压窄主表 | `top_skills` | evidence-list |
+| ④ | Top operators | 辅助分组，空 operator 不进入 Top；排在主表之后 | `top_operators` | evidence-list |
+| ⑤ | 名单证据主表 | 仅名单型 evidence kind 展示；默认停在名单；1440×900 第一屏露出表头和前几行；最近使用日保持服务端 `day` 语义 | `items` | mobile-card-table |

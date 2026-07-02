@@ -97,16 +97,21 @@
   其余合并为"其它"段;窗口选择器不含"全部"档。
 - SKILLS 总览采用证据导向仪表盘结构:控制条 → 过去 W 变化(8 格,每格可追证据) → 问题线索(5 项) →
   主分析区并列(左:排行 Bar/操作员排行 + 每日使用趋势图;右:待处理线索) → 归因 Donut(来源+runtime) →
-  明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。
+  明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。手机首屏优先呈现问题线索和待处理线索,不得让完整筛选表单占据第一屏主体。
   首次加载只保留控制条和 skeleton/Empty;增量刷新保留旧数据并在标题 `cnt` 标记 loading/error。
 - 控制条承载视角切换、时间窗、环比开关、搜索、runtime、来源、Top N、隐藏 0 使用和导出入口。视角切换使用 32px 高分段按钮,
   选中态使用品牌色 `--brand`;切换视角不重置时间窗。公司库漏斗常驻且始终使用 skill/catalog 口径。
 - 按 Skill 视角「过去 W 变化」8 格口径:总触发次数、公司库覆盖率、活跃操作员数、平均每会话 skill 数、未收录使用占比、闲置 skill 数、
-  装了没用比例、Top3 集中度。每格必须提供证据入口,并在有名单时展示 Top 1-3 个 skill/operator 名称。
+  装了没用比例、Top3 集中度。每格必须提供证据入口,但摘要格只展示短结论,不得直接铺长 skill/operator 名单;
+  长名单只能出现在待处理线索、`/skills/evidence` 或展开详情中。若必须露对象,只能露 1 个短名且超长名截断,
+  不能用 `/` 拼接多个长名。证据入口使用 icon button,通过 tooltip / `aria-label` 暴露 `查看证据`、`查看名单` 等语义,
+  不得在每格重复显示可见文字「证据」。
   除闲置 skill 数和装了没用比例两个快照指标外,其余可展示本期 vs 上期同长度窗口 delta;
   `previous=0,current>0` 显示 `+∞%`,两边 0 显示 `—`。按人视角换为 operator 口径摘要,至少包含使用记录、活跃操作员、
   活跃率、人均 skill、人均会话、Top3 集中度、runtime 覆盖和来源覆盖。
-- 按 Skill 视角「问题线索」5 项:未收录占比、装了没用比例、公司库覆盖率、Top3 集中度、平均 skill/会。每项展示当前值、证据入口和可行动提示,
+- 按 Skill 视角「问题线索」5 项:未收录占比、装了没用比例、公司库覆盖率、Top3 集中度、平均 skill/会。每项主句优先对象驱动或事实驱动,
+  百分比只作次级说明,不得作为唯一主句;例如 `figma / coolify-deploy 正在被自发使用,但还没进入公司库`,
+  次级说明为 `4 records · 2 operators · 100% non_catalog`。每项展示当前事实、icon 证据入口和可行动提示,
   不得显示 `良好`、`偏高`、`需关注` 作为考核标签;阈值为未收录 `<10%/10-25%/>25%`、装了没用 `<20%/20-40%/>40%`、覆盖率 `>50%/30-50%/<30%`、
   Top3 `30-60% good,60-80% 或 <30% warn,>80% bad`、平均 skill/会 `>1.5 good,0.8-1.5 warn,<0.8 bad`。
   按人视角问题线索换为 operator 使用信号,至少包含活跃率、人均 skill、Top3 集中度、runtime 覆盖和活跃操作员数。
@@ -115,10 +120,21 @@
   不新增与行跳转冲突的选中态;其下方趋势图展示当前筛选后的 operator 分布。
 - 按 Skill 视角待处理线索 3 组固定顺序:有使用但未收录、装了窗口内没用、收录但零装机。`有使用但未收录` 是第一优先线索,
   必须展示 Top items、触发次数和至少一个证据动作。按人视角待办换为重度使用者、近 7 天沉睡、低覆盖使用者。
-  每组 Top 8 + 查看全部/忽略入口;行动作必须是非破坏操作,例如 `看证据`、`找使用者`、`打开详情`、`忽略本页`。
-  忽略是当前页面会话态,不写入浏览器持久化,避免突破 ADR-0023 的 localStorage 边界。
+  待处理线索行正文只讲事实,例如 `figma · 3 次 · alice/bob · 未收录`,不得铺一排文字动作。
+  桌面动作收为 icon group,至少包含原始记录、按使用者看证据、忽略;界面不得使用可见文案 `找人`。
+  mobile 行点击进入 evidence,次级动作进入 `...` 菜单。每组 Top 8 + 查看全部/忽略入口;行动作必须是非破坏操作。
+  忽略只允许当前页面内临时隐藏,刷新、重新进入页面或重新 mount 后恢复;不得写入 localStorage、sessionStorage 或后端。
 - `/skills/evidence` 必须保留当前 SKILLS 时间窗和筛选语义;刷新、复制链接和前进后退必须保持 evidence `kind` 与筛选。
-  证据页必须展示返回 SKILLS 的入口、当前窗口、下一步动作、分组证据、原始记录表或名单证据。
+  证据页必须展示返回 SKILLS 的入口、当前窗口、紧凑上下文摘要、icon toolbar 或紧凑 tabs、原始记录表或名单证据。
+  证据页不是另一个 dashboard,第一职责是回答「这批事实到底是什么」:有 raw records 的 evidence kind
+  (`total`、`untracked`、`runtime`、`source`、`top3`、`coverage`、`operators`、`avg_per_session`)默认停在「原始记录」,
+  1440x900 第一屏必须露出 records 表头和前几行;无 raw records 的 evidence kind (`idle`、`unused_ratio`、`zero_install`)默认停在「名单」,
+  1440x900 第一屏必须露出名单表表头和前几行。
+  摘要不得固定渲染 `RECORDS / SKILLS / OPERATORS / SESSIONS / UNTRACKED / COMPANY` KPI cards,必须按 kind 收敛为上下文句。
+  `kind=total` 的未收录数量必须作为总证据摘要里的上下文切片展示,例如 `其中 N 条来自未收录 skill`,
+  并能跳转到保留当前窗口和筛选语义的 `kind=untracked`;不得单独以 `UNTRACKED N` 指标卡形式站着。
+  `Top skills / Top operators` 是辅助分组,不得排在主表之前把 raw records 或名单表挤出第一屏;若并排导致主表过窄,
+  分组必须放到主表下方,主表至少要能读清 `time / skill / operator / runtime / source`。
   原始记录的具体时间 `first_seen` 按浏览器本地时区展示;缺失 `first_seen` 时按服务端 `day` date-only 语义展示,
   规则与 `/skill/:name`、`/operator/:name` 最近记录一致。最近记录/证据记录无下钻目标时不得呈现可点态。
 - 归因 Donut 两张:按来源为双层 Sunburst(内环=已收录 vs 未收录;外环=own/meta/external/non_catalog),按 runtime 为单层 Donut;
@@ -162,10 +178,13 @@
 - SKILLS 统计域(`/skills`、`/skill/:name`、`/operator/:name`)使用专用响应式规则:
   桌面 `>1080px` 保持现有信息架构;平板 `601px-1080px`;手机 `≤600px`。
   该域页面根节点不得出现横向滚动;趋势图只允许在 `.chart-box` 内部横向滚动。
-- `/skills` 在平板与手机下必须保持单列主内容流:控制条 → 过去 W 变化 → 问题线索 →
+- `/skills` 在平板下必须保持单列主内容流:控制条 → 过去 W 变化 → 问题线索 →
   排行/操作员排行 → 趋势图 → 待处理线索 → 归因 → 明细 → 公司库漏斗。漏斗下沉到底部,不得在窄屏下挤到排行右侧导致主体过窄。
-- `/skills` 的控制条在手机下仍须显示当前视角说明文案;分段按钮等分占满可用宽度。
-  搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。
+  `/skills` 在手机下必须优先首屏判断流:控制摘要 → 问题线索 → 待处理线索 → 排行/操作员排行 → 趋势图 →
+  过去 W 变化 → 归因 → 明细 → 公司库漏斗。
+- `/skills` 的控制条在手机下默认折叠为一行摘要,摘要至少包含当前窗口、视角、runtime/source 筛选摘要和筛选入口,
+  例如 `7d · 按 Skill · 全部 runtime/source · 筛选`;完整筛选控件只能在用户展开后显示。
+  展开后搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。
 - `/skills` 的趋势图使用固定单日槽宽(按 30d 观感定标),日期轨道长度与图表视窗尺寸解耦:
   1-7 天窗口右对齐显示且不拉伸;30/90 天、自选超过 7 天和详情页固定 30 天趋势图允许在 `.chart-box` 内部横向滚动,
   并默认显示最新日期。页面根不得因趋势图横向滚动。
@@ -232,9 +251,19 @@
 - `/skills` 无窗口参数 → 前端默认 `w=7d`。
 - `/skills?view=skill&w=7d&topn=8` 显示过去 W 变化 8 格、问题线索 5 项、排行 Bar 下方每日趋势图、待处理线索、两张 Donut、明细表和下沉漏斗。
 - `/skills?view=skill&w=7d` 首屏不显示旧 KPI / 健康评分语义文案。
+- `/skills?view=skill&w=7d` 的摘要格不得直接渲染 `openspec-driven-development / tranfu-website-design / strategy-first-development` 这类长 skill 串。
+- `/skills?view=skill&w=7d` 的摘要格不得重复出现多个可见文字「证据」入口;证据入口应是 icon button,并有可访问名称。
 - 点击 `/skills` 首屏 `总触发次数` 的证据入口 → 跳到 `/skills/evidence?kind=total&w=7d...`,证据表显示当前窗口 records。
-- 点击 `/skills` 首屏 `有使用但未收录` 的 `看证据` → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
+- 点击 `/skills` 首屏 `有使用但未收录` 的证据 icon 或 mobile 待处理线索行 → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
+- `/skills?view=skill&w=7d` 的 `待处理线索` 不得显示可见文案 `找人`;对应 icon action 的可访问名称为 `按使用者看证据` 或同义语义。
+- `待处理线索` 点击忽略后当前页面隐藏,刷新或重新 mount 后恢复;前端不得调用 localStorage/sessionStorage 保存该状态。
 - `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过过去 W 变化、问题线索和待处理线索 A 组呈现。
+- 1440x900 打开 `/skills/evidence?kind=total&w=7d` → 第一屏露出 records 表头和前几行;摘要包含
+  `其中 N 条来自未收录 skill` 上下文切片,且该切片可跳转到 `/skills/evidence?kind=untracked&w=7d...`。
+- 1440x900 打开 `/skills/evidence?kind=untracked&w=7d` → 默认停在原始记录,第一屏露出 records 表头和前几行。
+- 1440x900 打开 `/skills/evidence?kind=idle&w=7d` 或 `/skills/evidence?kind=zero_install&w=7d` →
+  默认停在名单,第一屏露出名单表表头和前几行。
+- `/skills/evidence` 中 `Top skills / Top operators` 不得让主表列宽小到无法读清 `time / skill / operator / runtime / source`;不足时分组下置。
 - 点击 Skill 明细表任意行 → 同页打开右侧抽屉并写入 `sel=<skill>`;抽屉内点「前往详情页」才跳 `/skill/:name`。
 - 浏览器时区为 Asia/Shanghai,当前本地时间为 `2026-06-28 01:00:00`,记录
   `first_seen=2026-06-27T16:30:00+00:00` → 最近记录可见文本为 `30分钟前`,hover title 为
@@ -255,10 +284,12 @@
   → Skill 明细表打开抽屉,操作员主表与操作员详情 skill 排行跳转到对应详情;点击可排序表头 → 仅排序、不触发行操作。
 - 键盘聚焦某可操作行并按 Enter/Space → 触发与点击相同的抽屉或跳转行为。
 - "最近记录"表行 hover/点击 → 不跳转,指针为默认。
-- 375x812 打开 `/skills?view=skill&w=7d` → 页面根无横向滚动,控制条说明可见,筛选控件逐行铺满,
-  排行摘要行之后显示 7 天趋势图;趋势图保持 30d 单日槽宽并右对齐显示最新 7 天,不拉伸到整行;Skill 明细行为移动摘要/单列样式,点 Skill 明细行打开全屏抽屉。
+- 375x812 打开 `/skills?view=skill&w=7d` → 页面根无横向滚动,控制条默认显示一行摘要
+  `7d · 按 Skill · 全部 runtime/source · 筛选` 或等价实际筛选摘要,第一屏能看到「问题线索」和「待处理线索」的实质内容,
+  不先展示完整筛选表单;排行摘要行之后显示 7 天趋势图;趋势图保持 30d 单日槽宽并右对齐显示最新 7 天,不拉伸到整行;
+  Skill 明细行为移动摘要/单列样式,点 Skill 明细行打开全屏抽屉。
 - 375x812 打开 `/skills?view=skill&w=30d` → 页面根无横向滚动,30 天趋势图只在 `.chart-box` 内横滚,
-  待处理线索位于排行之后,公司库漏斗位于页面底部。
+  待处理线索位于首屏判断流内,公司库漏斗位于页面底部。
 - 375x812 打开 `/skills/evidence?kind=total&w=30d` → 页面根无横向滚动,记录表以摘要行展示。
 - 375x812 打开 `/skills?view=operator&w=30d` → 页面根无横向滚动,按人榜为摘要行且整行点击进入 `/operator/:name`,
   公司库漏斗仍位于页面底部。

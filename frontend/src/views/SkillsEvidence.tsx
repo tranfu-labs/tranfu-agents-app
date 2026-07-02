@@ -3,7 +3,8 @@ import { Empty, SectionTitle } from '../components/Common'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillsEvidenceKind, SkillsEvidencePayload } from '../lib/types'
 import { sourceLabel } from '../lib/utils'
-import { skillsBackSearch } from '../lib/skillsEvidence'
+import { evidencePath, skillsBackSearch } from '../lib/skillsEvidence'
+import { defaultEvidenceTab, evidenceSummaryLine, isListEvidenceKind } from '../lib/skillsPresentation'
 
 const KIND_LABEL_ZH: Record<SkillsEvidenceKind, string> = {
   total: '总触发次数证据',
@@ -43,20 +44,6 @@ function n(value: unknown) {
   return new Intl.NumberFormat('zh-CN').format(Number.isFinite(num) ? Math.round(num * 100) / 100 : 0)
 }
 
-function summaryRows(data: SkillsEvidencePayload | null) {
-  const summary = data?.summary || {}
-  return [
-    ['records', 'records'],
-    ['skills', 'skills'],
-    ['operators', 'operators'],
-    ['sessions', 'sessions'],
-    ['items', 'items'],
-    ['installed', 'installed'],
-    ['untracked_records', 'untracked'],
-    ['company_records', 'company'],
-  ].filter(([key]) => summary[key] !== undefined).map(([key, label]) => ({ key, label, value: summary[key] }))
-}
-
 function FilterChips({ data }: { data: SkillsEvidencePayload | null }) {
   const filters = data?.applied_filters || {}
   const ignored = data?.ignored_filters || []
@@ -69,10 +56,74 @@ function FilterChips({ data }: { data: SkillsEvidencePayload | null }) {
   )
 }
 
+function actionGlyph(id: string, label: string) {
+  const text = `${id} ${label}`.toLowerCase()
+  if (text.includes('operator') || text.includes('使用者')) return '◎'
+  if (text.includes('skill')) return '◇'
+  if (text.includes('copy') || text.includes('复制')) return '⧉'
+  return '▤'
+}
+
 export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { data: SkillsEvidencePayload | null; loading: boolean; error: string; lang: Lang; search: string; t: (key: string) => string }) {
   const records = data?.records || []
   const items = data?.items || []
   const back = `/skills${skillsBackSearch(search)}`
+  const listFirst = isListEvidenceKind(data?.kind)
+  const untrackedRecords = Number(data?.summary?.untracked_records || 0)
+  const showUntrackedSlice = data?.kind === 'total' && untrackedRecords > 0
+  const recordsSection = (
+    <section className="frame evidence-primary">
+      <SectionTitle title="原始记录" count={records.length} />
+      {records.length ? (
+        <div className="skills-wrap">
+          <table className="skill-table mobile-card-table records-table evidence-records-table">
+            <thead>
+              <tr><th>Time</th><th>Skill</th><th>Operator</th><th>Runtime</th><th>Source</th><th>Session</th></tr>
+            </thead>
+            <tbody>
+              {records.map((record, index) => {
+                const time = formatRecentRecordTime(record.first_seen, record.day || '', lang, undefined, data?.today)
+                return (
+                  <tr key={`${record.session_id}:${record.skill}:${record.first_seen}:${index}`}>
+                    <td data-label="Time" title={time.title}>{time.label}</td>
+                    <td className="mobile-main" data-label="Skill"><b>{record.skill || '—'}</b></td>
+                    <td data-label="Operator">{record.operator || '—'}</td>
+                    <td data-label="Runtime">{record.runtime || '—'}</td>
+                    <td data-label="Source"><span className="source-pill">{sourceLabel(record.source, t)}</span></td>
+                    <td data-label="Session"><code>{record.session_id || '—'}</code></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : <Empty title={items.length ? '这类证据没有窗口内触发记录' : '暂无证据记录'} />}
+    </section>
+  )
+  const itemsSection = (
+    <section className="frame evidence-primary">
+      <SectionTitle title="名单证据" count={items.length} />
+      {items.length ? (
+        <div className="skills-wrap">
+          <table className="skill-table mobile-card-table">
+            <thead>
+              <tr><th>Skill</th><th>Source</th><th className="num">Installers</th><th>Last used</th></tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.name}>
+                  <td className="mobile-main" data-label="Skill"><b>{item.name}</b></td>
+                  <td data-label="Source"><span className="source-pill">{sourceLabel(item.source, t)}</span></td>
+                  <td className="num" data-label="Installers">{item.installers || 0}</td>
+                  <td data-label="Last used">{item.last_day || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <Empty title="暂无名单证据" />}
+    </section>
+  )
   return (
     <div className={`skills-page skills-dashboard skills-evidence-page ${loading ? 'is-refreshing' : ''}`}>
       <section className="frame evidence-hero">
@@ -83,25 +134,27 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             <p>{data?.window?.start || '—'} .. {data?.window?.end || '—'}</p>
           </div>
           <FilterChips data={data} />
+          <div className="evidence-summary-line">
+            <span>{evidenceSummaryLine(data)}</span>
+            {showUntrackedSlice ? (
+              <Link to={evidencePath(search, 'untracked')} aria-label="查看未收录 skill 证据">↗</Link>
+            ) : null}
+          </div>
+          <div className="evidence-toolbar" role="toolbar" aria-label="证据页动作">
+            <span className="evidence-tab-current">{defaultEvidenceTab(data?.kind)}</span>
+            {(data?.actions || []).map((action) => (
+              <span className="evidence-tool" key={action.id} aria-label={action.label} title={action.label}>
+                {actionGlyph(action.id, action.label)}
+              </span>
+            ))}
+          </div>
         </div>
       </section>
       {error ? <div className="note-warn">{t(error)}</div> : null}
       {loading && !data ? <section className="frame"><Empty title={t('loading')} /></section> : null}
-      <section className="frame">
-        <SectionTitle title="证据摘要" count={data?.window?.key || ''} />
-        <div className="evidence-summary">
-          {summaryRows(data).map((row) => (
-            <div className="stat" key={row.key}>
-              <div className="v">{n(row.value)}</div>
-              <div className="l">{row.label}</div>
-            </div>
-          ))}
-        </div>
-        <div className="evidence-actions">
-          {(data?.actions || []).map((action) => <span key={action.id}>{action.label}</span>)}
-        </div>
-      </section>
-      <div className="skills-main-split evidence-split">
+      {listFirst ? itemsSection : recordsSection}
+      {!listFirst && items.length ? itemsSection : null}
+      <div className="skills-main-split evidence-split evidence-aux">
         <section className="frame">
           <SectionTitle title="Top skills" count={data?.top_skills?.length || 0} />
           <div className="evidence-list">
@@ -127,55 +180,6 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
           </div>
         </section>
       </div>
-      {items.length ? (
-        <section className="frame">
-          <SectionTitle title="名单证据" count={items.length} />
-          <div className="skills-wrap">
-            <table className="skill-table mobile-card-table">
-              <thead>
-                <tr><th>Skill</th><th>Source</th><th className="num">Installers</th><th>Last used</th></tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.name}>
-                    <td className="mobile-main" data-label="Skill"><b>{item.name}</b></td>
-                    <td data-label="Source"><span className="source-pill">{sourceLabel(item.source, t)}</span></td>
-                    <td className="num" data-label="Installers">{item.installers || 0}</td>
-                    <td data-label="Last used">{item.last_day || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-      <section className="frame">
-        <SectionTitle title="原始记录" count={records.length} />
-        {records.length ? (
-          <div className="skills-wrap">
-            <table className="skill-table mobile-card-table records-table evidence-records-table">
-              <thead>
-                <tr><th>Time</th><th>Skill</th><th>Operator</th><th>Runtime</th><th>Source</th><th>Session</th></tr>
-              </thead>
-              <tbody>
-                {records.map((record, index) => {
-                  const time = formatRecentRecordTime(record.first_seen, record.day || '', lang, undefined, data?.today)
-                  return (
-                    <tr key={`${record.session_id}:${record.skill}:${record.first_seen}:${index}`}>
-                      <td data-label="Time" title={time.title}>{time.label}</td>
-                      <td className="mobile-main" data-label="Skill"><b>{record.skill || '—'}</b></td>
-                      <td data-label="Operator">{record.operator || '—'}</td>
-                      <td data-label="Runtime">{record.runtime || '—'}</td>
-                      <td data-label="Source"><span className="source-pill">{sourceLabel(record.source, t)}</span></td>
-                      <td data-label="Session"><code>{record.session_id || '—'}</code></td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : <Empty title={items.length ? '这类证据没有窗口内触发记录' : '暂无证据记录'} />}
-      </section>
     </div>
   )
 }

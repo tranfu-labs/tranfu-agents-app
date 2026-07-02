@@ -67,7 +67,7 @@
 ┌─ SKILLS 统计 /skills ─┐   ② 点 Skill 明细行   ┌┄ 右侧 Skill 抽屉 ┄┐
 │ → pages/skills.md     │ ───────────────────▶ ┊ 同页态 sel=skill  ┊
 │                       │ ◀────── ③ 关闭抽屉 ─ └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
-│                       │   ④ 看证据/看名单     ┌─ SKILLS 证据页 /skills/evidence ─┐
+│                       │   ④ icon evidence      ┌─ SKILLS 证据页 /skills/evidence ─┐
 │                       │ ───────────────────▶ │ → pages/skills-evidence.md       │
 │                       │ ◀── ⑤ ←SKILLS(query) │                                  │
 │                       │                       └──────────────────────────────────┘
@@ -92,7 +92,7 @@
 | ① | SKILLS `/skills` | 同页（query 变化） | 改控制条、视角或选中态（搜索框 / runtime / 来源 / 时间窗 `w` / Top N / 隐藏 0 / 按 skill / 按人 / `sel`） |
 | ② | SKILLS `/skills` | 右侧 Skill 抽屉（同页） | 在按 Skill 视角点明细表任意行；写入 `sel` 并打开抽屉 |
 | ③ | 右侧 Skill 抽屉 | SKILLS 同页 | 点关闭按钮或 backdrop |
-| ④ | SKILLS `/skills` | SKILLS 证据页 `/skills/evidence?kind=...` | 点首屏摘要格、问题线索、待处理线索或排行行的「看证据 / 看名单」；保留当前 window 和筛选 query |
+| ④ | SKILLS `/skills` | SKILLS 证据页 `/skills/evidence?kind=...` | 点摘要格/问题线索/排行的 evidence icon，或在 mobile 点击待处理线索事实行；保留当前 window 和筛选 query |
 | ⑤ | SKILLS 证据页 | SKILLS `/skills` | 点「← SKILLS」（删除 evidence-only 参数,回填进入时的 query） |
 | ⑥ | 右侧 Skill 抽屉 | Skill 详情 `/skill/:name` | 点「前往详情页」按钮（附带 `location.search`） |
 | ⑦ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
