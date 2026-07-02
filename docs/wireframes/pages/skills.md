@@ -10,7 +10,7 @@
 ```
 ━━ 桌面 1440×900（120 列 × 60 行）━━
 ┌─ 顶部导航 ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│◆ TRANFU//AGENTS  标签页 Pods Agents ‹SKILLS›  +N Skill/周 N 资产 ● N Live ⧗00:00:00 [中|EN][系统|浅色|深色]          │
+│◆ TRANFU//AGENTS  标签页 Pods Agents ‹SKILLS›  +N 7天新发现 N Skill资产 ● N Live ⧗00:00:00 [中|EN][系统|浅色|深色]  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ ① 控制条（视角切换收进这一行）────────────────────────────────────────────────────────────────────────────────────────┐
@@ -129,7 +129,7 @@
 ━━ 平板 768×1024（64 列 × 90 行）━━
 ┌─ 顶部导航 ───────────────────────────────────────────────────┐
 │◆ TRANFU ‹Pods› Agents SKILLS ●N Live ⧗00:00:00               │
-│+N Skill/周  N 资产                        [中|EN]            │
+│+N 7天新发现  N Skill资产                   [中|EN]            │
 │[系统][浅色][深色]                                            │
 └──────────────────────────────────────────────────────────────┘
 
@@ -216,6 +216,7 @@
 ┌─ ① 控制摘要 ────────────────┐
 │7 天 · 按 Skill · 全部     │
 │/source · [筛选⌄]           │
+│[新发现 N] → scope=new      │
 └─────────────────────────────┘
 
 ┌─ ③ 问题线索 ────────────────┐
@@ -288,7 +289,7 @@
 
 | 编号 | 元素 | 状态 / 交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
-| ① | 控制条（视角切换 + 时间窗 + 环比 + 搜索 + runtime + 来源 + Top N + 隐藏 0） | 桌面/平板展开完整控件，搜索字段内部保持 label+input 同行；手机默认折叠为一行摘要 `7 天 · 按 Skill · 全部 runtime/source · 筛选`（英文随语言切换），点开后再改筛选；所有筛选写 URL；cnt 承载 loading / error 文案 | `/api/skills?w=…` + URL query `view/w/wstart/wend/cmp/q/rt/src/topn/hz/sel` | SkillsToolbar |
+| ① | 控制条（视角切换 + 时间窗 + 搜索 + runtime + 来源 + Top N + 隐藏 0 + 新发现名单态） | 桌面/平板展开完整控件，搜索字段内部保持 label+input 同行；手机默认折叠为一行摘要 `7 天 · 按 Skill · 全部 runtime/source · 筛选`（英文随语言切换），`scope=new` 时摘要体现新发现名单并在首屏提供 `[新发现 N]` 链接；点开后再改筛选；所有筛选写 URL；cnt 承载 loading / error 文案 | `/api/skills?w=…` + URL query `view/w/wstart/wend/cmp/q/rt/src/topn/hz/sel/scope` | SkillsToolbar |
 | ② | 当前时间窗变化（8 格） | 标题由当前时间窗 i18n label 派生；每格短结论 + icon 证据入口，核心数值与 icon 同行；不铺长 skill/operator 名单，不重复可见文字「证据」；delta 只作变化辅助，不使用评分文案；快照类显示"快照"灰字占位 | `overview.period_comparison` + 现有 `funnel` + `governance.untracked_usage` + `/skills/evidence` | KpiStrip · StatCard |
 | ③ | 问题线索（5 项） | 主句对象驱动或事实驱动，百分比为次级说明；icon 进入证据；不输出考核标签 | 现有字段本地聚合 + `/skills/evidence` | HealthBar |
 | ④ | 主分析区（按窗口切换排行与每日趋势图） | 短窗口 `today/7d/14d/custom<=14d`：桌面排行 Bar/操作员排行与每日趋势图左右并列，趋势图填满自身面板；长窗口 `30d/90d/custom>14d`：排行独占一行、每日趋势图独占下一行，趋势图在 `.chart-box` 内横滚并默认最新日期在右侧。平板/手机统一单列：排行 -> 每日趋势图。Skill 视角排行选中继续联动趋势图；Operator 视角排行行继续下钻。 | `overview.table` / `overview.operator_table` + `overview.daily` / `operator_daily` | RankBars · OperatorTable · StackedSkillChart |

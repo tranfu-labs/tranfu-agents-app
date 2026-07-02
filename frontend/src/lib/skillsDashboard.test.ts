@@ -32,11 +32,13 @@ test('skills overview query sends only window and evidence-scope filters', () =>
     hz: '1',
     cmp: '0',
     sel: 'alpha',
+    scope: 'new',
   })
   const params = new URLSearchParams(query)
   assert.equal(params.get('w'), '7d')
   assert.equal(params.get('rt'), 'codex')
   assert.equal(params.get('src'), 'own')
+  assert.equal(params.get('scope'), 'new')
   assert.equal(params.has('q'), false)
   assert.equal(params.has('topn'), false)
   assert.equal(params.has('hz'), false)

@@ -76,5 +76,8 @@ export function skillsWindowQuery(params: Partial<SkillQueryState>) {
     out.set('wstart', String(window.startTimestamp))
     out.set('wend', String(window.endTimestamp))
   }
+  if (params.rt) out.set('rt', String(params.rt))
+  if (params.src) out.set('src', String(params.src))
+  if (params.scope === 'new') out.set('scope', 'new')
   return out.toString()
 }

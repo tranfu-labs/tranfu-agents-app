@@ -6,11 +6,12 @@
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
-- `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=&rt=&src=]` →
+- `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=&rt=&src=&scope=all|new]` →
   `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, catalog }`(SKILLS 总览;
   `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
   governance、period_comparison 与 attribution 窗口;服务端无参兼容默认 30 天,SKILLS 前端无 URL 窗口参数时默认请求 `7d`。
-  可选 `rt/src` 只影响 `operator_table` / `operator_daily` 的证据范围,用于按人视角;skill 搜索词、Top N、隐藏 0 使用不得进入该 overview 请求。
+  可选 `rt/src` 只影响 `operator_table` / `operator_daily` 的证据范围,用于按人视角;可选 `scope=new` 将总览收敛到当前窗口内历史首次 used 的 skill 名单。
+  skill 搜索词、Top N、隐藏 0 使用不得进入该 overview 请求。
   新增字段均为可选返回,前端读不到时降级。)
 - `GET /api/skills/evidence?kind={total|untracked|coverage|operators|avg_per_session|idle|unused_ratio|zero_install|top3|runtime|source}[&days=7|30|90][&w=today|this_week|last_week|7d|14d|30d|90d|custom][&wstart=&wend=&q=&rt=&src=&skill=&operator=&limit=&offset=]`
   → 当前时间窗下的 SKILLS 证据 payload,字段含 `today/window/summary/actions/applied_filters/ignored_filters/top_skills/top_operators/daily/records/items/catalog`;
@@ -30,7 +31,10 @@
 4. 活跃统计窗口 `WINDOW_DAYS=90`,按服务端统计时区 `Asia/Shanghai` 日;跨天会话按该时区当天边界拆分。
 5. `totals.live` 仅计 `status ∈ {running, started, waiting}`。
 6. `feed` 为真实状态转变(非心跳),倒序。
-7. leverage = `{assets: 不同技能数, skills_week: 近 7 天首次出现的技能数}`。
+7. leverage = `{assets, skills_week}`。`assets` 为 `skill_uses WHERE mode='used'` 的 distinct skill 数;
+   `skills_week` 为当前 7 天窗口内历史首次 `used` 的 distinct skill 数。历史首次日定义为该 skill 在
+   `skill_uses WHERE mode='used'` 的最小 `day`;profile installed、`skills_seen` only、`equipped` only
+   均不得计入 nav 展示数字。`skills_seen` 仅保留为内部发现/安装痕迹派生态。
 8. `skills` 为 Skill 使用/装备排行数组,每项含 `name`、`mode`(`used`/`equipped`)、`sessions_7d`、`sessions_30d`、
    `sessions_total`、`users_30d`、`last_day`;按 `sessions_30d` 降序,平手按 `sessions_total`。
 9. Skill 计数口径:一个会话用过/装备某 skill 的某个 mode 算一次(来源即 `skill_uses` 的会话×skill×mode 粒度,
@@ -44,38 +48,42 @@
 12. `/api/skills` 总览页所有聚合(`daily`、`table`)只统计 `mode=used`;`equipped` 仅在 `/api/skill/{name}`
     详情页展示,并与 used 分列,任何位置不得相加。
 13. `/api/skills.table` 每行含来源字段,取值 own / meta / external / 非公司库;来源由服务端 catalog 缓存按名字映射。
-14. `/api/skills.governance.untracked_usage` 输出"未收录使用占比"管理口径:当前 `days/w` 窗口内
+14. `/api/skills?scope=new` 只返回当前窗口内历史首次 `used` 的 skill 名单:其 `table`、`daily`、
+    `operator_table`、`operator_daily`、`period_comparison`、`attribution` 与 `governance.untracked_usage`
+    均收敛到该名单;`funnel` 保持公司库整体口径。响应必须包含 `scope` 与 `new_skill_count`;非法 `scope`
+    返回 400。该名单态是可行动列表入口,不得默认跳 raw evidence。
+15. `/api/skills.governance.untracked_usage` 输出"未收录使用占比"管理口径:当前 `days/w` 窗口内
     `source=非公司库` 且 `mode=used` 的会话×skill 记录数 / 当前窗口全部 `mode=used` 记录数;空分母为 0。
     catalog 中 `external` 不算未收录;`equipped` 不得进入分母、分子或 Top 列表。`top[]` 按窗口内
     used 会话数降序(平手按最近使用日、再按名称),每项含 `name/source/sessions/share/users_30d/runtime_counts/trend_14d/trend_days/last_day`;
     `users_30d` 固定保持近 30 天用户数语义。
-15. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
+16. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
     已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、当前 `days/w` 窗口有人使用名单(按 `Asia/Shanghai` 日切;
     字段名 `used_30d` 保留兼容);并返回闲置名单 = 已安装 − 当前窗口使用。三层均返回名单而非仅数字。
-16. `/api/skills/evidence` 的 `kind` 是强制证据口径,用户筛选是附加约束。`q/rt/skill/operator` 与 `kind`
+17. `/api/skills/evidence` 的 `kind` 是强制证据口径,用户筛选是附加约束。`q/rt/skill/operator` 与 `kind`
     取交集;`src` 只有在不与 `kind` 的强制 source 口径冲突时才生效。若冲突,后端必须忽略冲突 `src`
     并在 `ignored_filters` 说明。`src=non_catalog` 等价于服务端来源 `非公司库`;catalog 中 `external` 不算未收录。
-17. `/api/skills/evidence?kind=total` 的 `summary.records` 必须等于同一窗口 `/api/skills` 响应里的
+18. `/api/skills/evidence?kind=total` 的 `summary.records` 必须等于同一窗口 `/api/skills` 响应里的
     `period_comparison.current_sessions`;`kind=untracked` 必须只包含 `source=非公司库` 的 used records。
     `kind=idle` / `kind=unused_ratio` 的名单口径为 company catalog `own|meta` 中的 installed names 减去当前窗口 used company names;
     `kind=zero_install` 的名单口径为 company catalog `own|meta` names 减去 installed names。
     `limit` 默认 100,上限 500;非法 kind、limit、offset 返回 400。
-18. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
+19. catalog 由服务端定时拉取并缓存;拉取失败时 `/api/skills` 仍须 200,funnel 携带旧缓存与过期标记;
     从未成功拉取时 funnel 为"目录不可达"态,其余字段正常。
-19. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
+20. `/api/skills.operator_table` 与 `operator_daily` 只统计 `mode=used`,且排除空 `operator`;人维度计量单位是
     会话×skill 去重使用次数(一行 `skill_uses` used 记录),语义为"此人在多少个会话里用过 skill",非真实调用次数。
     `operator_table` 必须输出当前 `window.start..window.end` 的 `sessions_window`,以及上一同长窗口的
     `previous_sessions`;默认按 `sessions_window desc, sessions_total desc, operator asc` 排序。兼容字段
     `sessions_7d`、`sessions_30d`、`sessions_total`、`skill_count`、`session_count`、runtime 计数、来源计数、
     近 14 天趋势和最近使用日仍保留。`rt` 与 `src` 查询参数只应用于 `operator_table` / `operator_daily`;
     二者同时存在时必须取交集,并在 `window_runtime_counts` 与 `window_source_counts` 中反映当前窗口内的已过滤计数。
-20. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
+21. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
-21. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
+22. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
     前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
     可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
     依赖"`/api/state.now` 必须是请求当下时间"的假设。
-22. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
+23. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
 
 ## 部署/运维
@@ -91,7 +99,7 @@
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;SKILLS 证据页 `/skills/evidence`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
-  `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)。
+  `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`scope`(`all|new`)。
   旧参数 `win` 保留向下兼容并在没有 `w` 时映射为 `w`;旧参数 `lens` 保留但不再驱动 UI。筛选变化使用 replace,
   不污染浏览器历史;详情跳转使用 push。`cmp` 保留为向下兼容 no-op,不得驱动可见开关。`/skills` 无 `w` 且无合法旧 `win`
   参数时前端默认 `w=7d`;无效 custom 也回退 `7d`。
@@ -110,6 +118,9 @@
   选中态使用品牌色 `--brand`;切换视角不重置时间窗。时间窗口选项与首屏核心文案必须随当前中英文语言切换,
   不得直接把 `7d` / `30d` 等 query key 作为用户可见选项文案。桌面与平板下搜索 Skill 名字段内部必须单行展示:
   label 与 input 同行、label 不换行、input 使用剩余宽度。公司库漏斗常驻且始终使用 skill/catalog 口径。
+- 顶部导航的 `+N 7天新发现` 必须可键盘聚焦并跳转 `/skills?w=7d&scope=new`;顶部 `N Skill 资产`
+  必须使用 used-only distinct skill 口径,不得暗示安装量或已发现量。手机端可隐藏顶部新增数字,但 `/skills`
+  首屏控制摘要旁必须提供一键/键盘可达的新增名单入口。
 - 按 Skill 视角「当前时间窗变化」8 格口径:总触发次数、公司库覆盖率、活跃操作员数、平均每会话 skill 数、未收录使用占比、闲置 skill 数、
   装了没用比例、Top3 集中度。每格必须提供证据入口,但摘要格只展示短结论,不得直接铺长 skill/operator 名单;
   长名单只能出现在待处理线索、`/skills/evidence` 或展开详情中。若必须露对象,只能露 1 个短名且超长名截断,
@@ -198,6 +209,7 @@
   当前时间窗变化 → 归因 → 明细 → 公司库漏斗。
 - `/skills` 的控制条在手机下默认折叠为一行摘要,摘要至少包含当前窗口、视角、runtime/source 筛选摘要和筛选入口,
   例如中文 `7 天 · 按 Skill · 全部 runtime/source · 筛选` 或英文 `7 days · By skill · all runtime/source · Filter`;
+  `scope=new` 时摘要须体现新增名单态,并在摘要旁显示新增名单入口;
   完整筛选控件只能在用户展开后显示。
   展开后搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。
 - `/skills` 的趋势图日期轨道长度与图表视窗尺寸解耦:短窗口(`today`/`this_week`/`last_week`/`7d`/`14d`/有效 `custom<=14天`)
@@ -231,6 +243,15 @@
 - 已上报过的 agent 后续事件不再带 `shim_version` → 卡片仍呈现最近一次非空值,**不退回 unknown**。
 - 同名 skill 同时有 `used` 与 `equipped` → `/api/skills` 的 table 与 daily 只含 used;
   `/api/skill/{name}` 两种模式并列展示且任何字段不相加。
+- 同一 session 对同一 skill 重复上报 used,或多个 session 上报同一 skill used → `/api/state.leverage.assets`
+  只按 distinct skill 计 1;当前 7 天内首次 used 时 `skills_week` 也只计 1。
+- 仅 profile installed、仅 `skills_seen` 或仅 `skill_mode=equipped` 的 skill → 不计入 `/api/state.leverage.assets`
+  或 `skills_week`。
+- 某 skill 首次 used 在 9 天前、当前 7 天再次 used → 不出现在 `/api/skills?w=7d&scope=new`,但出现在默认
+  `/api/skills?w=7d`。
+- 某 skill 首次 used 在当前 7 天,且 alice/bob 各有一个会话 → `/api/skills?w=7d&scope=new`
+  的 table 只含该 skill,operator_table 只含 alice/bob,该 skill `previous_sessions=0`。
+- `GET /api/skills?w=7d&scope=weird` → 400。
 - 造数据:7 天内 own used 6、external used 2、非公司库 used 4、非公司库 equipped 3 →
   `/api/skills?days=7` 的 `governance.untracked_usage.total_sessions=12`、`used_sessions=4`、
   `ratio≈0.333`,Top 不含 external/equipped。

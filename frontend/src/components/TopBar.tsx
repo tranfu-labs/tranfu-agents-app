@@ -61,10 +61,10 @@ export function TopBar({ lang, setLang, themeMode, resolvedTheme, setThemeMode, 
         </NavLink>
       </nav>
       <div className="readouts">
-        <div className="ro">
+        <Link className="ro ro-link ro-new" to="/skills?w=7d&scope=new" aria-label={t('newSkillsLinkLabel')} title={t('newSkillsLinkLabel')}>
           <div className="n up">+{leverage.skills_week || 0}</div>
           <div className="l">{t('ro_skill')}</div>
-        </div>
+        </Link>
         <div className="ro">
           <div className="n">{leverage.assets || 0}</div>
           <div className="l">{t('ro_assets')}</div>
