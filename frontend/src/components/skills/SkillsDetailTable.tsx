@@ -4,6 +4,7 @@ import type { SetSkillQueryState, SkillQueryState } from '../../lib/skillQuery'
 import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import type { SkillTableRow } from '../../lib/types'
 import { sourceLabel } from '../../lib/utils'
+import { windowPeriodLabel } from '../../lib/skillsPresentation'
 
 function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
   if (event.key !== 'Enter' && event.key !== ' ') return
@@ -41,6 +42,7 @@ function exportRows(rows: SkillTableRow[], suffix: string) {
 }
 
 export function SkillsDetailTable({ rows, allRows, params, setParams, selected, onOpen, t }: { rows: SkillTableRow[]; allRows: SkillTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; selected: string; onOpen: (name: string) => void; t: (key: string) => string }) {
+  const windowLabel = windowPeriodLabel(params.w || `${params.win || 7}d`, t)
   const updateSort = (key: string) => {
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
     void setParams({ sort: key, dir })
@@ -69,8 +71,8 @@ export function SkillsDetailTable({ rows, allRows, params, setParams, selected, 
             <tr>
               {head('name', t('skillName'))}
               {head('source', t('sourceFilter'))}
-              {head('sessions_window', 'W 内', 'num')}
-              {head('previous_sessions', 'W′ 上期', 'num')}
+              {head('sessions_window', windowLabel, 'num')}
+              {head('previous_sessions', t('previousWindow'), 'num')}
               <th className="num">Δ%</th>
               {head('users_30d', t('skillUsers30'), 'num')}
               <th>{t('runtimeFilter')}</th>
@@ -87,8 +89,8 @@ export function SkillsDetailTable({ rows, allRows, params, setParams, selected, 
                 <tr key={row.name} className={selected === row.name ? 'selected' : ''} role="button" tabIndex={0} onClick={open} onKeyDown={(event) => rowKey(event, open)}>
                   <td className="mobile-main" data-label={t('skillName')}><b>{row.name}</b></td>
                   <td data-label={t('sourceFilter')}><span className="source-pill">{sourceLabel(row.source, t)}</span></td>
-                  <td className="num" data-label="W 内">{current}</td>
-                  <td className="num" data-label="W′ 上期">{previous || '—'}</td>
+                  <td className="num" data-label={windowLabel}>{current}</td>
+                  <td className="num" data-label={t('previousWindow')}>{previous || '—'}</td>
                   <td className="num" data-label="Δ%">{formatDelta(deltaRatio(current, previous))}</td>
                   <td className="num" data-label={t('skillUsers30')}>{row.users_30d}</td>
                   <td data-label={t('runtimeFilter')}><RuntimeBars counts={row.runtime_counts} /></td>

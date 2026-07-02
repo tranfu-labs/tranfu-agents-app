@@ -3,6 +3,7 @@ import { DetailTrend, RuntimeBars } from '../Charts'
 import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import type { SkillDetail, SkillTableRow } from '../../lib/types'
 import { encodePathParam, sourceLabel } from '../../lib/utils'
+import { windowTriggersLabel } from '../../lib/skillsPresentation'
 
 async function fetchSkill(name: string) {
   const response = await fetch(`/api/skill/${encodeURIComponent(name)}`, { cache: 'no-store' })
@@ -15,6 +16,7 @@ export function SkillDrawer({ name, row, search, onClose, t }: { name: string; r
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [error, setError] = useState('')
   const [trendDays, setTrendDays] = useState(30)
+  const windowKey = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('w') || '7d'
   useEffect(() => {
     let cancelled = false
     setDetail(cache.current.get(name) || null)
@@ -45,7 +47,7 @@ export function SkillDrawer({ name, row, search, onClose, t }: { name: string; r
         {detail ? (
           <>
             <div className="skills-drawer-kpis">
-              <div className="stat"><div className="v">{row?.sessions_window ?? detail.metrics?.sessions_30d ?? 0}</div><div className="l">W 触发</div></div>
+              <div className="stat"><div className="v">{row?.sessions_window ?? detail.metrics?.sessions_30d ?? 0}</div><div className="l">{windowTriggersLabel(windowKey, t)}</div></div>
               <div className="stat"><div className="v">{formatDelta(deltaRatio(Number(row?.sessions_window ?? 0), Number(row?.previous_sessions || 0)))}</div><div className="l">环比</div></div>
               <div className="stat"><div className="v">{detail.metrics?.users_30d || 0}</div><div className="l">活跃者</div></div>
               <div className="stat"><div className="v">{detail.metrics?.installed_count || 0}</div><div className="l">装机数</div></div>

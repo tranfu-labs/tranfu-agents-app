@@ -199,8 +199,8 @@
   .evidence-icon-link:hover{border-color:var(--line2);background:var(--hover);text-decoration:none}
   .skills-health{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:12px 16px}
   .skills-health>b{font-size:13px}.skills-health span{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
-  .skills-health i{width:8px;height:8px;border-radius:50%;background:var(--run)}.skills-health .warn i{background:var(--wait)}.skills-health .bad i{background:var(--err)}
-  .skills-health strong{font-family:var(--mono);color:var(--text)}.skills-health em{font-style:normal;color:var(--faint);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.skills-health a{color:var(--info);font-weight:700}
+  .skills-health i{width:8px;height:8px;border-radius:50%;background:var(--info)}.skills-health .warn i{background:var(--wait)}.skills-health .bad i{background:var(--err)}.skills-health .signal i{background:var(--info)}
+  .skills-health strong{font-family:var(--mono);color:var(--text)}.skills-health em{font-style:normal;color:var(--faint);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.skills-health a{color:var(--info);font-weight:700}.skills-health .evidence-icon-link{align-self:center;flex:none;margin-top:0}
   .skills-main-split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:16px;align-items:start}
   .skills-analysis{display:grid;gap:16px;align-items:start;min-width:0;max-width:100%}
   .skills-analysis--short{grid-template-columns:minmax(0,.95fr) minmax(360px,1.05fr)}

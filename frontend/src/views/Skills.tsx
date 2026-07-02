@@ -15,7 +15,7 @@ import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
 import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
-import { mobileFilterSummary, windowDisplayLabel } from '../lib/skillsPresentation'
+import { mobileFilterSummary, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
@@ -50,19 +50,10 @@ function skillPass(row: FilterableSkill, q: string, runtime: string, source: str
   return true
 }
 
-function operatorPass(row: FilterableOperator, q: string, runtime: string, source: string) {
+function operatorNamePass(row: FilterableOperator, q: string) {
   const needle = q.trim().toLowerCase()
   const operator = String(row.operator || '')
-  if (needle && !operator.toLowerCase().includes(needle)) return false
-  if (source) {
-    const sourceOk = row.source ? sourceKey(row.source) === source : Object.keys(row.source_counts || {}).some((item) => sourceKey(item) === source)
-    if (!sourceOk) return false
-  }
-  if (runtime) {
-    if (row.runtime) return row.runtime === runtime
-    return Boolean(row.runtime_counts?.[runtime])
-  }
-  return true
+  return !needle || operator.toLowerCase().includes(needle)
 }
 
 function sortedRows<T extends object>(rows: T[], sort: string, dir: string) {
@@ -92,7 +83,7 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
   const currentWindow = params.w || `${params.win || 30}d`
   const setView = (next: 'skill' | 'operator') => {
     if (next === view) return
-    update({ view: next, sort: next === 'operator' ? 'sessions_30d' : 'sessions_window', dir: 'desc' })
+    update({ view: next, q: '', sel: '', sort: 'sessions_window', dir: 'desc' })
   }
   const filterSummary = mobileFilterSummary(params, view, t)
   return (
@@ -130,10 +121,6 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
             </label>
           </>
         ) : null}
-        <label className="field inline-check">
-          <input type="checkbox" checked={params.cmp !== '0'} onChange={(event) => update({ cmp: event.target.checked ? '1' : '0' })} />
-          <span>{t('compareToggle')}</span>
-        </label>
         <label className="field search-field">
           <span>{view === 'operator' ? t('operatorSearch') : t('skillSearch')}</span>
           <input value={params.q} onChange={(event) => update({ q: event.target.value })} />
@@ -167,9 +154,10 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
   )
 }
 
-function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; t: (key: string) => string }) {
+function OperatorTable({ rows, params, setParams, windowKey, t }: { rows: OperatorTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; windowKey: string; t: (key: string) => string }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const windowLabel = windowPeriodLabel(windowKey, t)
   const updateSort = (key: string) => {
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
     void setParams({ sort: key, dir })
@@ -191,6 +179,8 @@ function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[
         <thead>
           <tr>
             {head('operator', t('operatorName'))}
+            {head('sessions_window', windowLabel, 'num')}
+            {head('previous_sessions', t('previousWindow'), 'num')}
             {head('sessions_7d', t('skill7'), 'num')}
             {head('sessions_30d', t('skill30'), 'num')}
             {head('sessions_total', t('skillTotal'), 'num')}
@@ -205,6 +195,8 @@ function OperatorTable({ rows, params, setParams, t }: { rows: OperatorTableRow[
           {rows.map((row) => (
             <tr key={row.operator} role="link" tabIndex={0} onClick={() => openOperator(row.operator)} onKeyDown={(event) => rowKey(event, () => openOperator(row.operator))}>
               <td className="mobile-main" data-label={t('operatorName')}><b>{row.operator}</b></td>
+              <td className="num" data-label={windowLabel}>{row.sessions_window ?? row.sessions_30d}</td>
+              <td className="num" data-label={t('previousWindow')}>{row.previous_sessions || '—'}</td>
               <td className="num" data-label={t('skill7')}>{row.sessions_7d}</td>
               <td className="num" data-label={t('skill30')}>{row.sessions_30d}</td>
               <td className="num" data-label={t('skillTotal')}>{row.sessions_total}</td>
@@ -230,14 +222,13 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const selected = selectedSkillOf(params)
   const topN = TOP_OPTIONS.includes(params.topn) ? params.topn : 8
   const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
-  const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorPass({ operator: row.operator, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
+  const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorNamePass({ operator: row.operator }, params.q))
   const skillRowsBase = (data?.table || [])
     .filter((row) => skillPass(row, params.q, params.rt, params.src))
     .filter((row) => params.hz !== '1' || Number(row.sessions_window ?? row.sessions_30d ?? 0) > 0)
   const skillRows = sortedRows(skillRowsBase, params.sort, params.dir) as SkillTableRow[]
   const rankRows = useMemo(() => skillRowsBase.slice().sort((a, b) => Number(b.sessions_window ?? b.sessions_30d ?? 0) - Number(a.sessions_window ?? a.sessions_30d ?? 0)), [skillRowsBase])
-  const operatorSort = params.sort === 'sessions_window' || params.sort === 'previous_sessions' ? 'sessions_30d' : params.sort
-  const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorPass(row, params.q, params.rt, params.src)), operatorSort, params.dir) as OperatorTableRow[]
+  const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorNamePass(row, params.q)), params.sort, params.dir) as OperatorTableRow[]
   const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
   const chartDays = data?.days || skillsWindow.days
   const isShortWindow = chartDays <= 14
@@ -262,7 +253,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
     <div className={`skills-page skills-dashboard ${loading ? 'is-refreshing' : ''}`}>
       <SkillsToolbar data={data} params={params} setParams={setParams} view={view} t={t} />
       {error ? <div className="note-warn">{t(error)}</div> : null}
-      <KpiStrip data={data} view={view} showComparison={params.cmp !== '0'} t={t} />
+      <KpiStrip data={data} view={view} t={t} />
       <HealthBar data={data} view={view} t={t} />
       <div className={`skills-analysis ${isShortWindow ? 'skills-analysis--short' : 'skills-analysis--long'}`}>
         <section className="frame skills-rank-panel">
@@ -270,7 +261,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           {view === 'operator' ? (
             <>
               <div className="usage-note">{t('operatorMetricNote')}</div>
-              <OperatorTable rows={operatorRows} params={params} setParams={setParams} t={t} />
+              <OperatorTable rows={operatorRows} params={params} setParams={setParams} windowKey={skillsWindow.key} t={t} />
             </>
           ) : (
             <RankBars rows={rankRows} topN={topN} selected={selected} onSelect={selectSkill} t={t} />
