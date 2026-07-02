@@ -15,7 +15,11 @@
 1. 写入须带请求头 `X-TF-Key`,且等于服务端 `TF_KEY`(`TF_KEY` 为空时仅限本地开发)。比较须用常量时间
    比较(`hmac.compare_digest`),与管理钥匙一致、不得短路。
 2. **去重**:仅当 `status` 或 `current_step` 相对该身份的上一行发生变化时才落新行;
-   否则视为心跳,仅更新 `last_seen`,响应 `{"heartbeat": true}`,且不进活动流。
+   否则视为心跳,响应 `{"heartbeat": true}`,且不进活动流。纯心跳 `last_seen` 默认可进入进程内 batch:
+   当事件无其它即时写入语义时,服务端可以不立即 `UPDATE events.last_seen`,而是将最新 `last_seen` 放入 pending map,
+   由后台 flush 按 `TF_HEARTBEAT_BATCH_SECONDS` 间隔用一个 SQLite 事务批量写入。batch flush 成功后必须通知 board 域
+   state dirty,以便 SSE / cache 后续展示最新 liveness。服务进程异常退出时,允许丢失最多一个 batch 窗口内的纯心跳
+   liveness 刷新;状态变化事件不得丢。`TF_HEARTBEAT_BATCH_SECONDS=0` 时禁用 batch,恢复每次纯心跳即时更新。
 3. 收到含 profile 字段的事件时,按身份**更新该身份最新 profile**(`profiles` 表);技能名首次出现记入 `skills_seen.first_day`。
 4. 事件同时具备 `skill` 与 `session_id` 时,服务端记录"该会话用过/装备过该 skill",
    以 `(session_id, skill, mode)` 幂等。`mode` 取自可选 `skill_mode ∈ {used,equipped}`,
@@ -35,6 +39,7 @@
 11. `shim_version` 只记录本机 `~/.tranfu/manifest.json` 的内容版本,用于看板判断本地 shim 是否过期。
     服务端按 `(operator, agent_key, runtime)` 粒度独立 sticky 存储:**收到非空值更新,缺失时保留旧值**;
     profile 全量替换不得触碰该字段,后续不带 `shim_version` 的心跳不得清掉它。
+    收到与当前 sticky 值相同的非空 `shim_version` 时不得重复更新 `agent_shim_versions.updated`;首次收到或收到不同非空版本时必须即时写入。
     为兼容旧 shim,通过 profile 字段携带 `shim_version` 的旧路径仍允许(`tf_profile.collect()` 顶层导出,
     服务端读 payload 顶层一次即覆盖两种来源)。
 12. **Claude Code 斜杠命令也算 skill 调用。** Claude Code(Desktop / CLI / IDE 入口下)在 hook 之后才把用户手敲的 `/<skill-name>` 展开成 `<command-message>...</command-message>` + `<command-name>/<name></command-name>` + `<command-args>...</command-args>` 三件套写进 transcript jsonl(`~/.claude/projects/*.jsonl`)。**`UserPromptSubmit` hook 收到的 `prompt` 字段是裸文本,不含任何 markup**——所以不能从 `UserPromptSubmit` 解析,必须等 transcript 落盘后再扫。shim 侧(`tf_hook.py`)必须在 `Stop` 和 `SessionEnd` 事件中读 hook payload 携带的 `transcript_path`,扫描其中的 `<command-name>/?<name></command-name>` 标记,对每个唯一 skill 名按 `skill` 字段上报一次(`current_step` 为 `skill: <name>`,与 `scan_codex_skills` 输出对齐)。
@@ -47,6 +52,12 @@
   (同一退避机制,独立计数桶),遏制对写侧钥匙的在线猜测;触发封锁返回 `429 + Retry-After`。
 - `POST /v1/events` 高频上报路径不纳入该限流(豁免),避免误伤正常心跳。
 
+## 配置
+
+- `TF_HEARTBEAT_BATCH_SECONDS`:纯心跳 `last_seen` 批量写入间隔,秒,float 或 int;默认 `15`。
+  设为 `0` 时禁用 batch,恢复每次纯心跳即时更新 `events.last_seen`。状态/步骤变化、终态切换、profile 更新、
+  新 skill usage、首次或变化的非空 `shim_version` 仍必须即时处理。
+
 ## 不变量
 - 不存在任何 token / 成本字段(见 ADR-0002)。
 - 上报失败不得影响使用者 agent(客户端侧静默,见 ADR-0005)。
@@ -55,10 +66,15 @@
 
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。
+- 连发两条相同 `status+current_step` 的纯心跳,且 `TF_HEARTBEAT_BATCH_SECONDS > 0` → 第二条返回 `heartbeat:true`;
+  flush 前 DB 中上一事件行 `last_seen` 不变;flush 后 `last_seen` 变为最新接收时间。
+- `TF_HEARTBEAT_BATCH_SECONDS=0` 时,纯心跳立即更新 `events.last_seen`,保持旧行为。
+- 连续相同心跳中第二条携带新 skill 或 profile 更新时,相关写入必须即时发生,不得被 batch 短路吞掉。
 - 带 `skills` 的事件后,`/api/state` 该身份 session 含 `skills`,且 leverage 资产数随之增加。
 - 带顶层 `shim_version` 的事件后,`/api/state` 该身份 session 含同值 `shim_version`。
 - 三连事件 `{shim_version: A}` → `{}`(无该字段)→ `{shim_version: B}` 后,/api/state 该身份的 `shim_version`
   依次为 A、A(sticky)、B。
+- 连续发送相同非空 `shim_version` 时,`agent_shim_versions.updated` 不应随每次心跳变化;发送不同版本时必须立即更新。
 - 从未上报过 `shim_version` 的 agent → `/api/state` 该 card 的 `shim_version` 为 null/缺失,
   让前端走 unknown 灰态(不得在服务端"猜"成最新或最旧)。
 - OpenClaw 上报 payload 必须包含 `shim_version` 顶层字段(只要本机 manifest 可读)。

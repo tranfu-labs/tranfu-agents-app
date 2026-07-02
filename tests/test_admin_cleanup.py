@@ -74,9 +74,14 @@ def test_preview_is_dry_run_and_token_mismatch_conflicts(client, app_mod):
     assert r.status_code == 409
 
 
-def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_mod):
+def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_mod, monkeypatch):
+    import server.routes.board as board
+
+    dirty = {"n": 0}
+    monkeypatch.setattr(board, "mark_state_dirty", lambda: dirty.__setitem__("n", dirty["n"] + 1))
     enable_admin(app_mod)
     ev(client, session_id="s1", status="done", skill="alpha", current_step="done")
+    dirty["n"] = 0
 
     targets = [{"session_ids": ["s1"]}]
     p = preview(client, targets)
@@ -88,6 +93,7 @@ def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_m
     assert skill_first_day(app_mod, "alpha") is None
     assert client.get("/api/skill/alpha").status_code == 404
     assert client.get("/api/admin/trash", headers=ADMIN_HEADERS).json()["trash"][0]["batch_id"] == batch_id
+    assert dirty["n"] == 1
 
     restored = client.post("/api/admin/restore", json={"batch_id": batch_id}, headers=ADMIN_HEADERS)
     assert restored.status_code == 200, restored.text
@@ -96,6 +102,7 @@ def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_m
     assert table_count(app_mod, "events") == 1
     assert table_count(app_mod, "skill_uses") == 1
     assert client.get("/api/skill/alpha").status_code == 200
+    assert dirty["n"] == 2
 
 
 def test_restore_reports_key_conflicts_as_skipped(client, app_mod):

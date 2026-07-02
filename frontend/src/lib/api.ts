@@ -23,6 +23,12 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+function normalizeState(next: StatePayload): StatePayload {
+  next.leverage = next.leverage || DEMO_STATE.leverage
+  next.skills = next.skills || []
+  return next
+}
+
 function adminHeaders(key: string) {
   return { 'content-type': 'application/json', 'X-TF-Admin-Key': key }
 }
@@ -168,32 +174,113 @@ export function usePollingState(): Loadable<StatePayload> {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
+  const dataRef = useRef<StatePayload | null>(null)
+  const inFlight = useRef(false)
+  const fallbackActive = useRef(false)
+
+  const applyState = useCallback((next: StatePayload) => {
+    const normalized = normalizeState(next)
+    dataRef.current = normalized
+    setData(normalized)
+    setError('')
+    setDemo(false)
+    setLoading(false)
+  }, [])
 
   const refresh = useCallback(async () => {
+    if (inFlight.current) return
+    inFlight.current = true
     try {
       const next = await fetchJson<StatePayload>('/api/state')
-      next.leverage = next.leverage || DEMO_STATE.leverage
-      next.skills = next.skills || []
-      setData(next)
-      setError('')
-      setDemo(false)
+      applyState(next)
     } catch {
+      dataRef.current = DEMO_STATE
       setData(DEMO_STATE)
       setError('offline')
       setDemo(true)
-    } finally {
       setLoading(false)
+    } finally {
+      inFlight.current = false
     }
-  }, [])
+  }, [applyState])
 
   useEffect(() => {
-    const first = window.setTimeout(() => void refresh(), 0)
-    const timer = window.setInterval(() => void refresh(), 3000)
-    return () => {
-      window.clearTimeout(first)
-      window.clearInterval(timer)
+    let stopped = false
+    let fallbackTimer: number | undefined
+    let source: EventSource | null = null
+    let opened = false
+    let openGuard: number | undefined
+
+    const clearFallbackTimer = () => {
+      if (fallbackTimer !== undefined) {
+        window.clearTimeout(fallbackTimer)
+        fallbackTimer = undefined
+      }
     }
-  }, [refresh])
+
+    const fallbackDelay = () => {
+      if (document.visibilityState === 'hidden') return 60000
+      return (dataRef.current?.totals?.live || 0) > 0 ? 3000 : 15000
+    }
+
+    const scheduleFallback = (delay = fallbackDelay()) => {
+      if (stopped || !fallbackActive.current) return
+      clearFallbackTimer()
+      fallbackTimer = window.setTimeout(async () => {
+        await refresh()
+        scheduleFallback()
+      }, delay)
+    }
+
+    const startFallback = () => {
+      if (stopped || fallbackActive.current) return
+      fallbackActive.current = true
+      scheduleFallback(0)
+    }
+
+    if (typeof EventSource === 'undefined') {
+      startFallback()
+    } else {
+      source = new EventSource('/api/state/stream')
+      source.onopen = () => {
+        opened = true
+        fallbackActive.current = false
+        clearFallbackTimer()
+      }
+      source.addEventListener('state', (event) => {
+        try {
+          applyState(JSON.parse((event as MessageEvent).data) as StatePayload)
+        } catch {
+          source?.close()
+          startFallback()
+        }
+      })
+      source.onerror = () => {
+        source?.close()
+        startFallback()
+      }
+      openGuard = window.setTimeout(() => {
+        if (!opened) {
+          source?.close()
+          startFallback()
+        }
+      }, 4000)
+    }
+
+    const onVisibility = () => {
+      if (fallbackActive.current) scheduleFallback(0)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      stopped = true
+      source?.close()
+      if (openGuard !== undefined) window.clearTimeout(openGuard)
+      clearFallbackTimer()
+      fallbackActive.current = false
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [applyState, refresh])
 
   return { data, loading, error, demo, refresh }
 }
