@@ -240,6 +240,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorPass(row, params.q, params.rt, params.src)), operatorSort, params.dir) as OperatorTableRow[]
   const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
   const chartDays = data?.days || skillsWindow.days
+  const isShortWindow = chartDays <= 14
 
   const openSkill = (name: string) => {
     setDrawerSkill(name)
@@ -263,8 +264,8 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
       {error ? <div className="note-warn">{t(error)}</div> : null}
       <KpiStrip data={data} view={view} showComparison={params.cmp !== '0'} />
       <HealthBar data={data} view={view} />
-      <div className="skills-main-split">
-        <section className="frame">
+      <div className={`skills-analysis ${isShortWindow ? 'skills-analysis--short' : 'skills-analysis--long'}`}>
+        <section className="frame skills-rank-panel">
           <SectionTitle title={view === 'operator' ? t('operatorRank') : '排行 Bar'} count={view === 'operator' ? operatorRows.length : rankRows.length} />
           {view === 'operator' ? (
             <>
@@ -274,18 +275,15 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           ) : (
             <RankBars rows={rankRows} topN={topN} selected={selected} onSelect={selectSkill} t={t} />
           )}
-          <div className="skills-rank-chart">
-            <div className="skills-rank-chart-head">
-              <b><span className="sl">//</span>{view === 'operator' ? t('dailyByOperator') : t('dailyUsed')}</b>
-              <span className="cnt">{skillsWindow.label}</span>
-            </div>
-            <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
-          </div>
         </section>
-        <section className="frame">
-          <GovernanceTodo data={data} view={view} />
+        <section className="frame skills-trend-panel">
+          <SectionTitle title={view === 'operator' ? t('dailyByOperator') : t('dailyUsed')} count={skillsWindow.label} />
+          <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
         </section>
       </div>
+      <section className="frame skills-governance-row-frame">
+        <GovernanceTodo data={data} view={view} />
+      </section>
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
       {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
       <FunnelSection data={data} t={t} />

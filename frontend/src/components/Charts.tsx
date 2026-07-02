@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react'
 import { resolveSkillsChartLayout } from '../lib/skillsChartLayout'
 import type { SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
@@ -13,6 +13,34 @@ type SegmentKey = 'skill' | 'operator'
 const PLOT_TOP = 24
 const TIP_GAP = 10
 const VIEWPORT_PAD = 12
+
+function contentWidthOf(element: HTMLElement) {
+  const style = window.getComputedStyle(element)
+  const pad = Number.parseFloat(style.paddingLeft || '0') + Number.parseFloat(style.paddingRight || '0')
+  return Math.max(0, Math.round(element.clientWidth - pad))
+}
+
+function useContentWidth(ref: RefObject<HTMLElement | null>) {
+  const [width, setWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return undefined
+    const update = () => setWidth(contentWidthOf(element))
+    update()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
+
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [ref])
+
+  return width
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max))
@@ -126,6 +154,7 @@ export function StackedSkillChart({
   const chartBoxRef = useRef<HTMLDivElement | null>(null)
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
+  const chartBoxWidth = useContentWidth(chartBoxRef)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
@@ -155,7 +184,7 @@ export function StackedSkillChart({
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
   }, [axisEnd, days, rows, segmentKey, topN])
-  const layout = resolveSkillsChartLayout(model.axis.length)
+  const layout = resolveSkillsChartLayout(model.axis.length, chartBoxWidth)
 
   useLayoutEffect(() => {
     if (!layout.scrollToEnd) return
@@ -179,7 +208,7 @@ export function StackedSkillChart({
   const base = 190
   const bh = 165
   const step = (w - 54) / model.axis.length
-  const bw = Math.max(8, step - 5)
+  const bw = layout.barWidth
   const patternId = `skillStripe-${segmentKey}-${days}-${model.axis.length}`
 
   return (

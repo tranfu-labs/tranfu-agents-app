@@ -32,7 +32,7 @@ function Section({ title, items, ignored, ignore }: { title: string; items: Todo
   }
   const stopMenu = (event: MouseEvent<HTMLElement>) => event.stopPropagation()
   return (
-    <details className="skills-gov-group" open>
+    <details className="skills-gov-group skills-governance-block" open>
       <summary>{title} <span>{visible.length}/{items.length}</span></summary>
       {visible.length ? visible.map((item) => {
         const recordPath = item.evidenceKind ? evidencePath(location.search, item.evidenceKind, item.evidenceParams) : ''
@@ -151,9 +151,11 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
           <b>使用线索</b>
           {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>恢复已忽略</button> : null}
         </div>
-        <Section title="重度使用者" items={groups.heavy} ignored={ignored} ignore={ignore} />
-        <Section title="近 7 天沉睡" items={groups.sleeping} ignored={ignored} ignore={ignore} />
-        <Section title="低覆盖使用者" items={groups.narrow} ignored={ignored} ignore={ignore} />
+        <div className="skills-governance-blocks">
+          <Section title="重度使用者" items={groups.heavy} ignored={ignored} ignore={ignore} />
+          <Section title="近 7 天沉睡" items={groups.sleeping} ignored={ignored} ignore={ignore} />
+          <Section title="低覆盖使用者" items={groups.narrow} ignored={ignored} ignore={ignore} />
+        </div>
       </div>
     )
   }
@@ -163,9 +165,11 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
         <b>待处理线索</b>
         {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>恢复已忽略</button> : null}
       </div>
-      <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} />
-      <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} />
-      <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} />
+      <div className="skills-governance-blocks">
+        <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} />
+        <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} />
+        <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} />
+      </div>
     </div>
   )
 }
