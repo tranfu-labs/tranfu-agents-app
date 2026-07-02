@@ -7,6 +7,8 @@ type QueryLike = {
   src?: string
 }
 
+type T = (key: string) => string
+
 const LIST_KINDS = new Set<SkillsEvidenceKind>(['idle', 'unused_ratio', 'zero_install'])
 
 function fmt(value: unknown) {
@@ -28,22 +30,38 @@ export function compactNameList(names: string[], max = 1) {
   return rest > 0 ? `${shown.join(' / ')} +${rest}` : shown.join(' / ')
 }
 
-function sourceText(src?: string) {
-  if (!src) return '全部 source'
-  if (src === 'non_catalog' || src === '非公司库') return '非公司库'
-  if (src === 'own') return 'own'
-  if (src === 'meta') return 'meta'
-  if (src === 'external') return 'external'
+export function windowDisplayLabel(key: string | number | undefined, t: T) {
+  const value = String(key || '7d')
+  const normalized = value === '30' ? '30d' : value
+  const map: Record<string, string> = {
+    today: 'window_today',
+    this_week: 'window_this_week',
+    last_week: 'window_last_week',
+    '7d': 'window_7d',
+    '14d': 'window_14d',
+    '30d': 'window_30d',
+    '90d': 'window_90d',
+    custom: 'window_custom',
+  }
+  return map[normalized] ? t(map[normalized]) : normalized
+}
+
+function sourceText(src: string | undefined, t: T) {
+  if (!src) return t('allSource')
+  if (src === 'non_catalog' || src === '非公司库') return t('source_non_catalog')
+  if (src === 'own') return t('source_own')
+  if (src === 'meta') return t('source_meta')
+  if (src === 'external') return t('source_external')
   return src
 }
 
-export function mobileFilterSummary(params: QueryLike, view: 'skill' | 'operator') {
-  const windowLabel = params.w || (params.win ? `${params.win}d` : '7d')
-  const viewLabel = view === 'operator' ? '按人' : '按 Skill'
+export function mobileFilterSummary(params: QueryLike, view: 'skill' | 'operator', t: T) {
+  const windowLabel = windowDisplayLabel(params.w || (params.win ? `${params.win}d` : '7d'), t)
+  const viewLabel = view === 'operator' ? t('viewOperator') : t('viewSkill')
   const runtime = params.rt || ''
   const source = params.src || ''
-  const filterLabel = runtime || source ? `${runtime || '全部 runtime'} · ${sourceText(source)}` : '全部 runtime/source'
-  return `${windowLabel} · ${viewLabel} · ${filterLabel} · 筛选`
+  const filterLabel = runtime || source ? `${runtime || t('allRuntime')} · ${sourceText(source, t)}` : t('allRuntimeSource')
+  return `${windowLabel} · ${viewLabel} · ${filterLabel} · ${t('filterAction')}`
 }
 
 export function isListEvidenceKind(kind?: SkillsEvidenceKind) {
@@ -75,11 +93,13 @@ export function evidenceSummaryLine(data: SkillsEvidencePayload | null) {
   return `${fmt(records)} records · ${fmt(skills)} skills · ${fmt(operators)} operators`
 }
 
-export function kpiShortConclusion(label: string, value: string, names: string[], records?: number) {
-  if (label.includes('未收录')) return `${names.length || 0} 个 skill · ${fmt(records || 0)} records`
-  if (label.includes('装了没用') || label.includes('闲置')) return value
-  if (label.includes('覆盖')) return `${value} 公司库 skill 有使用证据`
-  if (label.includes('Top3')) return '使用集中在 3 个 skill'
-  if (label.includes('平均')) return value
+export function kpiShortConclusion(kind: SkillsEvidenceKind, value: string, names: string[], records: number | undefined, t: T) {
+  if (kind === 'untracked') return `${names.length || 0} ${t('skillsUnit')} · ${fmt(records || 0)} ${t('records')}`
+  if (kind === 'idle') return `${value} ${t('skillsUnit')}`
+  if (kind === 'unused_ratio') return value
+  if (kind === 'coverage') return `${value} ${t('usedByCompany')}`
+  if (kind === 'operators') return `${value} ${t('operatorsUnit')}`
+  if (kind === 'top3') return t('top3Concentrated')
+  if (kind === 'avg_per_session') return value
   return value
 }

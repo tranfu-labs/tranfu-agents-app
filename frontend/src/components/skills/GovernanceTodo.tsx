@@ -20,7 +20,7 @@ function rowKey(event: KeyboardEvent<HTMLDivElement>, action: () => void) {
   action()
 }
 
-function Section({ title, items, ignored, ignore }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void }) {
+function Section({ title, items, ignored, ignore, t }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void; t: (key: string) => string }) {
   const [expanded, setExpanded] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -51,43 +51,43 @@ function Section({ title, items, ignored, ignore }: { title: string; items: Todo
             <span className="skills-gov-actions">
               <span className="skills-gov-inline-actions">
                 {recordPath ? (
-                  <Link className="skills-gov-icon-action" to={recordPath} onClick={(event) => event.stopPropagation()} aria-label={`查看 ${item.title} 原始记录`} title="查看原始记录">
+                  <Link className="skills-gov-icon-action" to={recordPath} onClick={(event) => event.stopPropagation()} aria-label={`${t('viewRawRecords')}: ${item.title}`} title={t('viewRawRecords')}>
                     ▤
                   </Link>
                 ) : null}
                 {operatorPath ? (
-                  <Link className="skills-gov-icon-action" to={operatorPath} onClick={(event) => event.stopPropagation()} aria-label={`按使用者看 ${item.title} 证据`} title="按使用者看证据">
+                  <Link className="skills-gov-icon-action" to={operatorPath} onClick={(event) => event.stopPropagation()} aria-label={`${t('viewByOperatorEvidence')}: ${item.title}`} title={t('viewByOperatorEvidence')}>
                     ◎
                   </Link>
                 ) : null}
-                <button className="skills-gov-icon-action" type="button" onClick={(event) => stopIgnore(event, item.id)} aria-label={`忽略 ${item.title}`} title="忽略本页">×</button>
+                <button className="skills-gov-icon-action" type="button" onClick={(event) => stopIgnore(event, item.id)} aria-label={`${t('ignoreInPage')}: ${item.title}`} title={t('ignoreInPage')}>×</button>
               </span>
               <details className="skills-gov-menu" onClick={stopMenu}>
-                <summary aria-label={`${item.title} 更多动作`}>⋯</summary>
+                <summary aria-label={`${item.title} ${t('moreActions')}`}>⋯</summary>
                 <div>
-                  {recordPath ? <Link to={recordPath}>原始记录</Link> : null}
-                  {operatorPath ? <Link to={operatorPath}>按使用者看证据</Link> : null}
-                  <button type="button" onClick={(event) => stopIgnore(event, item.id)}>忽略本页</button>
+                  {recordPath ? <Link to={recordPath}>{t('viewRawRecords')}</Link> : null}
+                  {operatorPath ? <Link to={operatorPath}>{t('viewByOperatorEvidence')}</Link> : null}
+                  <button type="button" onClick={(event) => stopIgnore(event, item.id)}>{t('ignoreInPage')}</button>
                 </div>
               </details>
             </span>
           </div>
         )
-      }) : <div className="hint">暂无待办</div>}
+      }) : <div className="hint">{t('noTodo')}</div>}
       {allVisible.length > 8 ? (
         <button type="button" className="skills-gov-more" onClick={() => setExpanded((value) => !value)}>
-          {expanded ? '收起' : `查看全部 ${allVisible.length}`}
+          {expanded ? t('collapse') : `${t('showAll')} ${allVisible.length}`}
         </button>
       ) : null}
     </details>
   )
 }
 
-function operatorGroups(rows: OperatorTableRow[]) {
+function operatorGroups(rows: OperatorTableRow[], t: (key: string) => string) {
   const heavy = rows.slice().sort((a, b) => Number(b.sessions_30d || 0) - Number(a.sessions_30d || 0)).slice(0, 8).map((row, index) => ({
     id: `heavy:${row.operator}`,
     title: row.operator,
-    detail: `30d ${row.sessions_30d} 次 · ${row.skill_count} skills`,
+    detail: `30d ${row.sessions_30d} ${t('records')} · ${row.skill_count} ${t('skillsUnit')}`,
     severity: index < 3 ? 'bad' as const : 'info' as const,
     evidenceKind: 'operators' as const,
     evidenceParams: { operator: row.operator },
@@ -95,7 +95,7 @@ function operatorGroups(rows: OperatorTableRow[]) {
   const sleeping = rows.filter((row) => Number(row.sessions_30d || 0) > 0 && Number(row.sessions_7d || 0) === 0).map((row) => ({
     id: `sleeping:${row.operator}`,
     title: row.operator,
-    detail: `30d ${row.sessions_30d} 次 · 7d 0 次`,
+    detail: `30d ${row.sessions_30d} ${t('records')} · 7d 0`,
     severity: 'warn' as const,
     evidenceKind: 'operators' as const,
     evidenceParams: { operator: row.operator },
@@ -103,7 +103,7 @@ function operatorGroups(rows: OperatorTableRow[]) {
   const narrow = rows.filter((row) => Number(row.sessions_30d || 0) > 0 && Number(row.skill_count || 0) <= 1).map((row) => ({
     id: `narrow:${row.operator}`,
     title: row.operator,
-    detail: `${row.skill_count} 个 skill · ${row.session_count} 会话`,
+    detail: `${row.skill_count} ${t('skillsUnit')} · ${row.session_count} ${t('sessionCount')}`,
     severity: 'info' as const,
     evidenceKind: 'avg_per_session' as const,
     evidenceParams: { operator: row.operator },
@@ -111,14 +111,14 @@ function operatorGroups(rows: OperatorTableRow[]) {
   return { heavy, sleeping, narrow, untracked: [], idle: [], missing: [] }
 }
 
-export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview | null; view?: 'skill' | 'operator' }) {
+export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; t: (key: string) => string }) {
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const groups = useMemo(() => {
-    if (view === 'operator') return operatorGroups(data?.operator_table || [])
+    if (view === 'operator') return operatorGroups(data?.operator_table || [], t)
     const untracked = (data?.governance?.untracked_usage?.top || []).map((row: GovernanceUntrackedSkill, index) => ({
       id: `untracked:${row.name}`,
       title: row.name,
-      detail: `${row.sessions} 次 · ${row.users_30d || 0} operators · 未收录`,
+      detail: `${row.sessions} ${t('records')} · ${row.users_30d || 0} ${t('operatorsUnit')} · ${t('source_non_catalog')}`,
       severity: index < 3 ? 'bad' as const : 'warn' as const,
       evidenceKind: 'untracked' as const,
       evidenceParams: { skill: row.name },
@@ -127,7 +127,7 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
     const idle = (data?.governance?.idle_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `idle:${row.name}`,
       title: row.name,
-      detail: `装机 ${row.installers || 0} 人 · W 内 0 次`,
+      detail: `${t('installs')} ${row.installers || 0} · ${t('zeroTimesInWindow')}`,
       severity: 'warn' as const,
       evidenceKind: 'idle' as const,
       evidenceParams: { skill: row.name },
@@ -135,26 +135,26 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
     const missing = (data?.governance?.cataloged_not_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `missing:${row.name}`,
       title: row.name,
-      detail: row.cataloged_at ? `${String(row.cataloged_at).slice(0, 10)} 收录 · 0 装机` : '已收录 · 0 装机',
+      detail: row.cataloged_at ? `${String(row.cataloged_at).slice(0, 10)} ${t('cataloged')} · ${t('zeroInstall')}` : `${t('cataloged')} · ${t('zeroInstall')}`,
       severity: 'info' as const,
       evidenceKind: 'zero_install' as const,
       evidenceParams: { skill: row.name },
       openable: false,
     }))
     return { untracked, idle, missing, heavy: [], sleeping: [], narrow: [] }
-  }, [data, view])
+  }, [data, view, t])
   const ignore = (id: string) => setIgnored((old) => new Set([...old, id]))
   if (view === 'operator') {
     return (
       <div className="skills-governance">
         <div className="skills-panel-title">
-          <b>使用线索</b>
-          {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>恢复已忽略</button> : null}
+          <b>{t('usageSignals')}</b>
+          {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>{t('restoreIgnored')}</button> : null}
         </div>
         <div className="skills-governance-blocks">
-          <Section title="重度使用者" items={groups.heavy} ignored={ignored} ignore={ignore} />
-          <Section title="近 7 天沉睡" items={groups.sleeping} ignored={ignored} ignore={ignore} />
-          <Section title="低覆盖使用者" items={groups.narrow} ignored={ignored} ignore={ignore} />
+          <Section title={t('heavyUsers')} items={groups.heavy} ignored={ignored} ignore={ignore} t={t} />
+          <Section title={t('sleeping7d')} items={groups.sleeping} ignored={ignored} ignore={ignore} t={t} />
+          <Section title={t('lowCoverageUsers')} items={groups.narrow} ignored={ignored} ignore={ignore} t={t} />
         </div>
       </div>
     )
@@ -162,13 +162,13 @@ export function GovernanceTodo({ data, view = 'skill' }: { data: SkillsOverview 
   return (
     <div className="skills-governance">
       <div className="skills-panel-title">
-        <b>待处理线索</b>
-        {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>恢复已忽略</button> : null}
+        <b>{t('todoSignals')}</b>
+        {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>{t('restoreIgnored')}</button> : null}
       </div>
       <div className="skills-governance-blocks">
-        <Section title="有使用但未收录" items={groups.untracked} ignored={ignored} ignore={ignore} />
-        <Section title="装了 W 内没用" items={groups.idle} ignored={ignored} ignore={ignore} />
-        <Section title="收录但零装机" items={groups.missing} ignored={ignored} ignore={ignore} />
+        <Section title={t('untrackedUsed')} items={groups.untracked} ignored={ignored} ignore={ignore} t={t} />
+        <Section title={t('installedUnused')} items={groups.idle} ignored={ignored} ignore={ignore} t={t} />
+        <Section title={t('catalogZeroInstall')} items={groups.missing} ignored={ignored} ignore={ignore} t={t} />
       </div>
     </div>
   )
