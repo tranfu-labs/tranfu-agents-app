@@ -199,12 +199,13 @@
   .skills-kpi-card .delta.up{color:var(--run)}.skills-kpi-card .delta.down{color:var(--err)}.skills-kpi-card .delta.snapshot{color:var(--faint)}
   .skills-kpi-card .evidence-names{display:block;min-height:15px;margin-top:3px;color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .evidence-link{display:inline-flex;margin-top:5px;color:var(--info);font-size:11px;font-weight:700}.evidence-link:hover{text-decoration:underline}
-  .evidence-icon-link{display:inline-grid;place-items:center;width:24px;height:24px;margin-top:5px;border:1px solid var(--line);border-radius:6px;color:var(--info);font-size:13px;font-weight:700;background:var(--elev2);line-height:1}
-  .evidence-icon-link:hover{border-color:var(--line2);background:var(--hover);text-decoration:none}
+  .evidence-icon-link{display:inline-grid;place-items:center;width:24px;height:24px;margin-top:5px;border:1px solid var(--line);border-radius:6px;color:var(--faint);font-size:13px;font-weight:700;background:var(--elev2);line-height:1}
+  .evidence-icon-link:hover,.evidence-icon-link:focus-visible{border-color:var(--line2);background:var(--hover);color:var(--info);text-decoration:none}
+  .evidence-icon-link:focus-visible{outline:2px solid color-mix(in srgb,var(--info) 50%,transparent);outline-offset:2px}
   .skills-health{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:12px 16px}
   .skills-health>b{font-size:13px}.skills-health span{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
   .skills-health i{width:8px;height:8px;border-radius:50%;background:var(--info)}.skills-health .warn i{background:var(--wait)}.skills-health .bad i{background:var(--err)}.skills-health .signal i{background:var(--info)}
-  .skills-health strong{font-family:var(--mono);color:var(--text)}.skills-health em{font-style:normal;color:var(--faint);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.skills-health a{color:var(--info);font-weight:700}.skills-health .evidence-icon-link{align-self:center;flex:none;margin-top:0}
+  .skills-health strong{font-family:var(--mono);color:var(--text)}.skills-health em{font-style:normal;color:var(--faint);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.skills-health a.evidence-icon-link{color:var(--faint);font-weight:700}.skills-health a.evidence-icon-link:hover,.skills-health a.evidence-icon-link:focus-visible{color:var(--info)}.skills-health .evidence-icon-link{align-self:center;flex:none;margin-top:0}
   .skills-main-split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:16px;align-items:start}
   .skills-analysis{display:grid;gap:16px;align-items:start;min-width:0;max-width:100%}
   .skills-analysis--short{grid-template-columns:minmax(0,.95fr) minmax(360px,1.05fr)}
@@ -216,7 +217,7 @@
   .skills-rank-bars button.dimmed{opacity:.42}
   .rank-name{display:flex;align-items:center;gap:7px;min-width:0;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rank-name i{width:8px;height:8px;border-radius:2px;flex:none}.rank-track{height:12px;background:var(--line);border-radius:2px;overflow:hidden}.rank-track i{display:block;height:100%;min-width:2px}
-  .skills-rank-bars strong{font-family:var(--mono);font-size:12px;color:var(--text);text-align:right}.skills-rank-bars em{display:flex;align-items:center;justify-content:flex-end;gap:7px;font-style:normal;font-size:10px;color:var(--faint);white-space:nowrap;text-align:right}.rank-evidence{color:var(--info);font-weight:700}
+  .skills-rank-bars strong{font-family:var(--mono);font-size:12px;color:var(--text);text-align:right}.skills-rank-bars em{display:flex;align-items:center;justify-content:flex-end;gap:7px;font-style:normal;font-size:10px;color:var(--faint);white-space:nowrap;text-align:right}.rank-evidence{color:var(--faint);font-weight:700}.rank-evidence:hover,.rank-evidence:focus-visible{color:var(--info)}
   .skills-rank-bars em .evidence-icon-link{width:22px;height:22px;margin-top:0;font-size:12px}
   .skills-rank-tail{display:grid;gap:5px;margin-left:22px;padding:2px 0 4px;border-left:1px solid var(--line)}
   .skills-rank-tail button{grid-template-columns:minmax(0,1fr) 70px 82px;margin-left:9px;padding:6px 8px}
@@ -259,7 +260,7 @@
   .evidence-filters{grid-column:1 / -1;display:flex;gap:7px;flex-wrap:wrap}.evidence-filters span,.evidence-actions span{border:1px solid var(--line);border-radius:6px;padding:4px 8px;color:var(--muted);font-size:11px}.evidence-filters .ignored{border-color:var(--wait);color:var(--wait)}
   .evidence-summary-line{grid-column:1 / -1;display:flex;align-items:center;gap:8px;color:var(--text);font-size:13px}
   .evidence-summary-line span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .evidence-summary-line a{display:inline-grid;place-items:center;width:24px;height:24px;border:1px solid var(--line);border-radius:6px;color:var(--info);background:var(--elev2);font-weight:700}
+  .evidence-summary-line a{display:inline-grid;place-items:center;width:24px;height:24px;border:1px solid var(--line);border-radius:6px;color:var(--faint);background:var(--elev2);font-weight:700}
   .evidence-toolbar{grid-column:1 / -1;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
   .evidence-tab-current,.evidence-tool{display:inline-grid;place-items:center;min-height:26px;border:1px solid var(--line);border-radius:7px;color:var(--muted);background:var(--elev2);font-size:12px}
   .evidence-tab-current{padding:3px 9px;color:var(--text);border-color:var(--line2)}

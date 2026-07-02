@@ -16,22 +16,21 @@ function OperatorHealth({ data, t }: { data: SkillsOverview | null; t: (key: str
   const top3 = rows.slice().sort((a, b) => Number(b.sessions_window ?? b.sessions_30d ?? 0) - Number(a.sessions_window ?? a.sessions_30d ?? 0)).slice(0, 3).reduce((sum, row) => sum + Number(row.sessions_window ?? row.sessions_30d ?? 0), 0)
   const runtimes = new Set<string>()
   rows.forEach((row) => Object.keys(row.window_runtime_counts || row.runtime_counts || {}).forEach((key) => runtimes.add(key)))
-  const values: Array<[string, string, string, SkillsEvidenceKind]> = [
-    [t('activeRate7d'), pct(rows.length ? active7 / rows.length : 0), t('healthOperatorsAction'), 'operators'],
-    [t('avgSkillsPerOperator'), avgSkills.toFixed(2), t('healthAverageAction'), 'avg_per_session'],
-    [t('kpiTop3Share'), pct(totalWindow ? top3 / totalWindow : 0), t('healthTop3Action'), 'top3'],
-    [t('runtimeCoverage'), `${runtimes.size} ${t('categoryUnit')}`, t('healthRuntimeAction'), 'runtime'],
-    [t('kpiActiveOperators'), `${activeWindow} ${t('operatorsUnit')}`, t('healthOperatorsAction'), 'operators'],
+  const values: Array<[string, string, SkillsEvidenceKind]> = [
+    [t('activeRate7d'), pct(rows.length ? active7 / rows.length : 0), 'operators'],
+    [t('avgSkillsPerOperator'), avgSkills.toFixed(2), 'avg_per_session'],
+    [t('kpiTop3Share'), pct(totalWindow ? top3 / totalWindow : 0), 'top3'],
+    [t('runtimeCoverage'), `${runtimes.size} ${t('categoryUnit')}`, 'runtime'],
+    [t('kpiActiveOperators'), `${activeWindow} ${t('operatorsUnit')}`, 'operators'],
   ]
   return (
     <section className="frame skills-health-frame">
       <div className="skills-health">
         <b>{t('usageSignals')}</b>
-        {values.map(([title, value, action, kind]) => (
+        {values.map(([title, value, kind]) => (
           <span className="signal" key={title}>
             <i />
             {title} <strong>{value}</strong>
-            <em>{action}</em>
             <Link className="evidence-icon-link" to={evidencePath(location.search, kind)} aria-label={`${t('viewEvidence')}: ${title}`} title={`${t('viewEvidence')}: ${title}`}>↗</Link>
           </span>
         ))}
@@ -47,22 +46,22 @@ export function HealthBar({ data, view = 'skill', t }: { data: SkillsOverview | 
   const idle = data?.governance?.idle_installed?.count ?? data?.funnel?.idle?.length ?? 0
   const catalogCount = data?.funnel?.catalog?.length || 0
   const usedCompany = data?.funnel?.used_30d?.length || 0
-  const values: Array<[string, string, SkillsEvidenceKind, string]> = [
-    [t('kpiUntrackedShare'), pct(data?.period_comparison?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), 'untracked', t('healthUntrackedAction')],
-    [t('kpiUnusedRatio'), pct(installed ? idle / installed : 0), 'unused_ratio', t('healthUnusedAction')],
-    [t('kpiCoverage'), pct(catalogCount ? usedCompany / catalogCount : 0), 'coverage', t('healthCoverageAction')],
-    [t('kpiTop3Share'), pct(data?.period_comparison?.current_top3_share), 'top3', t('healthTop3Action')],
-    [t('kpiAvgSkillPerSession'), (data?.period_comparison?.current_avg_skills_per_session ?? 0).toFixed(2), 'avg_per_session', t('healthAverageAction')],
+  const values: Array<[string, string, SkillsEvidenceKind]> = [
+    [t('kpiUntrackedShare'), pct(data?.period_comparison?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), 'untracked'],
+    [t('kpiUnusedRatio'), pct(installed ? idle / installed : 0), 'unused_ratio'],
+    [t('kpiCoverage'), pct(catalogCount ? usedCompany / catalogCount : 0), 'coverage'],
+    [t('kpiTop3Share'), pct(data?.period_comparison?.current_top3_share), 'top3'],
+    [t('kpiAvgSkillPerSession'), (data?.period_comparison?.current_avg_skills_per_session ?? 0).toFixed(2), 'avg_per_session'],
   ]
   return (
     <section className="frame skills-health-frame">
       <div className="skills-health">
         <b>{t('healthIssues')}</b>
-        {values.map(([title, value, kind, action]) => {
+        {values.map(([title, value, kind]) => {
           return (
             <span className="signal" key={kind}>
               <i />
-              {title} <strong>{value}</strong><em>{action}</em>
+              {title} <strong>{value}</strong>
               <Link className="evidence-icon-link" to={evidencePath(location.search, kind)} aria-label={`${t('viewEvidence')}: ${title}`} title={`${t('viewEvidence')}: ${title}`}>↗</Link>
             </span>
           )
