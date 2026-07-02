@@ -213,6 +213,8 @@ export type SkillsAttribution = {
 
 export type SkillsOverview = {
   days?: number
+  scope?: 'all' | 'new' | string
+  new_skill_count?: number
   window?: {
     key?: string
     days?: number

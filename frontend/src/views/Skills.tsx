@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { RuntimeBars, MiniTrend, StackedSkillChart } from '../components/Charts'
 import { Empty, SectionTitle } from '../components/Common'
 import { AttributionDonuts } from '../components/skills/AttributionDonuts'
@@ -74,6 +74,7 @@ function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
 
 function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverview | null; params: SkillQueryState; setParams: SetSkillQueryState; view: 'skill' | 'operator'; t: (key: string) => string }) {
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const location = useLocation()
   const runtimes = new Set<string>()
   data?.daily?.forEach((row) => row.runtime && runtimes.add(row.runtime))
   data?.operator_daily?.forEach((row) => row.runtime && runtimes.add(row.runtime))
@@ -81,6 +82,12 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
   data?.operator_table?.forEach((row) => Object.keys(row.runtime_counts || {}).forEach((runtime) => runtimes.add(runtime)))
   const update = (patch: Partial<typeof params>) => void setParams(patch)
   const currentWindow = params.w || `${params.win || 30}d`
+  const newScopeSearch = useMemo(() => {
+    const search = new URLSearchParams(location.search)
+    search.set('w', params.w || `${params.win || 7}d`)
+    search.set('scope', 'new')
+    return `/skills?${search.toString()}`
+  }, [location.search, params.w, params.win])
   const setView = (next: 'skill' | 'operator') => {
     if (next === view) return
     update({ view: next, q: '', sel: '', sort: 'sessions_window', dir: 'desc' })
@@ -98,6 +105,9 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
         <span>{filterSummary}</span>
         <b aria-hidden="true">{filtersOpen ? '⌃' : '⌄'}</b>
       </button>
+      <Link className="skills-mobile-new-link" to={newScopeSearch} aria-label={t('newSkillsLinkLabel')} title={t('newSkillsLinkLabel')}>
+        {t('newSkillsSummary')} {data?.new_skill_count ?? 0}
+      </Link>
       <div className={`toolbar skills-dashboard-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
         <div className="seg skills-view-seg">
           <button type="button" aria-pressed={view === 'skill'} className={view === 'skill' ? 'on' : ''} onClick={() => setView('skill')}>{t('viewSkill')}</button>
@@ -120,6 +130,11 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
               <input type="datetime-local" value={unixToInput(params.wend)} onChange={(event) => update({ w: 'custom', wend: inputToUnix(event.target.value) })} />
             </label>
           </>
+        ) : null}
+        {params.scope === 'new' ? (
+          <button type="button" className="scope-chip" onClick={() => update({ scope: 'all' })} aria-label={t('clearScope')} title={t('clearScope')}>
+            {t('newSkillsScope')} ×
+          </button>
         ) : null}
         <label className="field search-field">
           <span>{view === 'operator' ? t('operatorSearch') : t('skillSearch')}</span>

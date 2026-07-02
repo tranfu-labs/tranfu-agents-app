@@ -14,6 +14,11 @@ test('mobileFilterSummary reflects active runtime and source filters', () => {
   assert.equal(mobileFilterSummary({ w: '30d', rt: 'codex', src: 'non_catalog' }, 'operator', makeT('en')), '30d · By operator · codex · non-catalog · Filters')
 })
 
+test('mobileFilterSummary reflects new skill scope', () => {
+  assert.equal(mobileFilterSummary({ w: '7d', scope: 'new' }, 'skill', makeT('zh')), '7 天 · 按 Skill · 新发现名单 · 全部 runtime/source · 筛选')
+  assert.equal(mobileFilterSummary({ w: '7d', scope: 'new' }, 'skill', makeT('en')), '7d · By skill · New list · All runtime/source · Filters')
+})
+
 test('windowDisplayLabel localizes window query keys', () => {
   assert.equal(windowDisplayLabel('today', makeT('zh')), '今天')
   assert.equal(windowDisplayLabel('this_week', makeT('en')), 'This week')

@@ -186,6 +186,46 @@ def test_skills_overview_operator_table_follows_window_runtime_and_source(client
     assert {row["source"] for row in scoped["operator_daily"]} == {"own"}
 
 
+def test_skills_overview_new_scope_uses_first_used_day_and_operator_contribution(client, app_mod):
+    _set_catalog(app_mod)
+
+    ev(client, operator="alice", runtime="codex", session_id="new-a", skill="fresh", current_step="new-a")
+    ev(client, operator="bob", runtime="claude-code", session_id="new-b", skill="fresh", current_step="new-b")
+    ev(client, operator="chen", runtime="codex", session_id="old-first", skill="old-but-active", current_step="old-first")
+    ev(client, operator="chen", runtime="codex", session_id="old-current", skill="old-but-active", current_step="old-current")
+    ev(client, operator="dora", runtime="codex", session_id="equipped", skill="equipped-only",
+       skill_mode="equipped", current_step="equipped")
+    _set_skill_day(app_mod, "new-a", "fresh", 1)
+    _set_skill_day(app_mod, "new-b", "fresh", 1)
+    _set_skill_day(app_mod, "old-first", "old-but-active", 9)
+    _set_skill_day(app_mod, "old-current", "old-but-active", 1)
+    _set_skill_day(app_mod, "equipped", "equipped-only", 1, mode="equipped")
+
+    data = client.get("/api/skills?w=7d&scope=new").json()
+    assert data["scope"] == "new"
+    assert data["new_skill_count"] == 1
+    assert [row["name"] for row in data["table"]] == ["fresh"]
+    fresh = data["table"][0]
+    assert fresh["sessions_window"] == 2
+    assert fresh["previous_sessions"] == 0
+    assert {row["skill"] for row in data["daily"]} == {"fresh"}
+    assert {row["operator"] for row in data["operator_table"]} == {"alice", "bob"}
+    assert {row["operator"] for row in data["operator_daily"]} == {"alice", "bob"}
+    assert data["period_comparison"]["current_sessions"] == 2
+    assert data["period_comparison"]["previous_sessions"] == 0
+    assert {row["runtime"]: row["sessions"] for row in data["attribution"]["by_runtime"]} == {
+        "claude-code": 1,
+        "codex": 1,
+    }
+
+    all_data = client.get("/api/skills?w=7d").json()
+    assert {row["name"] for row in all_data["table"]} >= {"fresh", "old-but-active"}
+
+
+def test_skills_overview_rejects_invalid_scope(client):
+    assert client.get("/api/skills?w=7d&scope=weird").status_code == 400
+
+
 def test_skills_overview_governance_untracked_usage_is_windowed_used_only(client, app_mod):
     _set_catalog(app_mod)
 

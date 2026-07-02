@@ -16,6 +16,7 @@ const queryParsers = {
   topn: parseAsInteger.withDefault(8),
   hz: parseAsString.withDefault('0'),
   sel: parseAsString.withDefault(''),
+  scope: parseAsString.withDefault('all'),
 }
 
 export function useSkillQueryState() {

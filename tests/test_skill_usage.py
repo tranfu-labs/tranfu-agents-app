@@ -125,6 +125,22 @@ def test_empty_snapshot_has_skills_array(client):
     assert client.get("/api/state").json()["skills"] == []
 
 
+def test_state_leverage_uses_used_only_distinct_skills(client, app_mod):
+    ev(client, operator="alice", session_id="used-a", skill="alpha", current_step="used-a")
+    ev(client, operator="bob", session_id="used-b", skill="alpha", current_step="used-b")
+    ev(client, operator="chen", session_id="equipped", skill="equipped-only",
+       skill_mode="equipped", current_step="equipped")
+    ev(client, operator="dora", session_id="profile", current_step="profile",
+       skills={"local": [{"name": "installed-only"}]})
+
+    body = client.get("/api/state").json()
+    assert body["leverage"] == {"assets": 1, "skills_week": 1}
+
+    with app_mod.db() as conn:
+        seen = {row["name"] for row in conn.execute("SELECT name FROM skills_seen")}
+    assert {"alpha", "equipped-only", "installed-only"} <= seen
+
+
 def test_skill_usage_snapshot_windows_and_sort(client, app_mod):
     ev(client, operator="alice", session_id="a-old", skill="alpha", current_step="1")
     ev(client, operator="alice", session_id="a-new", skill="alpha", current_step="2")

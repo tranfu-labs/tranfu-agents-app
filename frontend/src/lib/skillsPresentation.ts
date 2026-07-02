@@ -5,6 +5,7 @@ type QueryLike = {
   win?: number
   rt?: string
   src?: string
+  scope?: string
 }
 
 type T = (key: string) => string
@@ -96,8 +97,9 @@ export function mobileFilterSummary(params: QueryLike, view: 'skill' | 'operator
   const viewLabel = view === 'operator' ? t('viewOperator') : t('viewSkill')
   const runtime = params.rt || ''
   const source = params.src || ''
+  const scopeLabel = params.scope === 'new' ? t('newSkillsScope') : ''
   const filterLabel = runtime || source ? `${runtime || t('allRuntime')} · ${sourceText(source, t)}` : t('allRuntimeSource')
-  return `${windowLabel} · ${viewLabel} · ${filterLabel} · ${t('filterAction')}`
+  return [windowLabel, viewLabel, scopeLabel, filterLabel, t('filterAction')].filter(Boolean).join(' · ')
 }
 
 export function isListEvidenceKind(kind?: SkillsEvidenceKind) {
