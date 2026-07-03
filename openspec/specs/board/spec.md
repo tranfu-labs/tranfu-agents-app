@@ -10,10 +10,13 @@
   payload 与 `/api/state` 同结构;后续由写侧 dirty 标记触发合并推送,长时间无业务事件时发送 SSE comment keepalive。
   SSE 失败不得影响 `/api/state` 普通 HTTP 请求。
 - `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=&rt=&src=&scope=all|new]` →
-  `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, catalog }`(SKILLS 总览;
+  `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, published_skills?, catalog }`(SKILLS 总览;
   `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
   governance、period_comparison 与 attribution 窗口;服务端无参兼容默认 30 天,SKILLS 前端无 URL 窗口参数时默认请求 `7d`。
   可选 `rt/src` 只影响 `operator_table` / `operator_daily` 的证据范围,用于按人视角;可选 `scope=new` 将总览收敛到当前窗口内历史首次 used 的 skill 名单。
+  `published_skills[]` 为当前窗口内按 catalog `published_at` 统计的新发布公司库 skill 列表,每项至少含
+  `name/source/version/author/published_at/published_day/updated_at/path/sha/installers/window_sessions/last_day`;
+  `period_comparison` 同步返回 `current_published_skill_count` 与 `previous_published_skill_count`。
   skill 搜索词、Top N、隐藏 0 使用不得进入该 overview 请求。
   新增字段均为可选返回,前端读不到时降级。)
 - `GET /api/skills/evidence?kind={total|untracked|coverage|operators|avg_per_session|idle|unused_ratio|zero_install|top3|runtime|source}[&days=7|30|90][&w=today|this_week|last_week|7d|14d|30d|90d|custom][&wstart=&wend=&q=&rt=&src=&skill=&operator=&limit=&offset=]`
@@ -26,7 +29,7 @@
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
-- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/evidence`、`/skills/clues/{kind}`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
+- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/{kind}`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
   `GET /assets/*` → Vite 指纹化静态资源,成功响应必须可长期缓存(`public, max-age=31536000, immutable`);
   SPA HTML 必须保持 `no-cache` 或等价 revalidate 策略,避免旧入口 HTML 长期引用过期 bundle;`GET /healthz` → `ok`。`/healthz` 必须是 async handler,
   不打开 DB 连接、不触发 IO,在事件循环直接返回。
@@ -60,6 +63,11 @@
     `operator_table`、`operator_daily`、`period_comparison`、`attribution` 与 `governance.untracked_usage`
     均收敛到该名单;`funnel` 保持公司库整体口径。响应必须包含 `scope` 与 `new_skill_count`;非法 `scope`
     返回 400。该名单态是可行动列表入口,不得默认跳 raw evidence。
+    `/api/skills.published_skills` 是不同口径:只统计 catalog 中 `type ∈ {own, meta}` 且 `published_at`
+    可解析的 skill;`published_at` 必须按 UTC instant 解析并转换为服务端统计时区 `Asia/Shanghai` 的 date-only
+    `published_day` 后再与 `window.start..window.end` 比较。当前窗口内发布但没有任何 `mode=used`
+    记录的 skill 仍必须进入 `published_skills[]`,其 `window_sessions=0`;`external`、缺失或非法
+    `published_at` 均不得计入。`previous_published_skill_count` 使用上一同长窗口同口径计算。
 15. `/api/skills.governance.untracked_usage` 输出"未收录使用占比"管理口径:当前 `days/w` 窗口内
     `source=非公司库` 且 `mode=used` 的会话×skill 记录数 / 当前窗口全部 `mode=used` 记录数;空分母为 0。
     catalog 中 `external` 不算未收录;`equipped` 不得进入分母、分子或 Top 列表。`top[]` 按窗口内
@@ -121,7 +129,7 @@
   时约 15 秒刷新;页面隐藏时暂停或降到约 60 秒刷新;任一时刻不得并发叠加多个 `/api/state` 请求。
   TopBar、Pods、Agents 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
-- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
+- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
   `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`scope`(`all|new`)。
@@ -133,7 +141,7 @@
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
-- `/skills`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
+- `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
   并行请求 SKILLS API。Pods、Agents 与 AgentDetail 仍复用 `/api/state` gate。SKILLS GET 请求层必须按完整 URL 做 in-flight 去重和 ETag revalidate;
   可把同 URL 已校验 payload 作为返回页/刷新过渡态先展示,但后台仍必须向服务端校验,不得用前端 TTL 命中跳过请求。刷新或筛选切换时优先保留旧列表并用 refreshing/loading 状态表达后台刷新中,
   不得把旧数据伪装成已完成刷新结果。
@@ -150,7 +158,7 @@
 - 顶部导航的 `+N 7天新发现` 必须可键盘聚焦并跳转 `/skills?w=7d&scope=new`;顶部 `N Skill 资产`
   必须使用 used-only distinct skill 口径,不得暗示安装量或已发现量。手机端可隐藏顶部新增数字,但 `/skills`
   首屏控制摘要旁必须提供一键/键盘可达的新增名单入口。
-- 按 Skill 视角「当前时间窗变化」8 格口径:总触发次数、公司库覆盖率、活跃操作员数、平均每会话 skill 数、未收录使用占比、闲置 skill 数、
+- 按 Skill 视角「当前时间窗变化」8 格口径:总触发次数、公司库覆盖率、活跃操作员数、新增发布 Skill 数、未收录使用占比、闲置 skill 数、
   装了没用比例、Top3 集中度。每格必须提供证据入口,但摘要格只展示短结论,不得直接铺长 skill/operator 名单;
   长名单只能出现在待处理线索、`/skills/evidence` 或展开详情中。若必须露对象,只能露 1 个短名且超长名截断,
   不能用 `/` 拼接多个长名。证据入口使用 icon button,默认态为浅灰弱提示色,悬浮和键盘 `focus-visible` 时恢复高亮色,
@@ -159,11 +167,12 @@
   除闲置 skill 数和装了没用比例两个快照指标外,其余默认展示本期 vs 上期同长度窗口 delta;
   `previous=0,current>0` 显示 `+∞%`,两边 0 显示 `—`。按人视角换为 operator 口径摘要,至少包含使用记录、活跃操作员、
   活跃率、人均 skill、人均会话、Top3 集中度、runtime 覆盖和来源覆盖。
-- 按 Skill 视角「问题线索」5 项:未收录占比、装了没用比例、公司库覆盖率、Top3 集中度、平均 skill/会。每项主句优先对象驱动或事实驱动,
+- 按 Skill 视角「问题线索」5 项:未收录占比、装了没用比例、公司库覆盖率、Top3 集中度、新增发布 Skill。每项主句优先对象驱动或事实驱动,
   百分比只作次级说明,不得作为唯一主句。问题线索卡不得在首屏直接渲染具体 skill 名名单;具体 records/items/names
   只能出现在待处理线索、证据页或详情抽屉中。每项只展示当前事实值和 icon 证据入口,不得显示「看未收录 used 名单」、
   「看已装未用名单」「看集中使用分布」等可见动作文案;不得显示 `良好`、`偏高`、`需关注` 作为考核标签,
   也不得使用红绿箭头、达成率或庆祝式增长文案;其职责是提示"哪里断了、下一步看哪份名单"。
+  「新增发布 Skill」入口必须跳 `/skills/new`,不得跳 `/skills/evidence?kind=avg_per_session`。
   按人视角问题线索换为 operator 使用信号,至少包含活跃率、人均 skill、Top3 集中度、runtime 覆盖和活跃操作员数;
   使用信号同样只展示当前事实值和 icon 证据入口,不得显示「看操作员名单」「看 runtime 分布」等可见动作文案。
 - 主分析区按当前时间窗口长度切换布局:短窗口(`today`、`this_week`、`last_week`、`7d`、`14d`、有效 `custom<=14天`)
@@ -293,6 +302,13 @@
 - 某 skill 首次 used 在当前 7 天,且 alice/bob 各有一个会话 → `/api/skills?w=7d&scope=new`
   的 table 只含该 skill,operator_table 只含 alice/bob,该 skill `previous_sessions=0`。
 - `GET /api/skills?w=7d&scope=weird` → 400。
+- catalog 中 `own` 或 `meta` skill 的 `published_at` 落在当前 7 天窗口,且没有任何 `skill_uses`
+  记录 → `/api/skills?w=7d` 的 `period_comparison.current_published_skill_count` 计入该 skill,
+  `published_skills[]` 包含该 skill,且该项 `window_sessions=0`。
+- catalog 中 `meta` skill 的 `published_at` 落在上一同长窗口 → 当前窗口
+  `period_comparison.previous_published_skill_count` 计入该 skill,但当前窗口 `published_skills[]` 不包含它。
+- catalog 中 `external` skill 的 `published_at` 落在当前窗口,或 catalog item 缺失/非法 `published_at`
+  → `/api/skills` 仍返回 200,且不计入 `current_published_skill_count` 或 `published_skills[]`。
 - 造数据:7 天内 own used 6、external used 2、非公司库 used 4、非公司库 equipped 3 →
   `/api/skills?days=7` 的 `governance.untracked_usage.total_sessions=12`、`used_sessions=4`、
   `ratio≈0.333`,Top 不含 external/equipped。
@@ -357,6 +373,8 @@
 - 375px 手机宽度下,问题线索的跳转 icon 与文字行垂直居中,页面根无横向滚动。
 - `/skills?view=skill&w=7d` 的摘要格不得重复出现多个可见文字「证据」入口;证据入口应是 icon button,并有可访问名称。
 - 点击 `/skills` 首屏 `总触发次数` 的证据入口 → 跳到 `/skills/evidence?kind=total&w=7d...`,证据表显示当前窗口 records。
+- 点击 `/skills` 首屏 `新增发布 Skill` 的记录入口 → 跳到 `/skills/new?w=7d...`,页面展示同一窗口内按
+  `published_at` 统计的新发布公司库 skill 列表;无 used 详情的行仍保留可读名单,不隐藏。
 - 点击 `/skills` 首屏 `有使用但未收录` 的证据 icon 或 mobile 待处理线索行 → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
 - `/skills?view=skill&w=7d` 的 `待处理线索` 不得显示可见文案 `找人`;对应查看 action 的可访问名称为 `查看记录`、`查看名单` 或同义语义。
 - `/skills?view=skill&w=7d` 的 `待处理线索` 三组摘要不得显示 `8/48`;必须显示明文总数和展示数量。

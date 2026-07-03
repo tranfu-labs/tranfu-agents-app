@@ -43,6 +43,12 @@ def _set_skill_day(app_mod, session_id, skill, days_ago, mode="used"):
     return day
 
 
+def _published_at(app_mod, days_ago):
+    day = app_mod.stats_today() - timedelta(days=days_ago)
+    value = datetime(day.year, day.month, day.day, 12, 0, tzinfo=STATS_TZ)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _seed_skill_stats(client, app_mod):
     _set_catalog(app_mod)
     ev(client, operator="alice", runtime="codex", session_id="a-old", skill="alpha", current_step="1")
@@ -61,6 +67,36 @@ def _seed_skill_stats(client, app_mod):
         "equipped": _set_skill_day(app_mod, "e-new", "alpha", 1, mode="equipped"),
     }
     return days
+
+
+def test_parse_catalog_payload_keeps_publish_metadata(app_mod):
+    data = app_mod._parse_catalog_payload({
+        "version": 1,
+        "generated_at": "2026-07-03T00:00:00Z",
+        "skills": [{
+            "name": "published-skill",
+            "type": "own",
+            "description": "published",
+            "version": "0.2.0",
+            "author": "alice",
+            "updated_at": "2026-07-03",
+            "published_at": "2026-07-03T09:04:22.000Z",
+            "path": "own-skills/published-skill",
+            "sha": "abc123",
+        }],
+    })
+    item = data["skills"][0]
+    assert item == {
+        "name": "published-skill",
+        "type": "own",
+        "description": "published",
+        "version": "0.2.0",
+        "author": "alice",
+        "updated_at": "2026-07-03",
+        "published_at": "2026-07-03T09:04:22.000Z",
+        "path": "own-skills/published-skill",
+        "sha": "abc123",
+    }
 
 
 def test_catalog_sync_success_then_failure_marks_old_cache_stale(client, app_mod, monkeypatch):
@@ -106,6 +142,75 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     assert {x["name"] for x in data["funnel"]["installed"]} == {"alpha", "idle-own"}
     assert {x["name"] for x in data["funnel"]["used_30d"]} == {"alpha"}
     assert {x["name"] for x in data["funnel"]["idle"]} == {"idle-own"}
+
+
+def test_skills_overview_published_skills_include_unused_company_catalog(client, app_mod):
+    current_own = {
+        "name": "fresh-own",
+        "type": "own",
+        "description": "new own skill",
+        "version": "0.1.0",
+        "author": "alice",
+        "updated_at": app_mod.stats_day(),
+        "published_at": _published_at(app_mod, 1),
+        "path": "own-skills/fresh-own",
+        "sha": "own-sha",
+    }
+    current_meta = {
+        "name": "fresh-meta",
+        "type": "meta",
+        "description": "new meta skill",
+        "version": "0.2.0",
+        "author": "bob",
+        "updated_at": app_mod.stats_day(),
+        "published_at": _published_at(app_mod, 0),
+        "path": "meta-skills/fresh-meta",
+        "sha": "meta-sha",
+    }
+    previous_meta = {
+        "name": "previous-meta",
+        "type": "meta",
+        "description": "previous window",
+        "published_at": _published_at(app_mod, 9),
+    }
+    external = {
+        "name": "fresh-external",
+        "type": "external",
+        "description": "external",
+        "published_at": _published_at(app_mod, 1),
+    }
+    invalid = {
+        "name": "bad-published-at",
+        "type": "own",
+        "description": "invalid date",
+        "published_at": "not-a-date",
+    }
+    _set_catalog(app_mod, CATALOG + [current_own, current_meta, previous_meta, external, invalid])
+
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "fresh-own"}]})
+    ev(client, operator="alice", runtime="codex", session_id="fresh-meta-use",
+       skill="fresh-meta", current_step="fresh-meta-use")
+    used_day = _set_skill_day(app_mod, "fresh-meta-use", "fresh-meta", 1)
+
+    data = client.get("/api/skills?w=7d").json()
+    period = data["period_comparison"]
+    assert period["current_published_skill_count"] == 2
+    assert period["previous_published_skill_count"] == 1
+
+    published = {row["name"]: row for row in data["published_skills"]}
+    assert set(published) == {"fresh-own", "fresh-meta"}
+    assert published["fresh-own"]["source"] == "own"
+    assert published["fresh-own"]["version"] == "0.1.0"
+    assert published["fresh-own"]["author"] == "alice"
+    assert published["fresh-own"]["path"] == "own-skills/fresh-own"
+    assert published["fresh-own"]["sha"] == "own-sha"
+    assert published["fresh-own"]["installers"] == 1
+    assert published["fresh-own"]["window_sessions"] == 0
+    assert published["fresh-own"]["last_day"] is None
+    assert published["fresh-meta"]["source"] == "meta"
+    assert published["fresh-meta"]["window_sessions"] == 1
+    assert published["fresh-meta"]["last_day"] == used_day
 
 
 def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_mod):

@@ -44,11 +44,16 @@ def _parse_catalog_payload(raw):
         if not name or name in seen:
             continue
         seen.add(name)
-        out.append({
+        parsed = {
             "name": name,
             "type": _catalog_source(item.get("type")),
             "description": item.get("description") or "",
-        })
+        }
+        for key in ("version", "author", "updated_at", "published_at", "path", "sha"):
+            value = item.get(key)
+            if value is not None:
+                parsed[key] = value
+        out.append(parsed)
     return {
         "version": data.get("version") if isinstance(data, dict) else None,
         "generated_at": data.get("generated_at") if isinstance(data, dict) else None,

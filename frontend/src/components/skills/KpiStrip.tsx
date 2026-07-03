@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import type { SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
 import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
-import { evidencePath } from '../../lib/skillsEvidence'
+import { evidencePath, publishedSkillsPath } from '../../lib/skillsEvidence'
 import { compactNameList, kpiShortConclusion, windowChangeLabel, windowPeriodLabel } from '../../lib/skillsPresentation'
 
 type EvidenceCard = {
@@ -10,6 +10,7 @@ type EvidenceCard = {
   current?: number
   previous?: number
   kind: SkillsEvidenceKind
+  to?: string
   names: string[]
   detail?: string
   records?: number
@@ -100,18 +101,19 @@ export function KpiStrip({ data, view = 'skill', t }: { data: SkillsOverview | n
   const idleNames = (data?.governance?.idle_installed?.top || []).slice(0, 2).map((row) => row.name)
   const operatorNames = (data?.operator_table || []).slice(0, 2).map((row) => row.operator)
   const companyNames = (data?.funnel?.used_30d || []).slice(0, 2).map((row) => row.name)
+  const publishedNames = (data?.published_skills || []).slice(0, 2).map((row) => row.name)
   const untrackedRecords = data?.governance?.untracked_usage?.used_sessions || 0
   const baseCards: EvidenceCard[] = [
     { label: t('kpiTotalTriggers'), value: n(currentSessions), current: currentSessions, previous: previousSessions, kind: 'total', names: topNames },
     { label: t('kpiCoverage'), value: `${usedCompany}/${catalogCount}`, current: coverage, previous: previousCoverage, kind: 'coverage', names: companyNames, pct: true },
     { label: t('kpiActiveOperators'), value: n(period?.current_operators), current: period?.current_operators, previous: period?.previous_operators, kind: 'operators', names: operatorNames },
-    { label: t('kpiAvgSkillPerSession'), value: (period?.current_avg_skills_per_session ?? 0).toFixed(2), current: period?.current_avg_skills_per_session, previous: period?.previous_avg_skills_per_session, kind: 'avg_per_session', names: topNames },
+    { label: t('kpiPublishedSkills'), value: n(period?.current_published_skill_count), current: period?.current_published_skill_count, previous: period?.previous_published_skill_count, kind: 'total', to: publishedSkillsPath(location.search), names: publishedNames, detail: `${n(period?.current_published_skill_count)} ${t('skillsUnit')}` },
     { label: t('kpiUntrackedShare'), value: pct(period?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), current: period?.current_untracked_share, previous: period?.previous_untracked_share, kind: 'untracked', names: untrackedNames, pct: true },
     { label: t('kpiIdleSkills'), value: n(idle), current: 0, previous: 0, kind: 'idle', names: idleNames, snapshot: true },
     { label: t('kpiUnusedRatio'), value: pct(idleRatio), current: 0, previous: 0, kind: 'unused_ratio', names: idleNames, snapshot: true },
     { label: t('kpiTop3Share'), value: pct(top3Share), current: top3Share, previous: period?.previous_top3_share, kind: 'top3', names: topNames, pct: true },
   ]
-  const cards = baseCards.map((card) => ({ ...card, records: card.kind === 'untracked' ? untrackedRecords : undefined, detail: kpiShortConclusion(card.kind, card.value, card.names, card.kind === 'untracked' ? untrackedRecords : undefined, t) }))
+  const cards = baseCards.map((card) => ({ ...card, records: card.kind === 'untracked' ? untrackedRecords : undefined, detail: card.detail || kpiShortConclusion(card.kind, card.value, card.names, card.kind === 'untracked' ? untrackedRecords : undefined, t) }))
 
   return (
     <section className="frame skills-kpi-frame">
@@ -121,7 +123,7 @@ export function KpiStrip({ data, view = 'skill', t }: { data: SkillsOverview | n
             <div className="stat skills-kpi-card" key={card.label}>
               <div className="skills-kpi-top">
                 <div className="v">{card.value}</div>
-                <Link className="evidence-icon-link" to={evidencePath(location.search, card.kind)} aria-label={`${t('viewEvidence')}: ${card.label}`} title={`${t('viewEvidence')}: ${card.label}`}>↗</Link>
+                <Link className="evidence-icon-link" to={card.to || evidencePath(location.search, card.kind)} aria-label={`${t('viewEvidence')}: ${card.label}`} title={`${t('viewEvidence')}: ${card.label}`}>↗</Link>
               </div>
               <div className="l">{card.label}</div>
               <span className="evidence-names">{card.detail || compactNameList(card.names, 1)}</span>

@@ -11,7 +11,7 @@ import json
 import threading
 import time
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -498,6 +498,76 @@ def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_na
     }
 
 
+def _catalog_published_day(value):
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(STATS_TZ).date().isoformat()
+
+
+def _published_skill_summary(conn, catalog_items, catalog_by, window):
+    install_counts = _installed_skill_counts(conn)
+    usage = {
+        r["skill"]: {
+            "window_sessions": int(r["window_sessions"] or 0),
+            "last_day": r["last_day"],
+        }
+        for r in conn.execute("""
+          SELECT skill,
+            SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) window_sessions,
+            MAX(day) last_day
+          FROM skill_uses
+          WHERE mode='used'
+          GROUP BY skill
+        """, (window["start"], window["end"]))
+    }
+
+    def is_company_item(item):
+        name = item.get("name")
+        return bool(name) and _skill_source(name, catalog_by) in CATALOG_COMPANY_TYPES
+
+    current = []
+    previous_count = 0
+    for item in catalog_items or []:
+        if not is_company_item(item):
+            continue
+        published_day = _catalog_published_day(item.get("published_at"))
+        if not published_day:
+            continue
+        if window["previous_start"] <= published_day <= window["previous_end"]:
+            previous_count += 1
+        if not (window["start"] <= published_day <= window["end"]):
+            continue
+        name = item["name"]
+        stat = usage.get(name, {})
+        current.append({
+            "name": name,
+            "source": _skill_source(name, catalog_by),
+            "version": item.get("version") or "",
+            "author": item.get("author") or "",
+            "published_at": item.get("published_at"),
+            "published_day": published_day,
+            "updated_at": item.get("updated_at") or "",
+            "path": item.get("path") or "",
+            "sha": item.get("sha") or "",
+            "installers": int(install_counts.get(name, 0)),
+            "window_sessions": int(stat.get("window_sessions") or 0),
+            "last_day": stat.get("last_day"),
+        })
+    current.sort(key=lambda x: x["name"])
+    current.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+    return {
+        "items": current,
+        "current_count": len(current),
+        "previous_count": previous_count,
+    }
+
+
 EVIDENCE_KINDS = {
     "total", "untracked", "coverage", "operators", "avg_per_session",
     "idle", "unused_ratio", "zero_install", "top3", "runtime", "source",
@@ -832,7 +902,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     window_end = window["end"]
     previous_start = window["previous_start"]
     previous_end = window["previous_end"]
-    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    catalog_items, catalog_by, catalog_meta = _catalog_context(conn)
     scope = (scope or "all").strip().lower()
     if scope not in ("", "all", "new"):
         raise HTTPException(400, "scope must be all or new")
@@ -1080,10 +1150,17 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         "untracked_usage": _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by, scoped_skill_names),
     }
     governance.update(_governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names, installed_names, used_window_names))
+    published = _published_skill_summary(conn, catalog_items, catalog_by, window)
+    period = _period_comparison(conn, window, catalog_by, scoped_skill_names)
+    period.update({
+        "current_published_skill_count": published["current_count"],
+        "previous_published_skill_count": published["previous_count"],
+    })
     return {
         "days": days,
         "scope": scope,
         "new_skill_count": len(new_skill_names),
+        "published_skills": published["items"],
         "window": window,
         "today": today.isoformat(),
         "daily": daily,
@@ -1091,7 +1168,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         "operator_daily": operator_daily,
         "operator_table": operator_table,
         "governance": governance,
-        "period_comparison": _period_comparison(conn, window, catalog_by, scoped_skill_names),
+        "period_comparison": period,
         "attribution": _skills_attribution(conn, window_start, window_end, catalog_by, scoped_skill_names),
         "funnel": funnel,
         "catalog": catalog_meta,
