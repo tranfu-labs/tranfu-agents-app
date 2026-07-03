@@ -19,11 +19,14 @@
 - `GET /api/skills/evidence?kind={total|untracked|coverage|operators|avg_per_session|idle|unused_ratio|zero_install|top3|runtime|source}[&days=7|30|90][&w=today|this_week|last_week|7d|14d|30d|90d|custom][&wstart=&wend=&q=&rt=&src=&skill=&operator=&limit=&offset=]`
   → 当前时间窗下的 SKILLS 证据 payload,字段含 `today/window/summary/actions/applied_filters/ignored_filters/top_skills/top_operators/daily/records/items/catalog`;
   只统计 `mode=used` records,`equipped` 不得进入 `summary.records`、`top_*`、`daily` 或 `records`。
+  `/api/skills` 与 `/api/skills/evidence` 可返回 `ETag` 并处理 `If-None-Match`;ETag 必须按路径、归一化 query 参数与稳定响应 payload 计算。
+  命中时只允许同 URL / 同参数返回 `304` 且无 body,客户端只能复用本次服务端校验通过的同 URL payload;未经独立业务确认不得为这两个 API 引入跳过服务端校验的 TTL。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
 - `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/evidence`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
-  `GET /assets/*` → Vite 指纹化静态资源;`GET /healthz` → `ok`。`/healthz` 必须是 async handler,
+  `GET /assets/*` → Vite 指纹化静态资源,成功响应必须可长期缓存(`public, max-age=31536000, immutable`);
+  SPA HTML 必须保持 `no-cache` 或等价 revalidate 策略,避免旧入口 HTML 长期引用过期 bundle;`GET /healthz` → `ok`。`/healthz` 必须是 async handler,
   不打开 DB 连接、不触发 IO,在事件循环直接返回。
 
 ## 规则(MUST)
@@ -128,6 +131,10 @@
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
+- `/skills`、`/skills/evidence`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
+  并行请求 SKILLS API。Pods、Agents 与 AgentDetail 仍复用 `/api/state` gate。SKILLS GET 请求层必须按完整 URL 做 in-flight 去重和 ETag revalidate;
+  可把同 URL 已校验 payload 作为返回页/刷新过渡态先展示,但后台仍必须向服务端校验,不得用前端 TTL 命中跳过请求。刷新或筛选切换时优先保留旧列表并用 refreshing/loading 状态表达后台刷新中,
+  不得把旧数据伪装成已完成刷新结果。
 - SKILLS 总览采用证据导向仪表盘结构:控制条 → 当前时间窗变化(8 格,标题由时间窗 i18n label 派生,每格可追证据) → 问题线索(5 项) →
   主分析区(排行 Bar/操作员排行 + 每日使用趋势图,按窗口长度切布局) → 待处理线索治理行 →
   归因 Donut(来源+runtime) → 明细表+抽屉 → 公司库采纳漏斗(下沉、默认折叠)。手机首屏优先呈现问题线索和待处理线索,

@@ -41,10 +41,22 @@ async def _security_headers(request: Request, call_next):
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
     resp.headers.setdefault("Content-Security-Policy", _CSP)
+    _cache_headers(request.url.path, resp)
     if _req_is_https(request):
         resp.headers.setdefault("Strict-Transport-Security",
                                 "max-age=31536000; includeSubDomains")
     return resp
+
+
+def _cache_headers(path, resp):
+    """Keep entry HTML revalidated while letting Vite fingerprinted assets stick."""
+    if getattr(resp, "status_code", 500) >= 400:
+        return
+    if path.startswith("/assets/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return
+    if "text/html" in resp.headers.get("content-type", ""):
+        resp.headers.setdefault("Cache-Control", "no-cache")
 
 
 def _key_eq(given, expected):

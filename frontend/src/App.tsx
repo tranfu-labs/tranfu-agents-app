@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
@@ -9,6 +9,7 @@ import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
 import { applyTheme, getBrowserPrefersDark, getBrowserThemeStorage, readStoredThemeMode, resolveTheme, writeStoredThemeMode, type ThemeMode } from './lib/theme'
 import { initialTokenUsageQuery } from './lib/tokenUsageRange'
 import type { Lang } from './lib/types'
+import type { StatePayload } from './lib/types'
 import { Board } from './views/Board'
 import { Agents } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
@@ -55,6 +56,20 @@ function TokenUsageRoute({ t }: { t: (key: string) => string }) {
   const [query, setQuery] = useState(initialTokenUsageQuery)
   const usage = useTokenUsage(true, query)
   return <TokenUsageView data={usage.data} loading={usage.loading} error={usage.error} query={query} setQuery={setQuery} refresh={usage.refresh} t={t} />
+}
+
+function RouteLoading({ t }: { t: (key: string) => string }) {
+  return (
+    <section className="frame">
+      <div className="empty">
+        <div className="t">{t('loading')}</div>
+      </div>
+    </section>
+  )
+}
+
+function StateRoute({ state, children, t }: { state: StatePayload | null; children: (data: StatePayload) => ReactElement; t: (key: string) => string }) {
+  return state ? children(state) : <RouteLoading t={t} />
 }
 
 export default function App() {
@@ -115,26 +130,18 @@ export default function App() {
         t={t}
       />
       <main>
-        {state.data ? (
-          <Routes>
-            <Route path="/" element={<Board data={state.data} lang={lang} t={t} />} />
-            <Route path="/agents" element={<Agents data={state.data} lang={lang} t={t} />} />
-            <Route path="/agent/:key" element={<AgentDetail data={state.data} lang={lang} t={t} />} />
-            <Route path="/skills" element={<SkillsRoute t={t} />} />
-            <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
-            <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
-            <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
-            <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
-            <Route path="/admin" element={<AdminView t={t} />} />
-            <Route path="*" element={<Board data={state.data} lang={lang} t={t} />} />
-          </Routes>
-        ) : (
-          <section className="frame">
-            <div className="empty">
-              <div className="t">{t('loading')}</div>
-            </div>
-          </section>
-        )}
+        <Routes>
+          <Route path="/" element={<StateRoute state={state.data} t={t}>{(data) => <Board data={data} lang={lang} t={t} />}</StateRoute>} />
+          <Route path="/agents" element={<StateRoute state={state.data} t={t}>{(data) => <Agents data={data} lang={lang} t={t} />}</StateRoute>} />
+          <Route path="/agent/:key" element={<StateRoute state={state.data} t={t}>{(data) => <AgentDetail data={data} lang={lang} t={t} />}</StateRoute>} />
+          <Route path="/skills" element={<SkillsRoute t={t} />} />
+          <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
+          <Route path="/token-usage" element={<StateRoute state={state.data} t={t}>{() => <TokenUsageRoute t={t} />}</StateRoute>} />
+          <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
+          <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
+          <Route path="/admin" element={<AdminView t={t} />} />
+          <Route path="*" element={<StateRoute state={state.data} t={t}>{(data) => <Board data={data} lang={lang} t={t} />}</StateRoute>} />
+        </Routes>
       </main>
       <Toast message={toast} onDone={clearToast} />
     </>

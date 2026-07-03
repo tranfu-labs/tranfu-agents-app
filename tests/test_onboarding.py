@@ -180,6 +180,29 @@ def test_spa_fallback_serves_skills_deep_links(client, app_mod):
             assert '<div id="root"></div>' in r.text
 
 
+def test_spa_html_uses_no_cache(client, app_mod, monkeypatch, tmp_path):
+    index = tmp_path / "index.html"
+    index.write_text('<div id="root"></div>', encoding="utf-8")
+    monkeypatch.setattr(app_mod, "FRONTEND_INDEX", str(index))
+
+    r = client.get("/skills")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_cache_headers_for_fingerprinted_assets():
+    from starlette.responses import Response
+    from server.security import _cache_headers
+
+    resp = Response()
+    _cache_headers("/assets/index-abc123.js", resp)
+    assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    html = Response(media_type="text/html")
+    _cache_headers("/skills", html)
+    assert html.headers["cache-control"] == "no-cache"
+
+
 def test_spa_fallback_does_not_swallow_api_routes(client):
     assert client.get("/api/nope").status_code == 404
     assert client.get("/v1/nope").status_code == 404
