@@ -103,6 +103,7 @@ _catalog_lock = threading.Lock()
 
 
 STATE_TTL_SECONDS = _env_float("TF_STATE_TTL", "1.5")
+HEARTBEAT_BATCH_SECONDS = _env_float("TF_HEARTBEAT_BATCH_SECONDS", "15")
 TRASH_DAYS = _env_int("TF_TRASH_DAYS", 30)
 ADMIN_MAX_ROWS = _env_int("TF_ADMIN_MAX_ROWS", 200)
 
@@ -187,9 +188,13 @@ from server.routes.onboarding import (  # noqa: E402,F401
 # conftest 兼容 re-export(必须在 board import 之后,使 app._state_cache_lock 与 board 内部同一对象)。
 from server.routes.board import (  # noqa: E402,F401
     _state_cache, _state_cache_lock,
+    mark_state_dirty,
     _snapshot, _state_compute_or_cache, metrics, leverage, skill_usage,
     skills_overview, skills_evidence_payload, operator_detail_payload, skill_detail_payload,
-    state, skills_stats, skills_evidence, skill_detail, operator_detail, agent_detail,
+    state, state_stream, skills_stats, skills_evidence, skill_detail, operator_detail, agent_detail,
+)
+from server.routes.ingest import (  # noqa: E402,F401
+    _heartbeat_pending, _heartbeat_pending_lock, flush_heartbeat_batch,
 )
 
 # _day_cutoff 搬到 server.db(admin 与 board 共享)。

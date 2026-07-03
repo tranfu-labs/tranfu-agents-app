@@ -30,13 +30,13 @@
 (顶层延迟会与 `app.include_router(...)` 产生循环 import):
 
 - 可变开关:`DB_PATH`、`INGEST_KEY`、`ADMIN_KEY`、`ADMIN_MAX_ROWS`、`TRASH_DAYS`、
-  `STATE_TTL_SECONDS`、`REQUIRE_TOKEN`、`READ_AUTH_OK`、`TRUST_PROXY`、`HSTS_FORCE`、
+  `STATE_TTL_SECONDS`、`HEARTBEAT_BATCH_SECONDS`、`REQUIRE_TOKEN`、`READ_AUTH_OK`、`TRUST_PROXY`、`HSTS_FORCE`、
   `ADMIN_RATE_*`、`ADMIN_LOCK_*`。
 - 路径常量(测试 monkeypatch 目标):`FRONTEND_INDEX`、`INSTALL_PATH`、`LLMS_PATH`、`ROBOTS_PATH`。
 - 全局锁与缓存:`_lock`、`_catalog_lock`、`_catalog_state`、`_catalog_thread_started`。
 
-`_state_cache` / `_state_cache_lock`(/api/state 缓存)与 `_rate_lock` / `_rate_state`(限流器内存态)
-分别由 `routes/board.py` 与 `security.py` 持有;`server/app.py` 末尾 `from … import …` 把它们
+`_state_cache` / `_state_cache_lock`(/api/state 与 SSE 状态流缓存)、心跳 batch pending map 与 `_rate_lock` / `_rate_state`(限流器内存态)
+分别由 `routes/board.py`、`routes/ingest.py` 与 `security.py` 持有;`server/app.py` 末尾 `from … import …` 把它们
 re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.update(...)` 与
 `app._rate_state.clear()` 在同一对象上生效。
 

@@ -6,6 +6,9 @@
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
+- `GET /api/state/stream` → `text/event-stream`。连接建立后先发送一条 `event: state` 完整快照,
+  payload 与 `/api/state` 同结构;后续由写侧 dirty 标记触发合并推送,长时间无业务事件时发送 SSE comment keepalive。
+  SSE 失败不得影响 `/api/state` 普通 HTTP 请求。
 - `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=&rt=&src=&scope=all|new]` →
   `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, catalog }`(SKILLS 总览;
   `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
@@ -85,22 +88,33 @@
     (允许 3-10 秒),缓存键必须归一化 `days/w/wstart/wend/rt/src/scope`,且缓存容量必须有上限。
 22. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
-23. `/api/state` 必须在服务端做 TTL 缓存复用,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
+23. `/api/state` 与 `/api/state/stream` 必须共用同一份进程内快照缓存,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
     前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
     可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
     依赖"`/api/state.now` 必须是请求当下时间"的假设。
-24. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
+    快照重算必须具备 single-flight 保护:同一进程内同一时刻最多一个执行单元运行 `_snapshot`;缓存仍有效时直接复用;
+    缓存过期但已有重算在途时,若旧缓存存在,其它请求可返回旧缓存(stale-while-revalidate);首次无缓存且已有重算在途时,
+    其它请求等待该次重算结果。
+24. `/api/state/stream` 必须由 board 域统一 broadcaster 复用缓存与 single-flight 结果,不得每个 SSE client 各自独立重算。
+    写侧在真实事件行插入、纯心跳 batch flush 更新 `last_seen`、profile/skill/shim version 发生实际写入、
+    管理清理或恢复完成后标记 state dirty;服务端合并短时间内的多次 dirty 后最多重算一次快照并推送。
+    慢 SSE client 不得拖慢全局推送;实现优先保留最新快照,允许丢弃该 client 队列里的旧快照。
+25. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
 
 ## 部署/运维
-- `TF_STATE_TTL`:`/api/state` 缓存 TTL(秒,float),默认 `1.5`。区间建议 `0.5~3.0`。
+- `TF_STATE_TTL`:`/api/state` 与 `/api/state/stream` 共用快照缓存 TTL(秒,float),默认 `1.5`。区间建议 `0.5~3.0`。
 - Docker healthcheck 配置目标:`Timeout=10s`、`Retries=5`、`Interval=30s`、`StartPeriod=10s`。
   配置入口取决于部署方式;根目录 `compose.yml` 托管默认值,若由 Coolify UI 覆盖,以 Coolify 配置为准。
 - uvicorn `--workers` 默认 1;启用多 worker 前必须先解决 `_catalog_loop` 多进程并发拉取与写
   `catalog_cache` 表的潜在竞争,该事项需走独立 change。
 
 ## 前端规则(MUST)
-- 轮询 `/api/state`(约 3s),取不到时退回内置演示数据并显示"未连接服务端"。
+- 看板 state 数据读取优先使用 `/api/state/stream` SSE;SSE 不可用、断开或解析失败时回退到 `/api/state`
+  adaptive polling,取不到时退回内置演示数据并显示"未连接服务端"。
+  fallback polling 首次加载立即请求;页面可见且 `totals.live > 0` 时约 3 秒刷新;页面可见且 `totals.live == 0`
+  时约 15 秒刷新;页面隐藏时暂停或降到约 60 秒刷新;任一时刻不得并发叠加多个 `/api/state` 请求。
+  TopBar、Pods、Agents 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;SKILLS 证据页 `/skills/evidence`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。

@@ -42,7 +42,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 
 ## 编码规范 / 约定
 - **服务端只用标准库 + FastAPI/uvicorn**;数据库是单文件 SQLite(`$TF_DB`,默认 `tf.db`),不引入外部 DB/中间件。
-- `/api/state` 是高频轮询读路径,服务端必须做进程内 TTL 缓存(默认 `TF_STATE_TTL=1.5` 秒);
+- `/api/state` 与 `/api/state/stream` 是看板状态读路径,服务端必须做进程内 TTL 缓存(默认 `TF_STATE_TTL=1.5` 秒)与 single-flight 重算保护;前端优先 SSE,失败才回退 adaptive polling。
+  纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒批量写入 SQLite,状态/步骤变化、skill、profile、shim 版本变化仍即时落库;
   响应 `now` 表示"上次服务端计算时间",不是每次请求的当前时间。`/healthz` 必须是 async 轻量 handler,
   固定返回 `ok`,不得打开 DB 或触发 IO,避免被 `/api/state` 聚合压力拖慢。
 - `/api/skills` 是低频但重聚合读路径,必须优先通过 SQLite 组合索引与 SQL 预聚合优化,避免把 raw

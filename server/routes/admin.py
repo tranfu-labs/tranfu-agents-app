@@ -31,6 +31,11 @@ from server.security import check_admin
 router = APIRouter()
 
 
+def _mark_state_dirty():
+    from server.routes.board import mark_state_dirty
+    mark_state_dirty()
+
+
 # ---------------------------------------------------------------- destructive cleanup (admin)
 def _rowdict(row):
     return {k: row[k] for k in row.keys()}
@@ -867,7 +872,8 @@ async def admin_delete_data(request: Request, x_tf_admin_key: str = Header(defau
         result = _purge(conn, resolved, actor, body, bool(body.get("revoke")))
         _maybe_prune_trash(conn)
         conn.commit()
-        return JSONResponse(result)
+    _mark_state_dirty()
+    return JSONResponse(result)
 
 
 @router.get("/api/admin/trash")
@@ -907,7 +913,8 @@ async def admin_restore(request: Request, x_tf_admin_key: str = Header(default="
         result = _restore_admin_batch(conn, batch_id, actor)
         _maybe_prune_trash(conn)
         conn.commit()
-        return JSONResponse(result)
+    _mark_state_dirty()
+    return JSONResponse(result)
 
 
 @router.post("/api/admin/export")
@@ -1000,6 +1007,7 @@ async def delete_events(request: Request, x_tf_admin_key: str = Header(default="
             raise HTTPException(400, f"confirm_count must match total_rows ({preview['total_rows']})")
         result = _purge(conn, resolved, actor, selector, bool(body.get("revoke")))
         conn.commit()
-        return {"ok": True, "deleted": result["counts"]["events"],
-                "cleared_profile": result["counts"]["profiles"], "by": by,
-                "counts": result["counts"], "batch_id": result["batch_id"]}
+    _mark_state_dirty()
+    return {"ok": True, "deleted": result["counts"]["events"],
+            "cleared_profile": result["counts"]["profiles"], "by": by,
+            "counts": result["counts"], "batch_id": result["batch_id"]}

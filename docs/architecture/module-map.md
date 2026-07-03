@@ -18,9 +18,10 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M1 — 服务端 collector (`server/app.py`)
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
-  提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 高频轮询快照必须经进程内 TTL 缓存复用,
+  提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 与 `/api/state/stream` 快照必须经进程内 TTL 缓存和 single-flight 复用,
+  纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
-- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/skills`、`GET /api/skills/evidence`、`GET /api/skill/{name}`、
+- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/state/stream`、`GET /api/skills`、`GET /api/skills/evidence`、`GET /api/skill/{name}`、
   `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
   `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
   `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
@@ -31,7 +32,7 @@ agent 机器                         中心服务器(单容器)                 
   新增删除路径不得绕过 `_purge` 的级联、回收站与审计。
 
 ### M2 — 看板前端 (`frontend/`)
-- **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
+- **职责**:优先通过 `/api/state/stream` SSE(失败时回退 `/api/state` adaptive polling)渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
   `/api/skills`、`/api/skills/evidence`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / 证据页 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
   `window.start..window.end` 铺满所选 `w/days` 窗口,详情页按 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
   SKILLS 总览使用证据导向 dashboard 结构(控制条/过去 W 变化/问题线索/主分析区:排行+趋势图|待处理线索/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
@@ -46,7 +47,7 @@ agent 机器                         中心服务器(单容器)                 
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skills/evidence`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
   `/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
-- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
+- **上游**:M1 的 `/api/state/stream`、`/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;状态流与 `/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);

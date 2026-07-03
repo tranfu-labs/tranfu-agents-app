@@ -6,13 +6,14 @@ _state_cache 与 _state_cache_lock 是模块状态,留在本模块定义;server/
 tests/conftest.py 的 monkeypatch 路径。
 """
 import json
+import asyncio
 import threading
 import time
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from server.catalog import _catalog_context, _catalog_list, _installed_skill_names, _skill_source
@@ -28,7 +29,27 @@ router = APIRouter()
 
 # /api/state TTL 缓存(由 add-server-app-test-baseline 引入的 STATE_TTL_SECONDS 守护)。
 _state_cache_lock = threading.Lock()
-_state_cache = {"at": 0.0, "data": None}
+_state_cache_cond = threading.Condition(_state_cache_lock)
+_state_cache = {"at": 0.0, "data": None, "computing": False}
+_state_dirty_lock = threading.Lock()
+_state_dirty_revision = 0
+
+
+def _state_revision():
+    with _state_dirty_lock:
+        return _state_dirty_revision
+
+
+def mark_state_dirty():
+    """Invalidate the state cache and advance the SSE revision."""
+    global _state_dirty_revision
+    with _state_dirty_lock:
+        _state_dirty_revision += 1
+        rev = _state_dirty_revision
+    with _state_cache_cond:
+        _state_cache["at"] = 0.0
+        _state_cache_cond.notify_all()
+    return rev
 
 def _iter_sessions(conn):
     """Yield (key, session_id, [rows]) grouped by identity+session over the window."""
@@ -1287,22 +1308,39 @@ def _snapshot(conn):
     }
 
 
-def _state_compute_or_cache():
+def _state_compute_or_cache(force=False):
     from server import app  # 延迟读 STATE_TTL_SECONDS(可变开关)
-    now = time.monotonic()
-    with _state_cache_lock:
-        cached = _state_cache.get("data")
-        cached_at = float(_state_cache.get("at") or 0.0)
-        if cached is not None and now - cached_at < app.STATE_TTL_SECONDS:
-            return cached
+    while True:
+        now = time.monotonic()
+        with _state_cache_cond:
+            cached = _state_cache.get("data")
+            cached_at = float(_state_cache.get("at") or 0.0)
+            ttl = float(app.STATE_TTL_SECONDS)
+            if (not force) and ttl > 0 and cached is not None and now - cached_at < ttl:
+                return cached
+            if _state_cache.get("computing"):
+                if cached is not None:
+                    return cached
+                _state_cache_cond.wait(timeout=5.0)
+                continue
+            _state_cache["computing"] = True
+            break
 
-    with closing(db()) as conn:
-        # 通过 app 命名空间间接调用,保留 monkeypatch(app_mod, "_snapshot", ...) 语义
-        data = app._snapshot(conn)
+    try:
+        with closing(db()) as conn:
+            # 通过 app 命名空间间接调用,保留 monkeypatch(app_mod, "_snapshot", ...) 语义
+            data = app._snapshot(conn)
+    except Exception:
+        with _state_cache_cond:
+            _state_cache["computing"] = False
+            _state_cache_cond.notify_all()
+        raise
 
-    with _state_cache_lock:
+    with _state_cache_cond:
         _state_cache["at"] = time.monotonic()
         _state_cache["data"] = data
+        _state_cache["computing"] = False
+        _state_cache_cond.notify_all()
     return data
 
 
@@ -1310,6 +1348,39 @@ def _state_compute_or_cache():
 async def state():
     data = await run_in_threadpool(_state_compute_or_cache)
     return JSONResponse(data)
+
+
+def _sse_state(data):
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"event: state\ndata: {payload}\n\n"
+
+
+@router.get("/api/state/stream")
+async def state_stream(request: Request):
+    async def events():
+        data = await run_in_threadpool(_state_compute_or_cache)
+        last_rev = _state_revision()
+        last_keepalive = time.monotonic()
+        yield _sse_state(data)
+        while True:
+            if await request.is_disconnected():
+                break
+            await asyncio.sleep(1.0)
+            rev = _state_revision()
+            if rev != last_rev:
+                data = await run_in_threadpool(_state_compute_or_cache)
+                last_rev = rev
+                last_keepalive = time.monotonic()
+                yield _sse_state(data)
+            elif time.monotonic() - last_keepalive >= 25:
+                last_keepalive = time.monotonic()
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/api/skills")

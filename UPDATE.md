@@ -42,7 +42,8 @@ curl http://localhost:8788/healthz
 
 # b) 页面接口,必须返回 JSON(包含 sessions/feed/totals 等字段)
 curl http://localhost:8788/api/state | head -c 200
-# 注意:/api/state 默认有 1.5 秒服务端缓存,连续请求时 now 不一定每次变化。
+# 注意:/api/state 与 SSE 状态流共用默认 1.5 秒服务端缓存,连续请求时 now 不一定每次变化。
+# 浏览器优先连 /api/state/stream；反代不支持 SSE 时会自动回退到 /api/state。
 
 # c) 发一条测试事件(把 <TF_KEY> 换成线上用的那个密钥)
 curl -s -XPOST http://localhost:8788/v1/events \
@@ -70,6 +71,7 @@ sudo systemctl restart cloudflared      # 或 cloudflared tunnel run <隧道名>
 ```bash
 curl https://tranfu-agents-app.tranfu.com/healthz          # ok
 curl https://tranfu-agents-app.tranfu.com/api/state | head -c 200   # JSON
+curl -N https://tranfu-agents-app.tranfu.com/api/state/stream | head -n 2  # event: state
 ```
 两条都正常,页面就会从"演示数据"切到实时数据。
 
