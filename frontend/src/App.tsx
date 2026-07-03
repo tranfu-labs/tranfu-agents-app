@@ -77,8 +77,9 @@ export default function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode(getBrowserThemeStorage()))
   const [prefersDark, setPrefersDark] = useState(getBrowserPrefersDark)
   const [toast, setToast] = useState('')
-  const state = usePollingState()
   const location = useLocation()
+  const isTokenUsageRoute = location.pathname === '/token-usage'
+  const state = usePollingState(!isTokenUsageRoute)
   const t = useMemo(() => makeT(lang), [lang])
   const resolvedTheme = useMemo(() => resolveTheme(themeMode, prefersDark), [themeMode, prefersDark])
   const changeThemeMode = useCallback((mode: ThemeMode) => {
@@ -136,7 +137,7 @@ export default function App() {
           <Route path="/agent/:key" element={<StateRoute state={state.data} t={t}>{(data) => <AgentDetail data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/skills" element={<SkillsRoute t={t} />} />
           <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
-          <Route path="/token-usage" element={<StateRoute state={state.data} t={t}>{() => <TokenUsageRoute t={t} />}</StateRoute>} />
+          <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
           <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
           <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
           <Route path="/admin" element={<AdminView t={t} />} />

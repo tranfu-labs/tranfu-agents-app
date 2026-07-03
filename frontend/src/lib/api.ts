@@ -172,9 +172,9 @@ export async function exportAdminDb(key: string): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
-export function usePollingState(): Loadable<StatePayload> {
+export function usePollingState(enabled = true): Loadable<StatePayload> {
   const [data, setData] = useState<StatePayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
   const dataRef = useRef<StatePayload | null>(null)
@@ -191,6 +191,10 @@ export function usePollingState(): Loadable<StatePayload> {
   }, [])
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
     if (inFlight.current) return
     inFlight.current = true
     try {
@@ -205,9 +209,13 @@ export function usePollingState(): Loadable<StatePayload> {
     } finally {
       inFlight.current = false
     }
-  }, [applyState])
+  }, [applyState, enabled])
 
   useEffect(() => {
+    if (!enabled) {
+      fallbackActive.current = false
+      return
+    }
     let stopped = false
     let fallbackTimer: number | undefined
     let source: EventSource | null = null
@@ -283,7 +291,7 @@ export function usePollingState(): Loadable<StatePayload> {
       fallbackActive.current = false
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [applyState, refresh])
+  }, [applyState, enabled, refresh])
 
   return { data, loading, error, demo, refresh }
 }
