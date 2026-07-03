@@ -80,20 +80,26 @@
     `sessions_7d`、`sessions_30d`、`sessions_total`、`skill_count`、`session_count`、runtime 计数、来源计数、
     近 14 天趋势和最近使用日仍保留。`rt` 与 `src` 查询参数只应用于 `operator_table` / `operator_daily`;
     二者同时存在时必须取交集,并在 `window_runtime_counts` 与 `window_source_counts` 中反映当前窗口内的已过滤计数。
-21. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
+21. `/api/skills` overview 聚合必须保持 used-only 与窗口语义不变,并避免无必要的 raw `skill_uses` 全历史逐行扫描;
+    实现应优先使用 SQLite 组合索引与 SQL 预聚合降低 Python 侧处理行数。性能验证以同一环境 before/after 为准:
+    `/api/skills?w=7d` TTFB/总耗时 P95 应小于 800ms,且相对变更前同环境采样至少 3x 改善;若生产库规模或生产
+    `EXPLAIN QUERY PLAN` 不可得,不得声称已验证生产 P95,只能报告可复现环境和合成样本数据。不得优先用缓存掩盖聚合根因;
+    只有 SQL/索引优化后仍无法达到性能目标时,才允许引入 `/api/skills` 短 TTL 缓存。若引入缓存,默认 TTL 为 5 秒
+    (允许 3-10 秒),缓存键必须归一化 `days/w/wstart/wend/rt/src/scope`,且缓存容量必须有上限。
+22. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
-22. `/api/state` 与 `/api/state/stream` 必须共用同一份进程内快照缓存,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
+23. `/api/state` 与 `/api/state/stream` 必须共用同一份进程内快照缓存,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
     前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
     可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
     依赖"`/api/state.now` 必须是请求当下时间"的假设。
     快照重算必须具备 single-flight 保护:同一进程内同一时刻最多一个执行单元运行 `_snapshot`;缓存仍有效时直接复用;
     缓存过期但已有重算在途时,若旧缓存存在,其它请求可返回旧缓存(stale-while-revalidate);首次无缓存且已有重算在途时,
     其它请求等待该次重算结果。
-23. `/api/state/stream` 必须由 board 域统一 broadcaster 复用缓存与 single-flight 结果,不得每个 SSE client 各自独立重算。
+24. `/api/state/stream` 必须由 board 域统一 broadcaster 复用缓存与 single-flight 结果,不得每个 SSE client 各自独立重算。
     写侧在真实事件行插入、纯心跳 batch flush 更新 `last_seen`、profile/skill/shim version 发生实际写入、
     管理清理或恢复完成后标记 state dirty;服务端合并短时间内的多次 dirty 后最多重算一次快照并推送。
     慢 SSE client 不得拖慢全局推送;实现优先保留最新快照,允许丢弃该 client 队列里的旧快照。
-24. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
+25. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
 
 ## 部署/运维

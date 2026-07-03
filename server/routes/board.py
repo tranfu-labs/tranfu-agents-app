@@ -865,22 +865,9 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
 
     operator_stats = {}
     operator_daily_counts = {}
-    for r in conn.execute(f"""
-      SELECT operator, session_id, skill, COALESCE(runtime,'') runtime, day, COUNT(*) sessions
-      FROM skill_uses
-      WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
-      GROUP BY operator, session_id, skill, runtime, day
-      ORDER BY day ASC, operator ASC, runtime ASC, skill ASC
-    """, scope_params):
-        runtime = r["runtime"] or "unknown"
-        skill = r["skill"]
-        if not _matches_operator_scope(runtime, skill, catalog_by, rt, src):
-            continue
-        operator = r["operator"]
-        day = r["day"]
-        sessions = int(r["sessions"] or 0)
-        source_key = _source_key_for_skill(skill, catalog_by)
-        stat = operator_stats.setdefault(operator, {
+
+    def operator_stat(operator):
+        return operator_stats.setdefault(operator, {
             "operator": operator,
             "sessions_7d": 0,
             "sessions_30d": 0,
@@ -889,7 +876,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
             "sessions_total": 0,
             "skills": set(),
             "window_skills": set(),
-            "sessions": set(),
+            "session_count": 0,
             "runtime_counts": {},
             "source_counts": {},
             "window_runtime_counts": {},
@@ -897,27 +884,96 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
             "trend": {},
             "last_day": "",
         })
-        stat["sessions_total"] += sessions
+
+    for r in conn.execute(f"""
+      SELECT operator, skill, COALESCE(runtime,'') runtime,
+        COUNT(*) sessions_total,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
+        SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_30d,
+        SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) sessions_window,
+        SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) previous_sessions,
+        MAX(day) last_day
+      FROM skill_uses
+      WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+      GROUP BY operator, skill, runtime
+      ORDER BY operator ASC, skill ASC, runtime ASC
+    """, (d7, d30, window_start, window_end, previous_start, previous_end, *scope_params)):
+        runtime = r["runtime"] or "unknown"
+        skill = r["skill"]
+        if not _matches_operator_scope(runtime, skill, catalog_by, rt, src):
+            continue
+        operator = r["operator"]
+        source_key = _source_key_for_skill(skill, catalog_by)
+        sessions_total = int(r["sessions_total"] or 0)
+        sessions_window = int(r["sessions_window"] or 0)
+        stat = operator_stat(operator)
+        stat["sessions_total"] += sessions_total
+        stat["sessions_7d"] += int(r["sessions_7d"] or 0)
+        stat["sessions_30d"] += int(r["sessions_30d"] or 0)
+        stat["sessions_window"] += sessions_window
+        stat["previous_sessions"] += int(r["previous_sessions"] or 0)
         stat["skills"].add(skill)
-        stat["sessions"].add(r["session_id"])
-        stat["last_day"] = max(stat["last_day"], day)
-        stat["runtime_counts"][runtime] = stat["runtime_counts"].get(runtime, 0) + sessions
-        stat["source_counts"][source_key] = stat["source_counts"].get(source_key, 0) + sessions
-        if day >= d7:
-            stat["sessions_7d"] += sessions
-        if day >= d30:
-            stat["sessions_30d"] += sessions
-        if window_start <= day <= window_end:
-            stat["sessions_window"] += sessions
+        stat["last_day"] = max(stat["last_day"], r["last_day"] or "")
+        stat["runtime_counts"][runtime] = stat["runtime_counts"].get(runtime, 0) + sessions_total
+        stat["source_counts"][source_key] = stat["source_counts"].get(source_key, 0) + sessions_total
+        if sessions_window:
             stat["window_skills"].add(skill)
-            stat["window_runtime_counts"][runtime] = stat["window_runtime_counts"].get(runtime, 0) + sessions
-            stat["window_source_counts"][source_key] = stat["window_source_counts"].get(source_key, 0) + sessions
-            key = (day, operator, runtime, source_key)
-            operator_daily_counts[key] = operator_daily_counts.get(key, 0) + sessions
-        if previous_start <= day <= previous_end:
-            stat["previous_sessions"] += sessions
+            stat["window_runtime_counts"][runtime] = stat["window_runtime_counts"].get(runtime, 0) + sessions_window
+            stat["window_source_counts"][source_key] = stat["window_source_counts"].get(source_key, 0) + sessions_window
+
+    if not rt and not src:
+        for r in conn.execute(f"""
+          SELECT operator, COUNT(DISTINCT session_id) session_count
+          FROM skill_uses
+          WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+          GROUP BY operator
+        """, scope_params):
+            stat = operator_stats.get(r["operator"])
+            if stat is not None:
+                stat["session_count"] = int(r["session_count"] or 0)
+    else:
+        operator_sessions = {}
+        for r in conn.execute(f"""
+          SELECT operator, session_id, skill, COALESCE(runtime,'') runtime
+          FROM skill_uses
+          WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+          GROUP BY operator, session_id, skill, runtime
+          ORDER BY operator ASC
+        """, scope_params):
+            runtime = r["runtime"] or "unknown"
+            if not _matches_operator_scope(runtime, r["skill"], catalog_by, rt, src):
+                continue
+            operator_sessions.setdefault(r["operator"], set()).add(r["session_id"])
+        for operator, sessions in operator_sessions.items():
+            stat = operator_stats.get(operator)
+            if stat is not None:
+                stat["session_count"] = len(sessions)
+
+    operator_day_start = min(window_start, d14)
+    for r in conn.execute(f"""
+      SELECT day, operator, skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
+      FROM skill_uses
+      WHERE mode='used' AND day IS NOT NULL AND day >= ?
+        AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+      GROUP BY day, operator, skill, runtime
+      ORDER BY day ASC, operator ASC, runtime ASC, skill ASC
+    """, (operator_day_start, *scope_params)):
+        runtime = r["runtime"] or "unknown"
+        skill = r["skill"]
+        if not _matches_operator_scope(runtime, skill, catalog_by, rt, src):
+            continue
+        operator = r["operator"]
+        stat = operator_stats.get(operator)
+        if stat is None:
+            continue
+        day = r["day"]
+        sessions = int(r["sessions"] or 0)
+        source_key = _source_key_for_skill(skill, catalog_by)
         if day >= d14:
             stat["trend"][day] = stat["trend"].get(day, 0) + sessions
+        if window_start <= day <= window_end:
+            key = (day, operator, runtime, source_key)
+            operator_daily_counts[key] = operator_daily_counts.get(key, 0) + sessions
 
     operator_daily = [{
         "day": day,
@@ -938,7 +994,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
             "sessions_total": int(stat["sessions_total"]),
             "skill_count": len(stat["skills"]),
             "window_skill_count": len(stat["window_skills"]),
-            "session_count": len(stat["sessions"]),
+            "session_count": int(stat["session_count"]),
             "runtime_counts": stat["runtime_counts"],
             "source_counts": stat["source_counts"],
             "window_runtime_counts": stat["window_runtime_counts"],

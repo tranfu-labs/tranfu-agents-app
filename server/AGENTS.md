@@ -16,7 +16,8 @@
   + `_env_int` / `_env_float`。
 - `db.py`:连接 / schema / 迁移 / `_maybe_prune` / `_audit` + 共用工具
   (`now_iso` / `now_utc` / `stats_now` / `stats_today` / `stats_day` / `stats_day_for` /
-  `_sha` / `_json` / `_clip` / `_age` / `_parse` / `_day_cutoff`)。
+  `_sha` / `_json` / `_clip` / `_age` / `_parse` / `_day_cutoff`)。`skill_uses` 上的 SKILLS overview
+  组合索引也在这里幂等创建。
 - `security.py`:CSP / 安全响应头中间件 / 鉴权 / 限流 / `_audit_denied`。
 - `identity.py`:`canon_operator` / `verify_operator` / `_norm_op`。
 - `profile.py`:skill 名规范化 + `load_profiles` / `load_shim_versions` / `reuse_map`。
@@ -45,6 +46,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
 - `server/app.py` 末尾 `include_router` 四次注册全部路由。
 - 子模块顶部**不得**写 `from server import app` 或 `import server.app`——会触发循环。
   当需要读 `app.X`(可变开关 / 全局状态)时,把 `from server import app` 放在调用它的函数体内。
+- `/api/skills` overview 的重聚合逻辑必须留在 `routes/board.py` 内,优先用 SQLite 组合索引和 SQL
+  预聚合减少 Python 侧处理行数;缓存只能作为 SQL/索引达标失败后的有界短 TTL 第二层。
 - `tests/test_module_boundary.py` 守门:
   - `server/app.py` 行数 ≤ 220。
   - `routes/*.py` 可独立 import。
