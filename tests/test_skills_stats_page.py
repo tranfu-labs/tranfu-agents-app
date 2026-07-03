@@ -438,6 +438,46 @@ def test_skills_evidence_rejects_invalid_kind_and_limit(client):
     assert client.get("/api/skills/evidence?offset=-1").status_code == 400
 
 
+def test_skills_overview_etag_revalidates_same_query_and_changes_on_data(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="etag-a", skill="alpha", current_step="etag-a")
+    _set_skill_day(app_mod, "etag-a", "alpha", 1)
+
+    first = client.get("/api/skills?w=7d")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+
+    second = client.get("/api/skills?w=7d", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.content == b""
+
+    different_query = client.get("/api/skills?w=14d", headers={"If-None-Match": etag})
+    assert different_query.status_code == 200
+
+    ev(client, operator="bob", runtime="codex", session_id="etag-b", skill="beta", current_step="etag-b")
+    _set_skill_day(app_mod, "etag-b", "beta", 1)
+    changed = client.get("/api/skills?w=7d", headers={"If-None-Match": etag})
+    assert changed.status_code == 200
+    assert changed.headers["etag"] != etag
+    assert "beta" in {row["name"] for row in changed.json()["table"]}
+
+
+def test_skills_evidence_etag_revalidates_same_query(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="ev-etag", skill="alpha", current_step="ev-etag")
+    _set_skill_day(app_mod, "ev-etag", "alpha", 1)
+
+    first = client.get("/api/skills/evidence?kind=total&w=7d")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+
+    second = client.get("/api/skills/evidence?kind=total&w=7d", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.content == b""
+
+
 def test_skills_overview_dashboard_optional_aggregates(client, app_mod):
     _set_catalog(app_mod)
     ev(client, operator="alice", runtime="codex", session_id="cur-a", skill="alpha", current_step="cur-a")

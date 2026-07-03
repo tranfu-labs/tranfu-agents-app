@@ -19,6 +19,8 @@ agent 机器                         中心服务器(单容器)                 
 ### M1 — 服务端 collector (`server/app.py`)
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 与 `/api/state/stream` 快照必须经进程内 TTL 缓存和 single-flight 复用,
+  `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL,
+  `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/state/stream`、`GET /api/skills`、`GET /api/skills/evidence`、`GET /api/skill/{name}`、
@@ -44,6 +46,8 @@ agent 机器                         中心服务器(单容器)                 
   `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
   未收录使用占比由过去 W 变化、问题线索与待处理线索呈现;
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
+  `/skills`、`/skills/evidence`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并并行请求 SKILLS API。
+  SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skills/evidence`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
   `/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。

@@ -4,3 +4,6 @@ import './skillsDashboard.test.ts'
 import './skillsEvidence.test.ts'
 import './skillsPresentation.test.ts'
 import './skillsCopy.test.ts'
+import { runApiCacheTests } from './apiCache.test.ts'
+
+await runApiCacheTests()

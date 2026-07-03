@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_STATE, demoOperatorDetail, demoSkillDetail, demoSkillsOverview } from './demo'
+import { createRevalidatedJsonFetcher } from './apiCache'
 import { makeTokenUsageComparisonRange } from './tokenUsageRange'
 import type {
   AdminInventory,
@@ -22,6 +23,8 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) throw new Error(String(response.status))
   return (await response.json()) as T
 }
+
+const fetchRevalidatedJson = createRevalidatedJsonFetcher()
 
 function normalizeState(next: StatePayload): StatePayload {
   next.leverage = next.leverage || DEMO_STATE.leverage
@@ -286,7 +289,8 @@ export function usePollingState(): Loadable<StatePayload> {
 }
 
 export function useSkillsOverview(enabled: boolean, days: number, query = `days=${days}`): Loadable<SkillsOverview> {
-  const [data, setData] = useState<SkillsOverview | null>(null)
+  const url = `/api/skills?${query}`
+  const [data, setData] = useState<SkillsOverview | null>(() => (enabled ? fetchRevalidatedJson.peek<SkillsOverview>(url) : null))
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
@@ -298,7 +302,7 @@ export function useSkillsOverview(enabled: boolean, days: number, query = `days=
       if (!enabled || (!force && now - lastFetch.current < 9500)) return
       setLoading(true)
       try {
-        const next = await fetchJson<SkillsOverview>(`/api/skills?${query}`)
+        const next = await fetchRevalidatedJson<SkillsOverview>(url)
         setData(next)
         setError('')
         setDemo(false)
@@ -311,24 +315,31 @@ export function useSkillsOverview(enabled: boolean, days: number, query = `days=
         setLoading(false)
       }
     },
-    [days, enabled, query],
+    [enabled, url],
   )
 
   useEffect(() => {
     if (!enabled) return
+    const cached = fetchRevalidatedJson.peek<SkillsOverview>(url)
+    if (cached) {
+      setData(cached)
+      setError('')
+      setDemo(false)
+    }
     const first = window.setTimeout(() => void refresh(true), 0)
     const timer = window.setInterval(() => void refresh(false), 10000)
     return () => {
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [enabled, refresh])
+  }, [enabled, refresh, url])
 
   return { data, loading, error, demo, refresh }
 }
 
 export function useSkillsEvidence(enabled: boolean, query: string): Loadable<SkillsEvidencePayload> {
-  const [data, setData] = useState<SkillsEvidencePayload | null>(null)
+  const url = `/api/skills/evidence?${query}`
+  const [data, setData] = useState<SkillsEvidencePayload | null>(() => (enabled ? fetchRevalidatedJson.peek<SkillsEvidencePayload>(url) : null))
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
@@ -340,7 +351,7 @@ export function useSkillsEvidence(enabled: boolean, query: string): Loadable<Ski
       if (!enabled || (!force && now - lastFetch.current < 9500)) return
       setLoading(true)
       try {
-        const next = await fetchJson<SkillsEvidencePayload>(`/api/skills/evidence?${query}`)
+        const next = await fetchRevalidatedJson<SkillsEvidencePayload>(url)
         setData(next)
         setError('')
         setDemo(false)
@@ -353,18 +364,24 @@ export function useSkillsEvidence(enabled: boolean, query: string): Loadable<Ski
         setLoading(false)
       }
     },
-    [enabled, query],
+    [enabled, query, url],
   )
 
   useEffect(() => {
     if (!enabled) return
+    const cached = fetchRevalidatedJson.peek<SkillsEvidencePayload>(url)
+    if (cached) {
+      setData(cached)
+      setError('')
+      setDemo(false)
+    }
     const first = window.setTimeout(() => void refresh(true), 0)
     const timer = window.setInterval(() => void refresh(false), 10000)
     return () => {
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [enabled, refresh])
+  }, [enabled, refresh, url])
 
   return { data, loading, error, demo, refresh }
 }

@@ -5,15 +5,17 @@ _state_cache 与 _state_cache_lock 是模块状态,留在本模块定义;server/
 `from server.routes.board import _state_cache, _state_cache_lock` re-export 以兼容
 tests/conftest.py 的 monkeypatch 路径。
 """
-import json
 import asyncio
+import hashlib
+import json
 import threading
 import time
 from contextlib import closing
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from server.catalog import _catalog_context, _catalog_list, _installed_skill_names, _skill_source
@@ -50,6 +52,24 @@ def mark_state_dirty():
         _state_cache["at"] = 0.0
         _state_cache_cond.notify_all()
     return rev
+
+
+def _query_fingerprint(request):
+    return urlencode(sorted(request.query_params.multi_items()), doseq=True)
+
+
+def _etag_matches(header, etag):
+    return any(part.strip() == etag for part in (header or "").split(","))
+
+
+def _conditional_json(request, payload):
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    identity = f"{request.url.path}?{_query_fingerprint(request)}".encode("utf-8")
+    etag = '"' + hashlib.sha256(identity + b"\0" + body).hexdigest() + '"'
+    headers = {"Cache-Control": "no-cache", "ETag": etag}
+    if _etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
 
 def _iter_sessions(conn):
     """Yield (key, session_id, [rows]) grouped by identity+session over the window."""
@@ -1384,21 +1404,23 @@ async def state_stream(request: Request):
 
 
 @router.get("/api/skills")
-def skills_stats(days: int = 30, w: str | None = None, wstart: int | None = Query(None), wend: int | None = Query(None),
+def skills_stats(request: Request, days: int = 30, w: str | None = None, wstart: int | None = Query(None), wend: int | None = Query(None),
                  rt: str = "", src: str = "", scope: str = ""):
     with closing(db()) as conn:
-        return JSONResponse(skills_overview(conn, days, w, wstart, wend, rt, src, scope))
+        payload = skills_overview(conn, days, w, wstart, wend, rt, src, scope)
+    return _conditional_json(request, payload)
 
 
 @router.get("/api/skills/evidence")
-def skills_evidence(kind: str = "total", days: int = 30, w: str | None = None,
+def skills_evidence(request: Request, kind: str = "total", days: int = 30, w: str | None = None,
                     wstart: int | None = Query(None), wend: int | None = Query(None),
                     q: str = "", rt: str = "", src: str = "", skill: str = "",
                     operator: str = "", limit: int = 100, offset: int = 0):
     with closing(db()) as conn:
-        return JSONResponse(skills_evidence_payload(
+        payload = skills_evidence_payload(
             conn, days, w, wstart, wend, kind, q, rt, src, skill, operator, limit, offset,
-        ))
+        )
+    return _conditional_json(request, payload)
 
 
 @router.get("/api/skill/{name}")
