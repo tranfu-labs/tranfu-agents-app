@@ -4,34 +4,35 @@ import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillsEvidenceKind, SkillsEvidencePayload } from '../lib/types'
 import { sourceLabel } from '../lib/utils'
 import { evidencePath, skillsBackSearch } from '../lib/skillsEvidence'
+import { humanFilterChips } from '../lib/skillsClues'
 import { defaultEvidenceTab, evidenceSummaryLine, isListEvidenceKind } from '../lib/skillsPresentation'
 
 const KIND_LABEL_ZH: Record<SkillsEvidenceKind, string> = {
-  total: '总触发次数证据',
-  untracked: '未收录使用证据',
-  coverage: '公司库覆盖证据',
-  operators: '活跃操作员证据',
-  avg_per_session: '每会话 skill 证据',
+  total: '总触发记录',
+  untracked: '未收录记录',
+  coverage: '公司库覆盖记录',
+  operators: '活跃操作员记录',
+  avg_per_session: '每会话 skill 记录',
   idle: '闲置 Skill 名单',
   unused_ratio: '装了没用名单',
   zero_install: '收录但零装机名单',
-  top3: 'Top3 集中证据',
-  runtime: 'runtime 证据',
-  source: '来源证据',
+  top3: 'Top3 集中记录',
+  runtime: 'runtime 记录',
+  source: '来源记录',
 }
 
 const KIND_LABEL_EN: Record<SkillsEvidenceKind, string> = {
-  total: 'Total trigger evidence',
-  untracked: 'Untracked usage evidence',
-  coverage: 'Catalog coverage evidence',
-  operators: 'Active operator evidence',
-  avg_per_session: 'Skills per session evidence',
+  total: 'Total trigger records',
+  untracked: 'Untracked records',
+  coverage: 'Catalog coverage records',
+  operators: 'Active operator records',
+  avg_per_session: 'Skills per session records',
   idle: 'Idle skill list',
   unused_ratio: 'Installed unused list',
   zero_install: 'Cataloged zero-install list',
-  top3: 'Top3 concentration evidence',
-  runtime: 'Runtime evidence',
-  source: 'Source evidence',
+  top3: 'Top3 concentration records',
+  runtime: 'Runtime records',
+  source: 'Source records',
 }
 
 function kindLabel(kind: SkillsEvidenceKind | undefined, lang: Lang) {
@@ -44,13 +45,12 @@ function n(value: unknown) {
   return new Intl.NumberFormat('zh-CN').format(Number.isFinite(num) ? Math.round(num * 100) / 100 : 0)
 }
 
-function FilterChips({ data }: { data: SkillsEvidencePayload | null }) {
-  const filters = data?.applied_filters || {}
+function FilterChips({ data, t }: { data: SkillsEvidencePayload | null; t: (key: string) => string }) {
   const ignored = data?.ignored_filters || []
-  const visible = Object.entries(filters).filter(([, value]) => value !== undefined && value !== '')
+  const visible = humanFilterChips(data, t)
   return (
     <div className="evidence-filters">
-      {visible.map(([key, value]) => <span key={key}>{key}: <b>{String(value)}</b></span>)}
+      {visible.map((chip) => <span key={chip}>{chip}</span>)}
       {ignored.map((item) => <span className="ignored" key={`${item.name}:${item.value}`}>{item.name}: {item.value} ignored</span>)}
     </div>
   )
@@ -97,12 +97,12 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             </tbody>
           </table>
         </div>
-      ) : <Empty title={items.length ? '这类证据没有窗口内触发记录' : '暂无证据记录'} />}
+      ) : <Empty title={items.length ? '这类记录没有窗口内触发记录' : '暂无记录'} />}
     </section>
   )
   const itemsSection = (
     <section className="frame evidence-primary">
-      <SectionTitle title="名单证据" count={items.length} />
+      <SectionTitle title="名单" count={items.length} />
       {items.length ? (
         <div className="skills-wrap">
           <table className="skill-table mobile-card-table">
@@ -121,7 +121,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             </tbody>
           </table>
         </div>
-      ) : <Empty title="暂无名单证据" />}
+      ) : <Empty title="暂无名单" />}
     </section>
   )
   return (
@@ -133,14 +133,14 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             <h1>{kindLabel(data?.kind, lang)}</h1>
             <p>{data?.window?.start || '—'} .. {data?.window?.end || '—'}</p>
           </div>
-          <FilterChips data={data} />
+          <FilterChips data={data} t={t} />
           <div className="evidence-summary-line">
             <span>{evidenceSummaryLine(data)}</span>
             {showUntrackedSlice ? (
-              <Link to={evidencePath(search, 'untracked')} aria-label="查看未收录 skill 证据">↗</Link>
+              <Link to={evidencePath(search, 'untracked')} aria-label="查看未收录 skill 记录">↗</Link>
             ) : null}
           </div>
-          <div className="evidence-toolbar" role="toolbar" aria-label="证据页动作">
+          <div className="evidence-toolbar" role="toolbar" aria-label="记录页动作">
             <span className="evidence-tab-current">{defaultEvidenceTab(data?.kind)}</span>
             {(data?.actions || []).map((action) => (
               <span className="evidence-tool" key={action.id} aria-label={action.label} title={action.label}>

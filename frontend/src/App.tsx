@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import { Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
 import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
@@ -10,11 +10,13 @@ import { applyTheme, getBrowserPrefersDark, getBrowserThemeStorage, readStoredTh
 import { initialTokenUsageQuery } from './lib/tokenUsageRange'
 import type { Lang } from './lib/types'
 import type { StatePayload } from './lib/types'
+import { clueApiSearch, legacyEvidenceCluePath, type SkillsClueKind } from './lib/skillsEvidence'
 import { Board } from './views/Board'
 import { Agents } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
 import { SkillsEvidenceView } from './views/SkillsEvidence'
+import { SkillsClueView } from './views/SkillsClue'
 import { SkillDetailView } from './views/SkillDetail'
 import { OperatorDetailView } from './views/OperatorDetail'
 import { AdminView } from './views/Admin'
@@ -29,9 +31,22 @@ function SkillsRoute({ t }: { t: (key: string) => string }) {
 
 function SkillsEvidenceRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const location = useLocation()
+  const cluePath = legacyEvidenceCluePath(location.search)
+  if (cluePath) return <Navigate to={cluePath} replace />
   const query = location.search.startsWith('?') ? location.search.slice(1) : location.search
   const evidence = useSkillsEvidence(true, query || 'kind=total&w=7d')
   return <SkillsEvidenceView data={evidence.data} loading={evidence.loading} error={evidence.error} lang={lang} search={location.search} t={t} />
+}
+
+function SkillsClueRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
+  const location = useLocation()
+  const { clueKind = 'untracked' } = useParams()
+  const normalized = clueKind as SkillsClueKind
+  if (!['untracked', 'idle', 'zero-install'].includes(normalized)) {
+    return <Navigate to={`/skills${location.search || '?w=7d'}`} replace />
+  }
+  const evidence = useSkillsEvidence(true, clueApiSearch(location.search, normalized))
+  return <SkillsClueView clueKind={normalized} data={evidence.data} loading={evidence.loading} error={evidence.error} lang={lang} search={location.search} t={t} />
 }
 
 function SkillDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
@@ -137,6 +152,7 @@ export default function App() {
           <Route path="/agent/:key" element={<StateRoute state={state.data} t={t}>{(data) => <AgentDetail data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/skills" element={<SkillsRoute t={t} />} />
           <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
+          <Route path="/skills/clues/:clueKind" element={<SkillsClueRoute lang={lang} t={t} />} />
           <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
           <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
           <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />

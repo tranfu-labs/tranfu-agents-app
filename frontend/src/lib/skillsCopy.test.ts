@@ -47,3 +47,16 @@ test('skills todo dismissal does not persist to browser storage', () => {
   assert.equal(source.includes('localStorage'), false)
   assert.equal(source.includes('sessionStorage'), false)
 })
+
+test('skills clue and governance copy avoids evidence wording and x dismissal', () => {
+  const source = [
+    readSource('src/components/skills/GovernanceTodo.tsx'),
+    readSource('src/views/SkillsEvidence.tsx'),
+    readSource('src/views/SkillsClue.tsx'),
+    readSource('src/lib/i18n.ts'),
+  ].join('\n')
+  for (const word of ['查看证据', '按使用者看证据', '找使用者', '未收录使用证据', '证据页动作']) {
+    assert.equal(source.includes(word), false, `unexpected copy: ${word}`)
+  }
+  assert.equal(readSource('src/components/skills/GovernanceTodo.tsx').includes('>×</button>'), false)
+})

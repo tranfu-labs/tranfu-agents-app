@@ -1,0 +1,27 @@
+# Tasks
+
+- [x] 重挂 feature 分支到最新 `origin/main`。
+- [x] 后端 `idle` / `zero_install` item 补安装者明细、`last_day`，并保留 `/api/skills/evidence` 契约。
+- [x] 新增 clue URL helper、旧 evidence URL 兼容跳转。
+- [x] 新增 `/skills/clues/:clueKind` 页面，并按三类 clue 分版型。
+- [x] 更新 `/skills` 待处理线索 row 模板、摘要和操作按钮。
+- [x] 替换相关用户可见“证据”文案，筛选 chip 改成人话。
+- [x] 补前端 URL/helper/copy 单测。
+- [x] 补后端 SKILLS evidence/governance 单测。
+- [x] 运行验证：
+  - [x] `npm --prefix frontend run test:unit`
+  - [x] `python -m py_compile server/*.py server/routes/*.py`
+  - [x] `python -m pytest tests/test_skills_stats_page.py`
+  - [x] `npm --prefix frontend run build`
+- [x] 运行覆盖率验证：`python -m coverage run -m pytest` 330 passed；`python -m coverage report --include='server/**/*.py'` total 96%。
+- [x] 浏览器/HTTP 深链验证：
+  - [x] `/skills/clues/untracked?w=7d&skill=coolify-deploy` 返回 SPA HTML 200。
+  - [x] `/skills/clues/idle?w=7d&skill=write-spec` 返回 SPA HTML 200。
+  - [x] `/skills/clues/zero-install?w=7d` 返回 SPA HTML 200。
+  - [x] 旧 `/skills/evidence?kind=idle&w=7d&skill=write-spec` 返回 SPA HTML 200。
+  - [x] `/api/skills/evidence?kind=untracked|idle|zero_install&w=7d` 返回 JSON 200。
+  - [x] 生产 bundle 含新 clue 路由，相关 bundle 搜索不到旧中文 `证据` 文案。
+  - [x] in-app browser 连接失败：`sandboxCwd must be an absolute file URI`；本地 Playwright 缺失，因此用 HTTP/API/build 兜底验证。
+- [x] 归档 change、回流 spec 与 wireframes。
+- [x] 更新 AGENTS / module-map。
+- [x] commit、push、开 PR。

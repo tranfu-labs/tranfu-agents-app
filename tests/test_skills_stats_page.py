@@ -424,12 +424,40 @@ def test_skills_evidence_idle_returns_installed_unused_items(client, app_mod):
     assert data["records"] == []
     assert [item["name"] for item in data["items"]] == ["idle-own"]
     assert data["items"][0]["installers"] == 1
+    assert data["items"][0]["installers_detail"] == [{
+        "operator": "zoe",
+        "agent_key": "code",
+        "runtime": "codex",
+        "profile_updated_at": data["items"][0]["installers_detail"][0]["profile_updated_at"],
+    }]
+    assert data["items"][0]["installers_detail"][0]["profile_updated_at"]
 
     zero = client.get("/api/skills/evidence?kind=zero_install&w=7d").json()
     assert zero["summary"]["records"] == 0
     assert zero["summary"]["items"] == 1
     assert [item["name"] for item in zero["items"]] == ["meta-tool"]
     assert zero["items"][0]["installers"] == 0
+    assert zero["items"][0]["installers_detail"] == []
+
+
+def test_skills_evidence_idle_installer_details_respect_skill_filter(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="wing", runtime="claude-code", agent="claude", session_id="profile-a",
+       current_step="profile-a", skills={"local": [{"name": "idle-own"}]})
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile-b",
+       current_step="profile-b", skills={"local": [{"name": "idle-own"}]})
+
+    data = client.get("/api/skills/evidence?kind=idle&w=7d&skill=idle-own").json()
+    assert data["summary"]["items"] == 1
+    assert data["items"][0]["name"] == "idle-own"
+    assert data["items"][0]["installers"] == 2
+    assert [
+        (item["operator"], item["agent_key"], item["runtime"])
+        for item in data["items"][0]["installers_detail"]
+    ] == [
+        ("wing", "claude", "claude-code"),
+        ("zoe", "code", "codex"),
+    ]
 
 
 def test_skills_evidence_rejects_invalid_kind_and_limit(client):
@@ -516,6 +544,7 @@ def test_skills_overview_dashboard_optional_aggregates(client, app_mod):
 
     assert data["governance"]["idle_installed"]["count"] == 1
     assert data["governance"]["idle_installed"]["top"][0]["name"] == "idle-own"
+    assert "last_day" in data["governance"]["idle_installed"]["top"][0]
     assert data["governance"]["cataloged_not_installed"]["count"] == 1
     assert data["governance"]["cataloged_not_installed"]["top"][0]["name"] == "meta-tool"
     alpha = next(row for row in data["table"] if row["name"] == "alpha")

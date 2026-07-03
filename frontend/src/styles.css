@@ -241,6 +241,8 @@
   .skills-gov-inline-actions{display:flex;align-items:center;gap:6px}
   .skills-gov-icon-action{display:inline-grid;place-items:center;width:26px;height:26px;border:1px solid var(--line);border-radius:6px;color:var(--muted);background:var(--elev2);font-size:12px;line-height:1}
   .skills-gov-icon-action:hover{color:var(--text);border-color:var(--line2);background:var(--hover)}
+  .skills-gov-ignore-action{height:26px;border:1px solid var(--line);border-radius:6px;padding:0 8px;color:var(--muted);background:var(--elev2);font-size:12px;line-height:1}
+  .skills-gov-ignore-action:hover{color:var(--text);border-color:var(--line2);background:var(--hover)}
   .skills-gov-inline-actions a{color:var(--info)}
   .skills-gov-menu{display:none;position:relative}
   .skills-gov-menu summary{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--line);border-radius:7px;color:var(--muted);list-style:none}
@@ -266,7 +268,7 @@
   .evidence-tab-current{padding:3px 9px;color:var(--text);border-color:var(--line2)}
   .evidence-tool{width:26px}
   .evidence-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:14px 16px}.evidence-summary .stat{min-width:0}
-  .evidence-actions{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 14px}.evidence-list{display:grid;gap:8px;padding:14px 16px}.evidence-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:7px 0}.evidence-list-row:last-child{border-bottom:0}.evidence-list-row b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.evidence-list-row span{color:var(--muted);font-size:12px;text-align:right}.evidence-records-table tr{cursor:default}
+  .evidence-actions{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 14px}.evidence-list{display:grid;gap:8px;padding:14px 16px}.evidence-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:7px 0}.evidence-list-row:last-child{border-bottom:0}.evidence-list-row b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.evidence-list-row span{color:var(--muted);font-size:12px;text-align:right}.evidence-records-table tr{cursor:default}.installer-list{display:flex;flex-wrap:wrap;gap:6px}.installer-list>span{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--elev2);white-space:nowrap}.installer-list small{color:var(--muted);font-size:11px}
   .skills-drawer-backdrop{position:fixed;inset:0;z-index:85;background:color-mix(in srgb,var(--bg) 42%,transparent);backdrop-filter:blur(3px);display:flex;justify-content:flex-end}
   .skills-drawer{width:min(480px,calc(100vw - 18px));height:100%;overflow:auto;background:var(--elev);border-left:1px solid var(--line2);box-shadow:var(--shadow);padding:16px}
   .skills-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.skills-drawer-head>div{display:flex;align-items:center;gap:8px;min-width:0}.skills-drawer-head b{font-size:18px;overflow-wrap:anywhere}

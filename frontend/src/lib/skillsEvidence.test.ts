@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { evidenceSearch, skillsBackSearch } from './skillsEvidence.ts'
+import { clueApiSearch, cluePath, evidencePath, evidenceSearch, legacyEvidenceCluePath, skillsBackSearch } from './skillsEvidence.ts'
 
 test('evidenceSearch defaults skills window to 7d', () => {
   assert.equal(evidenceSearch('', 'total'), '?w=7d&kind=total')
@@ -26,6 +26,24 @@ test('evidenceSearch drops conflicting company source evidence filters', () => {
   const search = evidenceSearch('?w=7d&src=external&q=x', 'idle')
   assert.ok(!search.includes('src=external'))
   assert.ok(search.includes('q=x'))
+})
+
+test('evidencePath routes governance clues to canonical clue pages', () => {
+  assert.equal(evidencePath('?w=7d&src=own', 'untracked', { skill: 'coolify-deploy' }), '/skills/clues/untracked?w=7d&src=non_catalog&skill=coolify-deploy')
+  assert.equal(evidencePath('?w=7d', 'idle', { skill: 'write-spec' }), '/skills/clues/idle?w=7d&skill=write-spec')
+  assert.equal(evidencePath('?w=7d', 'zero_install'), '/skills/clues/zero-install?w=7d')
+})
+
+test('clue api search converts canonical clue pages back to evidence API kinds', () => {
+  assert.equal(clueApiSearch('?w=7d&skill=write-spec', 'idle'), 'w=7d&skill=write-spec&kind=idle')
+  assert.equal(clueApiSearch('?w=7d', 'zero-install'), 'w=7d&kind=zero_install')
+  assert.equal(cluePath('?w=7d&src=own', 'untracked'), '/skills/clues/untracked?w=7d&src=non_catalog')
+})
+
+test('legacy evidence URLs redirect list clues to canonical pages', () => {
+  assert.equal(legacyEvidenceCluePath('?kind=idle&w=7d&skill=write-spec'), '/skills/clues/idle?w=7d&skill=write-spec')
+  assert.equal(legacyEvidenceCluePath('?kind=zero_install&w=7d'), '/skills/clues/zero-install?w=7d')
+  assert.equal(legacyEvidenceCluePath('?kind=total&w=7d'), '')
 })
 
 test('skillsBackSearch removes evidence-only params', () => {

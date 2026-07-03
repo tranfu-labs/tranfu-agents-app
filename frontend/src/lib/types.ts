@@ -182,6 +182,7 @@ export type GovernanceBucketSkill = {
   installed_at?: string | null
   installers?: number
   cataloged_at?: string | null
+  last_day?: string | null
 }
 
 export type SkillsPeriodComparison = {
@@ -290,6 +291,12 @@ export type SkillsEvidenceItem = {
   name: string
   source?: string
   installers?: number
+  installers_detail?: Array<{
+    operator?: string
+    agent_key?: string
+    runtime?: string
+    profile_updated_at?: string
+  }>
   last_day?: string | null
 }
 

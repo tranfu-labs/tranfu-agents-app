@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeT } from './i18n.ts'
+import { humanFilterChips, operatorShare, showTopSkillsForClue } from './skillsClues.ts'
 import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary, windowChangeLabel, windowDisplayLabel, windowTriggersLabel, windowUsedLabel, windowZeroUsageLabel } from './skillsPresentation.ts'
 import type { SkillsEvidencePayload } from './types.ts'
 
@@ -63,4 +64,36 @@ test('evidenceSummaryLine and default tab distinguish list evidence', () => {
   assert.equal(evidenceSummaryLine(data), '19 个装了但 7d 没用 · 33 installs')
   assert.equal(defaultEvidenceTab('idle'), '名单')
   assert.equal(defaultEvidenceTab('total'), '原始记录')
+})
+
+test('humanFilterChips hides raw query field names and enum values', () => {
+  const data: SkillsEvidencePayload = {
+    kind: 'untracked',
+    today: '2026-07-03',
+    window: { key: '7d', start: '2026-06-27', end: '2026-07-03' },
+    applied_filters: {
+      w: '7d',
+      window_start: '2026-06-27',
+      window_end: '2026-07-03',
+      src: 'non_catalog',
+      skill: 'coolify-deploy',
+    },
+  }
+  const text = humanFilterChips(data, makeT('zh')).join(' · ')
+  assert.equal(text, '近 7 天 · 2026-06-27 ~ 2026-07-03 · 来源：未收录 · skill：coolify-deploy')
+  assert.equal(text.includes('window_start'), false)
+  assert.equal(text.includes('non_catalog'), false)
+})
+
+test('clue helpers render operator share and hide top skills when scoped to a skill', () => {
+  const data: SkillsEvidencePayload = {
+    kind: 'untracked',
+    today: '2026-07-03',
+    applied_filters: { skill: 'coolify-deploy' },
+  }
+  assert.equal(operatorShare(5, 7), '5/7 · 71%')
+  assert.equal(showTopSkillsForClue('untracked', '?w=7d', null), true)
+  assert.equal(showTopSkillsForClue('untracked', '?w=7d&skill=coolify-deploy', null), false)
+  assert.equal(showTopSkillsForClue('untracked', '?w=7d', data), false)
+  assert.equal(showTopSkillsForClue('idle', '?w=7d', null), false)
 })
