@@ -67,17 +67,21 @@
 ┌─ SKILLS 统计 /skills ─┐   ② 点 Skill 明细行   ┌┄ 右侧 Skill 抽屉 ┄┐
 │ → pages/skills.md     │ ───────────────────▶ ┊ 同页态 sel=skill  ┊
 │                       │ ◀────── ③ 关闭抽屉 ─ └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
-│                       │   ④ icon evidence      ┌─ SKILLS 证据页 /skills/evidence ─┐
+│                       │   ④ 记录 icon         ┌─ SKILLS 记录页 /skills/evidence ─┐
 │                       │ ───────────────────▶ │ → pages/skills-evidence.md       │
 │                       │ ◀── ⑤ ←SKILLS(query) │                                  │
 │                       │                       └──────────────────────────────────┘
-│                       │   ⑥ 前往详情页        ┌─ Skill 详情 /skill/:name ─┐
+│                       │   ⑥ 待处理查看        ┌─ Clue 详情 /skills/clues/:kind ─┐
+│                       │ ───────────────────▶ │ → pages/skills-clues.md          │
+│                       │ ◀── ⑦ ←SKILLS(query) │                                  │
+│                       │                       └──────────────────────────────────┘
+│                       │   ⑧ 前往详情页        ┌─ Skill 详情 /skill/:name ─┐
 │                       │ ───────────────────▶ │ → pages/skill-detail.md   │
-│                       │ ◀── ⑦ ←SKILLS(query) │                            │
+│                       │ ◀── ⑨ ←SKILLS(query) │                            │
 │                       │                       └───────────────────────────┘
-│                       │   ⑧ 点操作员          ┌─ Operator 详情 /operator/:name ─┐
+│                       │   ⑩ 点操作员          ┌─ Operator 详情 /operator/:name ─┐
 │                       │ ───────────────────▶ │ → pages/operator-detail.md      │
-│                       │ ◀── ⑨ ←SKILLS(view)  │                                  │
+│                       │ ◀── ⑪ ←SKILLS(view)  │                                  │
 └───────────────────────┘                       └──────────────────────────────────┘
         │  ▲
         ① 改控制条/视角/选中态（搜索/runtime/来源/w/topn/hz/view/sel）
@@ -92,12 +96,14 @@
 | ① | SKILLS `/skills` | 同页（query 变化） | 改控制条、视角或选中态（搜索框 / runtime / 来源 / 时间窗 `w` / Top N / 隐藏 0 / 按 skill / 按人 / `sel`） |
 | ② | SKILLS `/skills` | 右侧 Skill 抽屉（同页） | 在按 Skill 视角点明细表任意行；写入 `sel` 并打开抽屉 |
 | ③ | 右侧 Skill 抽屉 | SKILLS 同页 | 点关闭按钮或 backdrop |
-| ④ | SKILLS `/skills` | SKILLS 证据页 `/skills/evidence?kind=...` | 点摘要格/问题线索/排行的 evidence icon，或在 mobile 点击待处理线索事实行；保留当前 window 和筛选 query |
-| ⑤ | SKILLS 证据页 | SKILLS `/skills` | 点「← SKILLS」（删除 evidence-only 参数,回填进入时的 query） |
-| ⑥ | 右侧 Skill 抽屉 | Skill 详情 `/skill/:name` | 点「前往详情页」按钮（附带 `location.search`） |
-| ⑦ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
-| ⑧ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
-| ⑨ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
+| ④ | SKILLS `/skills` | SKILLS 记录页 `/skills/evidence?kind=...` | 点摘要格/问题线索/排行的记录 icon；保留当前 window 和筛选 query |
+| ⑤ | SKILLS 记录页 | SKILLS `/skills` | 点「← SKILLS」（删除 evidence-only 参数,回填进入时的 query） |
+| ⑥ | SKILLS `/skills` | Clue 详情 `/skills/clues/:kind` | 点待处理线索查看图标或 mobile 待处理事实行；`untracked/idle/zero-install` 分别进入专用版型 |
+| ⑦ | Clue 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query）；旧 `/skills/evidence?kind=untracked|idle|zero_install` 兼容跳转到 clue |
+| ⑧ | 右侧 Skill 抽屉 | Skill 详情 `/skill/:name` | 点「前往详情页」按钮（附带 `location.search`） |
+| ⑨ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
+| ⑩ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
+| ⑪ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
 
 ## 后台清理台进入与删除流程
 

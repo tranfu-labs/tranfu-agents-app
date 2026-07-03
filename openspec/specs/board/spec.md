@@ -19,12 +19,14 @@
 - `GET /api/skills/evidence?kind={total|untracked|coverage|operators|avg_per_session|idle|unused_ratio|zero_install|top3|runtime|source}[&days=7|30|90][&w=today|this_week|last_week|7d|14d|30d|90d|custom][&wstart=&wend=&q=&rt=&src=&skill=&operator=&limit=&offset=]`
   → 当前时间窗下的 SKILLS 证据 payload,字段含 `today/window/summary/actions/applied_filters/ignored_filters/top_skills/top_operators/daily/records/items/catalog`;
   只统计 `mode=used` records,`equipped` 不得进入 `summary.records`、`top_*`、`daily` 或 `records`。
+  `kind=idle|unused_ratio` 的 `items[]` 必须包含 `installers_detail[]`,每项至少包含 `operator/agent_key/runtime/profile_updated_at`;
+  `kind=zero_install` 的 `items[]` 必须返回 `installers=0` 与空 `installers_detail=[]`。
   `/api/skills` 与 `/api/skills/evidence` 可返回 `ETag` 并处理 `If-None-Match`;ETag 必须按路径、归一化 query 参数与稳定响应 payload 计算。
   命中时只允许同 URL / 同参数返回 `304` 且无 body,客户端只能复用本次服务端校验通过的同 URL payload;未经独立业务确认不得为这两个 API 引入跳过服务端校验的 TTL。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
 - `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
-- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/evidence`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
+- `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/evidence`、`/skills/clues/{kind}`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
   `GET /assets/*` → Vite 指纹化静态资源,成功响应必须可长期缓存(`public, max-age=31536000, immutable`);
   SPA HTML 必须保持 `no-cache` 或等价 revalidate 策略,避免旧入口 HTML 长期引用过期 bundle;`GET /healthz` → `ok`。`/healthz` 必须是 async handler,
   不打开 DB 连接、不触发 IO,在事件循环直接返回。
@@ -119,7 +121,7 @@
   时约 15 秒刷新;页面隐藏时暂停或降到约 60 秒刷新;任一时刻不得并发叠加多个 `/api/state` 请求。
   TopBar、Pods、Agents 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
-- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;SKILLS 证据页 `/skills/evidence`;
+- 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
   `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`scope`(`all|new`)。
@@ -131,7 +133,7 @@
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
-- `/skills`、`/skills/evidence`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
+- `/skills`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
   并行请求 SKILLS API。Pods、Agents 与 AgentDetail 仍复用 `/api/state` gate。SKILLS GET 请求层必须按完整 URL 做 in-flight 去重和 ETag revalidate;
   可把同 URL 已校验 payload 作为返回页/刷新过渡态先展示,但后台仍必须向服务端校验,不得用前端 TTL 命中跳过请求。刷新或筛选切换时优先保留旧列表并用 refreshing/loading 状态表达后台刷新中,
   不得把旧数据伪装成已完成刷新结果。
@@ -152,7 +154,7 @@
   装了没用比例、Top3 集中度。每格必须提供证据入口,但摘要格只展示短结论,不得直接铺长 skill/operator 名单;
   长名单只能出现在待处理线索、`/skills/evidence` 或展开详情中。若必须露对象,只能露 1 个短名且超长名截断,
   不能用 `/` 拼接多个长名。证据入口使用 icon button,默认态为浅灰弱提示色,悬浮和键盘 `focus-visible` 时恢复高亮色,
-  并通过 tooltip / `aria-label` 暴露 `查看证据`、`查看名单` 等语义,不得在每格重复显示可见文字「证据」。每格核心数值与证据 icon 必须在同一行,不得让 icon 被挤到下一行。
+  并通过 tooltip / `aria-label` 暴露 `查看记录`、`查看名单` 等语义,不得在每格重复显示可见文字「证据」。每格核心数值与证据 icon 必须在同一行,不得让 icon 被挤到下一行。
   标题必须由当前时间窗 i18n label 派生,例如「上周变化」「本周变化」「近 7 天变化」或 `Last 7 days changes`。
   除闲置 skill 数和装了没用比例两个快照指标外,其余默认展示本期 vs 上期同长度窗口 delta;
   `previous=0,current>0` 显示 `+∞%`,两边 0 显示 `—`。按人视角换为 operator 口径摘要,至少包含使用记录、活跃操作员、
@@ -171,12 +173,22 @@
   按人视角主分析区显示操作员排行表并继续下钻 `/operator/:name`,不得新增与行跳转冲突的选中态;排行和趋势图继承当前
   `w/days` 以及定义证据范围的 `runtime/source`,但不得继承 skill 搜索词、Skill Top N、隐藏 0 使用或选中 skill。趋势图展示当前筛选后的 operator 分布。
 - 按 Skill 视角待处理线索为独立治理行,3 组固定顺序:有使用但未收录、装了当前时间窗内没用、收录但零装机。每一组必须呈现为独立区块;
-  `有使用但未收录` 是第一优先线索,必须展示 Top items、触发次数和至少一个证据动作。按人视角待办换为重度使用者、近 7 天沉睡、低覆盖使用者,
+  `有使用但未收录` 是第一优先线索,必须展示 Top items、触发次数和至少一个查看动作。按人视角待办换为重度使用者、近 7 天沉睡、低覆盖使用者,
   同样使用独立治理行,不得重新挤占排行或趋势图宽度。
-  待处理线索行正文只讲事实,例如 `figma · 3 次 · alice/bob · 未收录`,不得铺一排文字动作。
-  桌面动作收为 icon group,至少包含原始记录、按使用者看证据、忽略;界面不得使用可见文案 `找人`。
-  mobile 行点击进入 evidence,次级动作进入 `...` 菜单。每组 Top 8 + 查看全部/忽略入口;行动作必须是非破坏操作。
+  待处理线索行正文只讲事实且按 kind 使用独立模板:`untracked` 显示 `N 条记录 · M 人 · 上次使用 MM-DD`,不得重复展示 `非公司库`;
+  `idle` 显示 `N 人安装 · 当前窗口 0 次 · 上次使用 MM-DD|从未使用`;`zero_install` 显示 `0 人安装 · 收录 MM-DD`。
+  桌面主操作必须收敛为查看图标 + 可见文字 `忽略`,不得继续用 `×` 作为忽略按钮;界面不得使用可见文案 `找人`。
+  mobile 行点击进入 clue 详情,次级动作进入 `...` 菜单。每组 Top 8 + 查看全部/忽略入口;行动作必须是非破坏操作。
+  分组摘要不得使用 `8/48` 这类裸分数,必须显示为 `48 个未收录,展示前 8` 或 `5 个零装机,已全量展示` 这类明文。
   忽略只允许当前页面内临时隐藏,刷新、重新进入页面或重新 mount 后恢复;不得写入 localStorage、sessionStorage 或后端。
+- `/skills/clues/untracked`、`/skills/clues/idle`、`/skills/clues/zero-install` 是三类待处理线索的用户可见详情页,底层可复用
+  `/api/skills/evidence` payload。旧 `/skills/evidence?kind=untracked|idle|zero_install` 链接必须兼容并重定向到对应 clue 路由。
+  `/skills/clues/untracked` 必须第一屏先展示 Top Operators,并显示 `records/total · percent`,分母是当前 clue 记录总数;
+  当 URL 已带 `skill=` 时必须隐藏 Top Skills。`/skills/clues/idle` 必须第一屏展示安装者名单,字段至少包含
+  skill、安装人数、安装者、上次使用;不得展示 Top Skills / Top Operators。`/skills/clues/zero-install`
+  必须第一屏展示零装机名单;不得展示 Top Skills / Top Operators。clue 详情页筛选 chip 必须展示用户语义,
+  不得暴露 `window_start`、`window_end`、`src: non_catalog` 等内部字段名或枚举值;相关用户可见文案必须使用
+  `记录 / 名单 / 分组`,不得使用 `证据` 描述这些线索。
 - `/skills/evidence` 必须保留当前 SKILLS 时间窗和筛选语义;刷新、复制链接和前进后退必须保持 evidence `kind` 与筛选。
   证据页必须展示返回 SKILLS 的入口、当前窗口、紧凑上下文摘要、icon toolbar 或紧凑 tabs、原始记录表或名单证据。
   证据页不是另一个 dashboard,第一职责是回答「这批事实到底是什么」:有 raw records 的 evidence kind
@@ -289,14 +301,14 @@
   `/api/skills/evidence?kind=untracked&w=7d` 的 `summary.records=3`,records 只含 `ghost`,不含 `beta` 或 equipped。
 - `/api/skills/evidence?kind=total&w=7d` 的 `summary.records` 与同一窗口 `/api/skills?w=7d`
   响应里的 `period_comparison.current_sessions` 相同。
-- 从 `/skills?src=own&w=7d` 点击 `有使用但未收录` 的 `看证据` → 证据页仍展示 non_catalog used records,
+- 从 `/skills?src=own&w=7d` 点击 `有使用但未收录` 的查看入口 → clue 页仍展示 non_catalog used records,
   payload 的 `ignored_filters` 标明 `src=own` 被 `kind=untracked` 覆盖。
 - `days=30` 包含更多历史非公司库 used 时,`governance.untracked_usage` 的分母、分子、Top 列表随窗口扩大更新。
 - 造安装态:某 own skill 装于 ≥1 个 agent 且 30 天零使用 → funnel 闲置名单含之。
 - 造安装态:`idle-own` 在 profile installed,窗口内未 used,且 catalog type 为 `own` →
-  `/api/skills/evidence?kind=idle&w=7d` 的 `items` 含 `idle-own`,并带 `installers`。
+  `/api/skills/evidence?kind=idle&w=7d` 的 `items` 含 `idle-own`,并带 `installers` 与 `installers_detail`。
 - 造公司库收录但未安装态:`meta-tool` 在 company catalog `meta` 中,未出现在 profile installed →
-  `/api/skills/evidence?kind=zero_install&w=7d` 的 `items` 含 `meta-tool`,`installers=0`。
+  `/api/skills/evidence?kind=zero_install&w=7d` 的 `items` 含 `meta-tool`,`installers=0`,`installers_detail=[]`。
 - catalog 拉取失败 → `/api/skills` 返回 200,funnel 带过期标记与旧名单。
 - 服务端当前 UTC 时间为 `2026-06-12T16:05:00+00:00` 时,`/api/skills` 与 `/api/skill/{name}` 均返回 `today=2026-06-13`。
 - `days=7` 或 `w=7d` → daily 仅含最近 7 个 `Asia/Shanghai` 统计日;`w=14d` 可返回 14 天窗口;
@@ -346,14 +358,21 @@
 - `/skills?view=skill&w=7d` 的摘要格不得重复出现多个可见文字「证据」入口;证据入口应是 icon button,并有可访问名称。
 - 点击 `/skills` 首屏 `总触发次数` 的证据入口 → 跳到 `/skills/evidence?kind=total&w=7d...`,证据表显示当前窗口 records。
 - 点击 `/skills` 首屏 `有使用但未收录` 的证据 icon 或 mobile 待处理线索行 → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
-- `/skills?view=skill&w=7d` 的 `待处理线索` 不得显示可见文案 `找人`;对应 icon action 的可访问名称为 `按使用者看证据` 或同义语义。
+- `/skills?view=skill&w=7d` 的 `待处理线索` 不得显示可见文案 `找人`;对应查看 action 的可访问名称为 `查看记录`、`查看名单` 或同义语义。
+- `/skills?view=skill&w=7d` 的 `待处理线索` 三组摘要不得显示 `8/48`;必须显示明文总数和展示数量。
+- `/skills?view=skill&w=7d` 的 `待处理线索` 忽略按钮必须显示文字 `忽略`,不得使用可见 `×`。
 - `待处理线索` 点击忽略后当前页面隐藏,刷新或重新 mount 后恢复;前端不得调用 localStorage/sessionStorage 保存该状态。
 - `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过当前时间窗变化、问题线索和待处理线索 A 组呈现。
 - 1440x900 打开 `/skills/evidence?kind=total&w=7d` → 第一屏露出 records 表头和前几行;摘要包含
   `其中 N 条来自未收录 skill` 上下文切片,且该切片可跳转到 `/skills/evidence?kind=untracked&w=7d...`。
-- 1440x900 打开 `/skills/evidence?kind=untracked&w=7d` → 默认停在原始记录,第一屏露出 records 表头和前几行。
-- 1440x900 打开 `/skills/evidence?kind=idle&w=7d` 或 `/skills/evidence?kind=zero_install&w=7d` →
-  默认停在名单,第一屏露出名单表表头和前几行。
+- 1440x900 打开 `/skills/clues/untracked?w=7d&skill=coolify-deploy` → 第一屏先露 Top Operators,operator 行显示
+  `5/7 · 71%` 这类占比,且不显示 Top Skills。
+- 1440x900 打开 `/skills/clues/idle?w=7d&skill=write-spec` → 第一屏显示安装者名单,能看到安装该 skill 的 operator / agent / runtime,
+  且不显示 Top Skills / Top Operators。
+- 1440x900 打开 `/skills/clues/zero-install?w=7d` → 第一屏显示零装机名单,且不显示 Top Skills / Top Operators。
+- 打开旧链接 `/skills/evidence?kind=idle&w=7d&skill=write-spec` → 前端跳转到 `/skills/clues/idle?w=7d&skill=write-spec`。
+- 从 `/skills?src=own&w=7d` 点击未收录线索 → 进入 `/skills/clues/untracked?w=7d&src=non_catalog...`;页面 chip 显示
+  `来源:未收录` 或等价文案,不显示 `non_catalog`。
 - `/skills/evidence` 中 `Top skills / Top operators` 不得让主表列宽小到无法读清 `time / skill / operator / runtime / source`;不足时分组下置。
 - 点击 Skill 明细表任意行 → 同页打开右侧抽屉并写入 `sel=<skill>`;抽屉内点「前往详情页」才跳 `/skill/:name`。
 - 浏览器时区为 Asia/Shanghai,当前本地时间为 `2026-06-28 01:00:00`,记录

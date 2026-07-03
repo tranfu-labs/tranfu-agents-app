@@ -413,6 +413,31 @@ def _installed_skill_counts(conn):
     return counts
 
 
+def _installed_skill_details(conn):
+    details = {}
+    for r in conn.execute("SELECT operator,ak,runtime,json,updated FROM profiles"):
+        try:
+            profile = json.loads(r["json"])
+        except Exception:  # pragma: no cover  — profile JSON 损坏兜底
+            continue
+        for name in {_skill_use_name(n) for n in _skill_names(profile.get("skills"))}:
+            if not name:
+                continue
+            details.setdefault(name, []).append({
+                "operator": r["operator"],
+                "agent_key": r["ak"],
+                "runtime": r["runtime"],
+                "profile_updated_at": r["updated"],
+            })
+    for installers in details.values():
+        installers.sort(key=lambda item: (
+            str(item.get("operator") or ""),
+            str(item.get("agent_key") or ""),
+            str(item.get("runtime") or ""),
+        ))
+    return details
+
+
 def _skills_attribution(conn, window_start, window_end, catalog_by, skill_names=None):
     by_source = {}
     scope_sql, scope_params = _skill_scope_sql(skill_names)
@@ -443,6 +468,12 @@ def _skills_attribution(conn, window_start, window_end, catalog_by, skill_names=
 def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names, installed_names, used_names):
     install_counts = _installed_skill_counts(conn)
     first_seen = {r["name"]: r["first_day"] for r in conn.execute("SELECT name,first_day FROM skills_seen")}
+    last_days = {r["skill"]: r["last_day"] for r in conn.execute("""
+      SELECT skill, MAX(day) last_day
+      FROM skill_uses
+      WHERE mode='used'
+      GROUP BY skill
+    """)}
     idle = []
     for name in installed_names - used_names:
         idle.append({
@@ -450,6 +481,7 @@ def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_na
             "source": catalog_by.get(name),
             "installed_at": first_seen.get(name),
             "installers": int(install_counts.get(name, 0)),
+            "last_day": last_days.get(name),
         })
     idle.sort(key=lambda item: (item.get("installed_at") or "", item["name"]), reverse=True)
     missing = []
@@ -487,9 +519,9 @@ def _clean_limit_offset(limit, offset):
 
 def _evidence_actions(kind):
     labels = {
-        "total": [("inspect-records", "看原始记录"), ("group-by-skill", "按 skill 分组"), ("group-by-operator", "找使用者")],
-        "untracked": [("inspect-records", "看未收录记录"), ("group-by-operator", "找使用者"), ("collect-candidates", "复制收录候选")],
-        "coverage": [("inspect-records", "看公司库触发"), ("group-by-skill", "看覆盖 skill"), ("group-by-operator", "找使用者")],
+        "total": [("inspect-records", "看原始记录"), ("group-by-skill", "按 skill 分组"), ("group-by-operator", "按使用者分组")],
+        "untracked": [("inspect-records", "看未收录记录"), ("group-by-operator", "按使用者分组"), ("collect-candidates", "复制收录候选")],
+        "coverage": [("inspect-records", "看公司库触发"), ("group-by-skill", "看覆盖 skill"), ("group-by-operator", "按使用者分组")],
         "operators": [("group-by-operator", "看操作员"), ("inspect-records", "看原始记录")],
         "avg_per_session": [("group-by-session", "看会话分布"), ("inspect-records", "看原始记录")],
         "idle": [("inspect-list", "看闲置名单"), ("copy-list", "复制名单")],
@@ -674,20 +706,26 @@ def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q=""
     if q:
         needle = q.casefold()
         names = [name for name in names if needle in name.casefold()]
-    install_counts = _installed_skill_counts(conn)
+    installer_details = _installed_skill_details(conn)
     last_days = {r["skill"]: r["last_day"] for r in conn.execute("""
       SELECT skill, MAX(day) last_day
       FROM skill_uses
       WHERE mode='used'
       GROUP BY skill
     """)}
-    items = [{
-        "name": name,
-        "source": _skill_source(name, catalog_by),
-        "installers": int(install_counts.get(name, 0)),
-        "last_day": last_days.get(name),
-    } for name in names]
-    items.sort(key=lambda x: (-(x["installers"] or 0), x["name"]))
+    items = []
+    for name in names:
+        details = [] if kind == "zero_install" else installer_details.get(name, [])
+        items.append({
+            "name": name,
+            "source": _skill_source(name, catalog_by),
+            "installers": len(details),
+            "installers_detail": details,
+            "last_day": last_days.get(name),
+        })
+    items.sort(key=lambda x: x["name"])
+    items.sort(key=lambda x: x.get("last_day") or "", reverse=True)
+    items.sort(key=lambda x: x["installers"] or 0, reverse=True)
     return items, installed_total
 
 

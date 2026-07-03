@@ -12,7 +12,7 @@ type TodoItem = {
   openable?: boolean
   evidenceKind?: SkillsEvidenceKind
   evidenceParams?: Record<string, string | number | undefined>
-  findOperators?: boolean
+  viewLabel?: string
 }
 
 function rowKey(event: KeyboardEvent<HTMLDivElement>, action: () => void) {
@@ -21,12 +21,24 @@ function rowKey(event: KeyboardEvent<HTMLDivElement>, action: () => void) {
   action()
 }
 
-function Section({ title, items, ignored, ignore, t }: { title: string; items: TodoItem[]; ignored: Set<string>; ignore: (id: string) => void; t: (key: string) => string }) {
+function shortDay(value?: string | null) {
+  return value ? String(value).slice(5, 10) : ''
+}
+
+function sectionSummary(visible: number, total: number, label: string, t: (key: string) => string) {
+  const unit = t('itemsUnit')
+  const noun = unit === '个' ? `${unit}${label}` : `${unit}${label ? ` ${label}` : ''}`
+  if (total <= visible) return `${total} ${noun}，${t('allShown')}`
+  return `${total} ${noun}，${t('showingTop')} ${visible}`
+}
+
+function Section({ title, items, totalCount, summaryLabel = '', ignored, ignore, t }: { title: string; items: TodoItem[]; totalCount?: number; summaryLabel?: string; ignored: Set<string>; ignore: (id: string) => void; t: (key: string) => string }) {
   const [expanded, setExpanded] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const allVisible = items.filter((item) => !ignored.has(item.id))
   const visible = expanded ? allVisible : allVisible.slice(0, 8)
+  const total = totalCount ?? items.length
   const stopIgnore = (event: MouseEvent<HTMLButtonElement>, id: string) => {
     event.stopPropagation()
     ignore(id)
@@ -34,11 +46,11 @@ function Section({ title, items, ignored, ignore, t }: { title: string; items: T
   const stopMenu = (event: MouseEvent<HTMLElement>) => event.stopPropagation()
   return (
     <details className="skills-gov-group skills-governance-block" open>
-      <summary>{title} <span>{visible.length}/{items.length}</span></summary>
+      <summary>{title} <span>{sectionSummary(visible.length, total, summaryLabel, t)}</span></summary>
       {visible.length ? visible.map((item) => {
         const recordPath = item.evidenceKind ? evidencePath(location.search, item.evidenceKind, item.evidenceParams) : ''
-        const operatorPath = item.findOperators && item.evidenceKind ? evidencePath(location.search, item.evidenceKind, { ...item.evidenceParams, focus: 'operators' }) : ''
         const open = recordPath ? () => navigate(recordPath) : undefined
+        const viewLabel = item.viewLabel || (item.evidenceKind === 'untracked' ? t('viewRawRecords') : t('viewList'))
         return (
           <div
             className={`skills-gov-item ${item.severity} ${open ? 'clickable' : ''}`}
@@ -52,22 +64,16 @@ function Section({ title, items, ignored, ignore, t }: { title: string; items: T
             <span className="skills-gov-actions">
               <span className="skills-gov-inline-actions">
                 {recordPath ? (
-                  <Link className="skills-gov-icon-action" to={recordPath} onClick={(event) => event.stopPropagation()} aria-label={`${t('viewRawRecords')}: ${item.title}`} title={t('viewRawRecords')}>
+                  <Link className="skills-gov-icon-action" to={recordPath} onClick={(event) => event.stopPropagation()} aria-label={`${viewLabel}: ${item.title}`} title={viewLabel}>
                     ▤
                   </Link>
                 ) : null}
-                {operatorPath ? (
-                  <Link className="skills-gov-icon-action" to={operatorPath} onClick={(event) => event.stopPropagation()} aria-label={`${t('viewByOperatorEvidence')}: ${item.title}`} title={t('viewByOperatorEvidence')}>
-                    ◎
-                  </Link>
-                ) : null}
-                <button className="skills-gov-icon-action" type="button" onClick={(event) => stopIgnore(event, item.id)} aria-label={`${t('ignoreInPage')}: ${item.title}`} title={t('ignoreInPage')}>×</button>
+                <button className="skills-gov-ignore-action" type="button" onClick={(event) => stopIgnore(event, item.id)} aria-label={`${t('ignoreInPage')}: ${item.title}`}>{t('ignoreInPage')}</button>
               </span>
               <details className="skills-gov-menu" onClick={stopMenu}>
                 <summary aria-label={`${item.title} ${t('moreActions')}`}>⋯</summary>
                 <div>
-                  {recordPath ? <Link to={recordPath}>{t('viewRawRecords')}</Link> : null}
-                  {operatorPath ? <Link to={operatorPath}>{t('viewByOperatorEvidence')}</Link> : null}
+                  {recordPath ? <Link to={recordPath}>{viewLabel}</Link> : null}
                   <button type="button" onClick={(event) => stopIgnore(event, item.id)}>{t('ignoreInPage')}</button>
                 </div>
               </details>
@@ -120,16 +126,15 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
     const untracked = (data?.governance?.untracked_usage?.top || []).map((row: GovernanceUntrackedSkill, index) => ({
       id: `untracked:${row.name}`,
       title: row.name,
-      detail: `${row.sessions} ${t('records')} · ${row.users_30d || 0} ${t('operatorsUnit')} · ${t('source_non_catalog')}`,
+      detail: `${row.sessions} ${t('records')} · ${row.users_30d || 0} ${t('operatorsUnit')} · ${t('lastUsed')} ${shortDay(row.last_day) || '—'}`,
       severity: index < 3 ? 'bad' as const : 'warn' as const,
       evidenceKind: 'untracked' as const,
       evidenceParams: { skill: row.name },
-      findOperators: true,
     }))
     const idle = (data?.governance?.idle_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `idle:${row.name}`,
       title: row.name,
-      detail: `${t('installs')} ${row.installers || 0} · ${windowZeroUsageLabel(windowKey, t)}`,
+      detail: `${row.installers || 0} ${t('peopleInstalled')} · ${windowZeroUsageLabel(windowKey, t)} · ${t('lastUsed')} ${shortDay(row.last_day) || t('neverUsed')}`,
       severity: 'warn' as const,
       evidenceKind: 'idle' as const,
       evidenceParams: { skill: row.name },
@@ -137,7 +142,7 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
     const missing = (data?.governance?.cataloged_not_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `missing:${row.name}`,
       title: row.name,
-      detail: row.cataloged_at ? `${String(row.cataloged_at).slice(0, 10)} ${t('cataloged')} · ${t('zeroInstall')}` : `${t('cataloged')} · ${t('zeroInstall')}`,
+      detail: row.cataloged_at ? `0 ${t('peopleInstalled')} · ${t('cataloged')} ${shortDay(row.cataloged_at) || String(row.cataloged_at).slice(0, 10)}` : `0 ${t('peopleInstalled')} · ${t('cataloged')}`,
       severity: 'info' as const,
       evidenceKind: 'zero_install' as const,
       evidenceParams: { skill: row.name },
@@ -155,8 +160,8 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
         </div>
         <div className="skills-governance-blocks">
           <Section title={t('heavyUsers')} items={groups.heavy} ignored={ignored} ignore={ignore} t={t} />
-          <Section title={t('sleeping7d')} items={groups.sleeping} ignored={ignored} ignore={ignore} t={t} />
-          <Section title={t('lowCoverageUsers')} items={groups.narrow} ignored={ignored} ignore={ignore} t={t} />
+          <Section title={t('sleeping7d')} items={groups.sleeping} summaryLabel="" ignored={ignored} ignore={ignore} t={t} />
+          <Section title={t('lowCoverageUsers')} items={groups.narrow} summaryLabel="" ignored={ignored} ignore={ignore} t={t} />
         </div>
       </div>
     )
@@ -168,9 +173,9 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
         {ignored.size ? <button type="button" onClick={() => setIgnored(new Set())}>{t('restoreIgnored')}</button> : null}
       </div>
       <div className="skills-governance-blocks">
-        <Section title={t('untrackedUsed')} items={groups.untracked} ignored={ignored} ignore={ignore} t={t} />
-        <Section title={t('installedUnused')} items={groups.idle} ignored={ignored} ignore={ignore} t={t} />
-        <Section title={t('catalogZeroInstall')} items={groups.missing} ignored={ignored} ignore={ignore} t={t} />
+        <Section title={t('untrackedUsed')} items={groups.untracked} totalCount={data?.governance?.untracked_usage?.skill_count} summaryLabel={t('untrackedShort')} ignored={ignored} ignore={ignore} t={t} />
+        <Section title={t('installedUnused')} items={groups.idle} totalCount={data?.governance?.idle_installed?.count} summaryLabel={t('installedUnusedShort')} ignored={ignored} ignore={ignore} t={t} />
+        <Section title={t('catalogZeroInstall')} items={groups.missing} totalCount={data?.governance?.cataloged_not_installed?.count} summaryLabel={t('zeroInstallShort')} ignored={ignored} ignore={ignore} t={t} />
       </div>
     </div>
   )
