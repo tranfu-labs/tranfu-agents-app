@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import type { SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
-import { evidencePath } from '../../lib/skillsEvidence'
+import { evidencePath, publishedSkillsPath } from '../../lib/skillsEvidence'
 
 function pct(value?: number) {
   return `${Math.round(Number(value || 0) * 100)}%`
@@ -46,23 +46,23 @@ export function HealthBar({ data, view = 'skill', t }: { data: SkillsOverview | 
   const idle = data?.governance?.idle_installed?.count ?? data?.funnel?.idle?.length ?? 0
   const catalogCount = data?.funnel?.catalog?.length || 0
   const usedCompany = data?.funnel?.used_30d?.length || 0
-  const values: Array<[string, string, SkillsEvidenceKind]> = [
-    [t('kpiUntrackedShare'), pct(data?.period_comparison?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), 'untracked'],
-    [t('kpiUnusedRatio'), pct(installed ? idle / installed : 0), 'unused_ratio'],
-    [t('kpiCoverage'), pct(catalogCount ? usedCompany / catalogCount : 0), 'coverage'],
-    [t('kpiTop3Share'), pct(data?.period_comparison?.current_top3_share), 'top3'],
-    [t('kpiAvgSkillPerSession'), (data?.period_comparison?.current_avg_skills_per_session ?? 0).toFixed(2), 'avg_per_session'],
+  const values: Array<{ title: string; value: string; kind: SkillsEvidenceKind; to?: string }> = [
+    { title: t('kpiUntrackedShare'), value: pct(data?.period_comparison?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), kind: 'untracked' },
+    { title: t('kpiUnusedRatio'), value: pct(installed ? idle / installed : 0), kind: 'unused_ratio' },
+    { title: t('kpiCoverage'), value: pct(catalogCount ? usedCompany / catalogCount : 0), kind: 'coverage' },
+    { title: t('kpiTop3Share'), value: pct(data?.period_comparison?.current_top3_share), kind: 'top3' },
+    { title: t('kpiPublishedSkills'), value: String(data?.period_comparison?.current_published_skill_count ?? 0), kind: 'total', to: publishedSkillsPath(location.search) },
   ]
   return (
     <section className="frame skills-health-frame">
       <div className="skills-health">
         <b>{t('healthIssues')}</b>
-        {values.map(([title, value, kind]) => {
+        {values.map(({ title, value, kind, to }) => {
           return (
             <span className="signal" key={kind}>
               <i />
               {title} <strong>{value}</strong>
-              <Link className="evidence-icon-link" to={evidencePath(location.search, kind)} aria-label={`${t('viewEvidence')}: ${title}`} title={`${t('viewEvidence')}: ${title}`}>↗</Link>
+              <Link className="evidence-icon-link" to={to || evidencePath(location.search, kind)} aria-label={`${t('viewEvidence')}: ${title}`} title={`${t('viewEvidence')}: ${title}`}>↗</Link>
             </span>
           )
         })}

@@ -61,7 +61,7 @@
 
 ## SKILLS 统计下钻
 
-控制条、选中态和视角切换只改 URL query、同页刷新；按 Skill 视角点明细行先开抽屉，抽屉内保留「前往详情页」逃逸口；按人视角仍点整行进入操作员详情，返回时带回 query。
+控制条、选中态和视角切换只改 URL query、同页刷新；按 Skill 视角点明细行先开抽屉，抽屉内保留「前往详情页」逃逸口；新增发布 Skill 入口进入独立列表页；按人视角仍点整行进入操作员详情，返回时带回 query。
 
 ```
 ┌─ SKILLS 统计 /skills ─┐   ② 点 Skill 明细行   ┌┄ 右侧 Skill 抽屉 ┄┐
@@ -75,6 +75,10 @@
 │                       │ ───────────────────▶ │ → pages/skills-clues.md          │
 │                       │ ◀── ⑦ ←SKILLS(query) │                                  │
 │                       │                       └──────────────────────────────────┘
+│                       │   ⑫ 新增发布入口      ┌─ 新增发布 Skill /skills/new ─┐
+│                       │ ───────────────────▶ │ → pages/skills-new.md        │
+│                       │ ◀── ⑬ ←SKILLS(query) │                               │
+│                       │                       └───────────────────────────────┘
 │                       │   ⑧ 前往详情页        ┌─ Skill 详情 /skill/:name ─┐
 │                       │ ───────────────────▶ │ → pages/skill-detail.md   │
 │                       │ ◀── ⑨ ←SKILLS(query) │                            │
@@ -104,6 +108,8 @@
 | ⑨ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
 | ⑩ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
 | ⑪ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
+| ⑫ | SKILLS `/skills` | 新增发布 Skill `/skills/new` | 点当前时间窗变化或问题线索中的「新增发布 Skill」记录 icon；保留 `w/wstart/wend/q` 与 own/meta 来源 |
+| ⑬ | 新增发布 Skill | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 window/search query） |
 
 ## 后台清理台进入与删除流程
 

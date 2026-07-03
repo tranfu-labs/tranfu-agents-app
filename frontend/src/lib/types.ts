@@ -185,6 +185,21 @@ export type GovernanceBucketSkill = {
   last_day?: string | null
 }
 
+export type PublishedSkill = {
+  name: string
+  source?: string
+  version?: string
+  author?: string
+  published_at?: string
+  published_day?: string
+  updated_at?: string
+  path?: string
+  sha?: string
+  installers?: number
+  window_sessions?: number
+  last_day?: string | null
+}
+
 export type SkillsPeriodComparison = {
   window?: string
   current_window_start?: string
@@ -205,6 +220,8 @@ export type SkillsPeriodComparison = {
   previous_untracked_share?: number
   current_company_skill_count?: number
   previous_company_skill_count?: number
+  current_published_skill_count?: number
+  previous_published_skill_count?: number
 }
 
 export type SkillsAttribution = {
@@ -216,6 +233,7 @@ export type SkillsOverview = {
   days?: number
   scope?: 'all' | 'new' | string
   new_skill_count?: number
+  published_skills?: PublishedSkill[]
   window?: {
     key?: string
     days?: number

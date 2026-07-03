@@ -15,6 +15,7 @@ import { Board } from './views/Board'
 import { Agents } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
+import { SkillsNewView } from './views/SkillsNew'
 import { SkillsEvidenceView } from './views/SkillsEvidence'
 import { SkillsClueView } from './views/SkillsClue'
 import { SkillDetailView } from './views/SkillDetail'
@@ -27,6 +28,13 @@ function SkillsRoute({ t }: { t: (key: string) => string }) {
   const skillsWindow = resolveSkillsWindow(params)
   const overview = useSkillsOverview(true, skillsWindow.days, skillsWindowQuery(params))
   return <SkillsView data={overview.data} loading={overview.loading} error={overview.error} t={t} />
+}
+
+function SkillsNewRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
+  const [params] = useSkillQueryState()
+  const skillsWindow = resolveSkillsWindow(params)
+  const overview = useSkillsOverview(true, skillsWindow.days, skillsWindowQuery(params))
+  return <SkillsNewView data={overview.data} loading={overview.loading} error={overview.error} lang={lang} t={t} />
 }
 
 function SkillsEvidenceRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
@@ -151,6 +159,7 @@ export default function App() {
           <Route path="/agents" element={<StateRoute state={state.data} t={t}>{(data) => <Agents data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/agent/:key" element={<StateRoute state={state.data} t={t}>{(data) => <AgentDetail data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/skills" element={<SkillsRoute t={t} />} />
+          <Route path="/skills/new" element={<SkillsNewRoute lang={lang} t={t} />} />
           <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
           <Route path="/skills/clues/:clueKind" element={<SkillsClueRoute lang={lang} t={t} />} />
           <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
