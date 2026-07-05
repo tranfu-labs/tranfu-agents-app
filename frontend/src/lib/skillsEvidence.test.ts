@@ -8,6 +8,7 @@ import {
   evidenceLoadedCount,
   evidencePageQuery,
   evidencePath,
+  evidencePayloadForQuery,
   evidenceQueryKey,
   evidenceSearch,
   evidenceTotalCount,
@@ -131,6 +132,14 @@ test('shouldApplyEvidencePage rejects slow responses from a previous filter URL'
   const requestKey = evidenceQueryKey('?kind=total&w=7d&rt=codex&offset=100')
   assert.equal(shouldApplyEvidencePage(requestKey, '?w=7d&kind=total&rt=codex&offset=0'), true)
   assert.equal(shouldApplyEvidencePage(requestKey, '?w=7d&kind=total&rt=claude-code&offset=0'), false)
+})
+
+test('evidencePayloadForQuery hides stale payloads from previous filter URLs', () => {
+  const payload = evidence([record(0)], 1)
+  const firstKey = evidenceQueryKey('?kind=total&w=7d&rt=codex')
+  const nextKey = evidenceQueryKey('?kind=total&w=7d&rt=claude-code')
+  assert.equal(evidencePayloadForQuery(payload, firstKey, firstKey), payload)
+  assert.equal(evidencePayloadForQuery(payload, firstKey, nextKey), null)
 })
 
 test('startEvidencePageRequest aborts permanent pending requests after timeout', async () => {

@@ -382,6 +382,11 @@ export function useSkillsEvidence(enabled: boolean, query: string): Loadable<Ski
       setData(cached)
       setError('')
       setDemo(false)
+    } else {
+      setData(null)
+      setError('')
+      setDemo(false)
+      setLoading(true)
     }
     const first = window.setTimeout(() => void refresh(true), 0)
     const timer = window.setInterval(() => void refresh(false), 10000)

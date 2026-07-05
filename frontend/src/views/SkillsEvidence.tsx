@@ -10,6 +10,7 @@ import {
   evidenceLoadedCount,
   evidencePageQuery,
   evidencePath,
+  evidencePayloadForQuery,
   evidenceQueryKey,
   mergeEvidencePage,
   shouldApplyEvidencePage,
@@ -170,7 +171,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
     })
   }, [currentQueryKey, data])
 
-  const displayData = pageData || data
+  const displayData = evidencePayloadForQuery(pageData, appliedQueryKeyRef.current, currentQueryKey)
   const mode = pageMode(displayData)
   const records = displayData?.records || []
   const items = displayData?.items || []

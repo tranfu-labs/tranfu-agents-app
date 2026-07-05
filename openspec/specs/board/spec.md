@@ -204,6 +204,8 @@
   (`total`、`untracked`、`runtime`、`source`、`top3`、`coverage`、`operators`、`avg_per_session`)默认停在「原始记录」,
   1440x900 第一屏必须露出 records 表头和前几行;无 raw records 的 evidence kind (`idle`、`unused_ratio`、`zero_install`)默认停在「名单」,
   1440x900 第一屏必须露出名单表表头和前几行。
+  筛选 URL 变化且新 URL 没有同 URL 已校验缓存时,页面必须显示 loading/skeleton 或空载入态,不得把上一 URL 的 records/summary
+  当成新筛选口径展示;同 URL revalidate 才允许保留旧 payload 作为过渡态。
   raw records 不得只停在 `/api/skills/evidence` 首批默认 `limit=100`;当前筛选下全部 records 必须能通过显式加载更多入口继续访问。
   加载更多入口必须是标准可聚焦控件,支持 Tab 聚焦和 Enter / Space 触发;页面必须展示已加载数量与当前筛选下可访问总量,
   例如 `100 / 367`。加载更多请求必须保留当前 evidence URL 的筛选语义,只追加或覆盖 `limit` 与 `offset`;不得改变

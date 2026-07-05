@@ -189,6 +189,10 @@ export function shouldApplyEvidencePage(requestKey: string, currentSearch: strin
   return requestKey === evidenceQueryKey(currentSearch)
 }
 
+export function evidencePayloadForQuery<T>(payload: T | null | undefined, payloadKey: string, currentKey: string) {
+  return payload && payloadKey === currentKey ? payload : null
+}
+
 export function startEvidencePageRequest(query: string, fetchPage: EvidencePageFetcher, timeoutMs = 15000) {
   const controller = new AbortController()
   let timedOut = false
