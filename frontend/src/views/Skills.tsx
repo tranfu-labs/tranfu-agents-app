@@ -293,7 +293,10 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
       {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
       <FunnelSection data={data} t={t} />
-      {drawerSkill ? <SkillDrawer name={drawerSkill} row={(data?.table || []).find((row) => row.name === drawerSkill)} search={location.search} onClose={() => setDrawerSkill('')} t={t} /> : null}
+      {drawerSkill ? <SkillDrawer name={drawerSkill} row={(data?.table || []).find((row) => row.name === drawerSkill)} search={location.search} onClose={() => {
+        setDrawerSkill('')
+        if (selected) void setParams({ sel: '' })
+      }} t={t} /> : null}
     </div>
   )
 }
