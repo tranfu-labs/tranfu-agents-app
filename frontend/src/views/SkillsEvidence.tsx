@@ -1,11 +1,28 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Empty, SectionTitle } from '../components/Common'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillsEvidenceKind, SkillsEvidencePayload } from '../lib/types'
 import { sourceLabel } from '../lib/utils'
-import { evidencePath, skillsBackSearch } from '../lib/skillsEvidence'
+import {
+  evidenceDisplayTotalCount,
+  evidenceHasMore,
+  evidenceLoadedCount,
+  evidencePageQuery,
+  evidencePath,
+  evidencePayloadForQuery,
+  evidenceQueryKey,
+  mergeEvidencePage,
+  shouldApplyEvidencePage,
+  skillsBackSearch,
+  startEvidencePageRequest,
+  type SkillsEvidencePageMode,
+} from '../lib/skillsEvidence'
 import { humanFilterChips } from '../lib/skillsClues'
 import { defaultEvidenceTab, evidenceSummaryLine, isListEvidenceKind } from '../lib/skillsPresentation'
+
+const EVIDENCE_PAGE_LIMIT = 100
+const LOAD_MORE_TIMEOUT_MS = 15000
 
 const KIND_LABEL_ZH: Record<SkillsEvidenceKind, string> = {
   total: '总触发记录',
@@ -64,16 +81,167 @@ function actionGlyph(id: string, label: string) {
   return '▤'
 }
 
+function pageMode(data: SkillsEvidencePayload | null | undefined): SkillsEvidencePageMode {
+  return isListEvidenceKind(data?.kind) ? 'items' : 'records'
+}
+
+function loadMoreText(error: string, loading: boolean, mode: SkillsEvidencePageMode, lang: Lang) {
+  if (loading) return lang === 'zh' ? '加载中...' : 'Loading...'
+  if (error === 'timeout') return lang === 'zh' ? '加载超时，重试' : 'Timed out, retry'
+  if (error) return lang === 'zh' ? '加载失败，重试' : 'Load failed, retry'
+  if (mode === 'items') return lang === 'zh' ? '加载更多名单' : 'Load more items'
+  return lang === 'zh' ? '加载更多记录' : 'Load more records'
+}
+
+function completeText(total: number, mode: SkillsEvidencePageMode, lang: Lang) {
+  if (mode === 'items') return lang === 'zh' ? `已加载全部 ${total} 项名单` : `Loaded all ${total} items`
+  return lang === 'zh' ? `已加载全部 ${total} 条记录` : `Loaded all ${total} records`
+}
+
+function keepLoadedRowsWithFreshContext(fresh: SkillsEvidencePayload, previous: SkillsEvidencePayload, mode: SkillsEvidencePageMode) {
+  return {
+    ...previous,
+    today: fresh.today || previous.today,
+    window: fresh.window || previous.window,
+    summary: fresh.summary || previous.summary,
+    actions: fresh.actions || previous.actions,
+    applied_filters: fresh.applied_filters || previous.applied_filters,
+    ignored_filters: fresh.ignored_filters || previous.ignored_filters,
+    top_skills: fresh.top_skills || previous.top_skills,
+    top_operators: fresh.top_operators || previous.top_operators,
+    daily: fresh.daily || previous.daily,
+    catalog: fresh.catalog || previous.catalog,
+    records: mode === 'records' ? previous.records : fresh.records,
+    items: mode === 'items' ? previous.items : fresh.items,
+  }
+}
+
+async function fetchEvidencePage(query: string, signal: AbortSignal) {
+  const response = await fetch(`/api/skills/evidence?${query}`, { cache: 'no-store', signal })
+  if (!response.ok) throw new Error(String(response.status))
+  return (await response.json()) as SkillsEvidencePayload
+}
+
 export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { data: SkillsEvidencePayload | null; loading: boolean; error: string; lang: Lang; search: string; t: (key: string) => string }) {
-  const records = data?.records || []
-  const items = data?.items || []
+  const currentQueryKey = useMemo(() => evidenceQueryKey(search), [search])
+  const currentSearchRef = useRef(search)
+  currentSearchRef.current = search
+  const currentQueryKeyRef = useRef(currentQueryKey)
+  currentQueryKeyRef.current = currentQueryKey
+  const appliedQueryKeyRef = useRef(currentQueryKey)
+  const mountedRef = useRef(false)
+  const pageDataRef = useRef<SkillsEvidencePayload | null>(data)
+  const requestRef = useRef<{ controller: AbortController; key: string } | null>(null)
+  const [pageData, setPageData] = useState<SkillsEvidencePayload | null>(data)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState('')
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      requestRef.current?.controller.abort()
+      requestRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    pageDataRef.current = pageData
+  }, [pageData])
+
+  useEffect(() => {
+    const previousKey = appliedQueryKeyRef.current
+    const queryChanged = previousKey !== currentQueryKey
+    appliedQueryKeyRef.current = currentQueryKey
+    if (queryChanged) {
+      requestRef.current?.controller.abort()
+      requestRef.current = null
+      setLoadingMore(false)
+      setLoadMoreError('')
+      setPageData(null)
+      return
+    }
+    setPageData((previous) => {
+      if (!data) return null
+      const mode = pageMode(data)
+      if (!queryChanged && previous && previous.kind === data.kind && evidenceLoadedCount(previous, mode) > evidenceLoadedCount(data, mode)) {
+        return keepLoadedRowsWithFreshContext(data, previous, mode)
+      }
+      return data
+    })
+  }, [currentQueryKey, data])
+
+  const displayData = evidencePayloadForQuery(pageData, appliedQueryKeyRef.current, currentQueryKey)
+  const mode = pageMode(displayData)
+  const records = displayData?.records || []
+  const items = displayData?.items || []
   const back = `/skills${skillsBackSearch(search)}`
-  const listFirst = isListEvidenceKind(data?.kind)
-  const untrackedRecords = Number(data?.summary?.untracked_records || 0)
-  const showUntrackedSlice = data?.kind === 'total' && untrackedRecords > 0
+  const listFirst = mode === 'items'
+  const untrackedRecords = Number(displayData?.summary?.untracked_records || 0)
+  const showUntrackedSlice = displayData?.kind === 'total' && untrackedRecords > 0
+  const loadedCount = evidenceLoadedCount(displayData, mode)
+  const totalCount = evidenceDisplayTotalCount(displayData, mode)
+  const hasMore = evidenceHasMore(displayData, mode)
+  const showLoadControl = totalCount > EVIDENCE_PAGE_LIMIT || loadingMore || Boolean(loadMoreError)
+  const progressLabel = `${n(loadedCount)} / ${n(totalCount)}`
+  const recordsSectionCount = mode === 'records' && showLoadControl ? progressLabel : records.length
+  const itemsSectionCount = mode === 'items' && showLoadControl ? progressLabel : items.length
+
+  const loadMore = useCallback(async () => {
+    const current = pageDataRef.current
+    if (!current) return
+    const requestMode = pageMode(current)
+    const requestKey = evidenceQueryKey(search)
+    const loaded = evidenceLoadedCount(current, requestMode)
+    if (!evidenceHasMore(current, requestMode)) return
+    const query = evidencePageQuery(search, loaded, EVIDENCE_PAGE_LIMIT)
+    requestRef.current?.controller.abort()
+    const request = startEvidencePageRequest(query, fetchEvidencePage, LOAD_MORE_TIMEOUT_MS)
+    requestRef.current = { controller: request.controller, key: requestKey }
+    setLoadingMore(true)
+    setLoadMoreError('')
+    try {
+      const next = await request.promise
+      if (!mountedRef.current || !shouldApplyEvidencePage(requestKey, currentSearchRef.current) || currentQueryKeyRef.current !== requestKey) return
+      const base = pageDataRef.current
+      if (!base) return
+      const before = evidenceLoadedCount(base, requestMode)
+      const merged = mergeEvidencePage(base, next, requestMode)
+      const after = evidenceLoadedCount(merged, requestMode)
+      setPageData(merged)
+      setLoadMoreError(after <= before && evidenceHasMore(merged, requestMode) ? 'stalled' : '')
+    } catch {
+      if (!mountedRef.current || !shouldApplyEvidencePage(requestKey, currentSearchRef.current) || currentQueryKeyRef.current !== requestKey) return
+      setLoadMoreError(request.didTimeout() ? 'timeout' : 'failed')
+    } finally {
+      if (requestRef.current?.controller === request.controller) requestRef.current = null
+      if (mountedRef.current && currentQueryKeyRef.current === requestKey) setLoadingMore(false)
+    }
+  }, [search])
+
+  const loadMoreControl = (controlMode: SkillsEvidencePageMode) => {
+    if (controlMode !== mode) return null
+    if (!showLoadControl) return null
+    if (!hasMore && !loadMoreError && !loadingMore) {
+      return (
+        <div className="evidence-load-more done" aria-live="polite">
+          <span>{completeText(totalCount, controlMode, lang)}</span>
+        </div>
+      )
+    }
+    return (
+      <div className="evidence-load-more" aria-live="polite">
+        <button type="button" onClick={loadMore} disabled={loadingMore}>
+          {loadMoreText(loadMoreError, loadingMore, controlMode, lang)}
+        </button>
+        <span>{progressLabel}</span>
+      </div>
+    )
+  }
+
   const recordsSection = (
     <section className="frame evidence-primary">
-      <SectionTitle title="原始记录" count={records.length} />
+      <SectionTitle title="原始记录" count={recordsSectionCount} />
       {records.length ? (
         <div className="skills-wrap">
           <table className="skill-table mobile-card-table records-table evidence-records-table">
@@ -82,7 +250,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             </thead>
             <tbody>
               {records.map((record, index) => {
-                const time = formatRecentRecordTime(record.first_seen, record.day || '', lang, undefined, data?.today)
+                const time = formatRecentRecordTime(record.first_seen, record.day || '', lang, undefined, displayData?.today)
                 return (
                   <tr key={`${record.session_id}:${record.skill}:${record.first_seen}:${index}`}>
                     <td data-label="Time" title={time.title}>{time.label}</td>
@@ -96,13 +264,14 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
               })}
             </tbody>
           </table>
+          {loadMoreControl('records')}
         </div>
       ) : <Empty title={items.length ? '这类记录没有窗口内触发记录' : '暂无记录'} />}
     </section>
   )
   const itemsSection = (
     <section className="frame evidence-primary">
-      <SectionTitle title="名单" count={items.length} />
+      <SectionTitle title="名单" count={itemsSectionCount} />
       {items.length ? (
         <div className="skills-wrap">
           <table className="skill-table mobile-card-table">
@@ -120,6 +289,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
               ))}
             </tbody>
           </table>
+          {loadMoreControl('items')}
         </div>
       ) : <Empty title="暂无名单" />}
     </section>
@@ -130,19 +300,19 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
         <div className="pad">
           <Link className="token-link-btn" to={back}>← {t('skillsNav')}</Link>
           <div>
-            <h1>{kindLabel(data?.kind, lang)}</h1>
-            <p>{data?.window?.start || '—'} .. {data?.window?.end || '—'}</p>
+            <h1>{kindLabel(displayData?.kind, lang)}</h1>
+            <p>{displayData?.window?.start || '—'} .. {displayData?.window?.end || '—'}</p>
           </div>
-          <FilterChips data={data} t={t} />
+          <FilterChips data={displayData} t={t} />
           <div className="evidence-summary-line">
-            <span>{evidenceSummaryLine(data)}</span>
+            <span>{evidenceSummaryLine(displayData)}</span>
             {showUntrackedSlice ? (
               <Link to={evidencePath(search, 'untracked')} aria-label="查看未收录 skill 记录">↗</Link>
             ) : null}
           </div>
           <div className="evidence-toolbar" role="toolbar" aria-label="记录页动作">
-            <span className="evidence-tab-current">{defaultEvidenceTab(data?.kind)}</span>
-            {(data?.actions || []).map((action) => (
+            <span className="evidence-tab-current">{defaultEvidenceTab(displayData?.kind)}</span>
+            {(displayData?.actions || []).map((action) => (
               <span className="evidence-tool" key={action.id} aria-label={action.label} title={action.label}>
                 {actionGlyph(action.id, action.label)}
               </span>
@@ -151,35 +321,37 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
         </div>
       </section>
       {error ? <div className="note-warn">{t(error)}</div> : null}
-      {loading && !data ? <section className="frame"><Empty title={t('loading')} /></section> : null}
-      {listFirst ? itemsSection : recordsSection}
-      {!listFirst && items.length ? itemsSection : null}
-      <div className="skills-main-split evidence-split evidence-aux">
-        <section className="frame">
-          <SectionTitle title="Top skills" count={data?.top_skills?.length || 0} />
-          <div className="evidence-list">
-            {(data?.top_skills || []).slice(0, 10).map((row) => (
-              <div className="evidence-list-row" key={row.name}>
-                <b>{row.name}</b>
-                <span>{sourceLabel(row.source, t)} · {n(row.records)} records · {n(row.operators)} operators</span>
-              </div>
-            ))}
-            {data?.top_skills?.length ? null : <Empty title="暂无 skill 分组" />}
-          </div>
-        </section>
-        <section className="frame">
-          <SectionTitle title="Top operators" count={data?.top_operators?.length || 0} />
-          <div className="evidence-list">
-            {(data?.top_operators || []).slice(0, 10).map((row) => (
-              <div className="evidence-list-row" key={row.operator}>
-                <b>{row.operator}</b>
-                <span>{n(row.records)} records · {n(row.skills)} skills</span>
-              </div>
-            ))}
-            {data?.top_operators?.length ? null : <Empty title="暂无 operator 分组" />}
-          </div>
-        </section>
-      </div>
+      {loading && !displayData ? <section className="frame"><Empty title={t('loading')} /></section> : null}
+      {displayData ? (listFirst ? itemsSection : recordsSection) : null}
+      {displayData && !listFirst && items.length ? itemsSection : null}
+      {displayData ? (
+        <div className="skills-main-split evidence-split evidence-aux">
+          <section className="frame">
+            <SectionTitle title="Top skills" count={displayData.top_skills?.length || 0} />
+            <div className="evidence-list">
+              {(displayData.top_skills || []).slice(0, 10).map((row) => (
+                <div className="evidence-list-row" key={row.name}>
+                  <b>{row.name}</b>
+                  <span>{sourceLabel(row.source, t)} · {n(row.records)} records · {n(row.operators)} operators</span>
+                </div>
+              ))}
+              {displayData.top_skills?.length ? null : <Empty title="暂无 skill 分组" />}
+            </div>
+          </section>
+          <section className="frame">
+            <SectionTitle title="Top operators" count={displayData.top_operators?.length || 0} />
+            <div className="evidence-list">
+              {(displayData.top_operators || []).slice(0, 10).map((row) => (
+                <div className="evidence-list-row" key={row.operator}>
+                  <b>{row.operator}</b>
+                  <span>{n(row.records)} records · {n(row.skills)} skills</span>
+                </div>
+              ))}
+              {displayData.top_operators?.length ? null : <Empty title="暂无 operator 分组" />}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

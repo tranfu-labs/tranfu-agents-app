@@ -271,6 +271,13 @@
   .evidence-tab-current,.evidence-tool{display:inline-grid;place-items:center;min-height:26px;border:1px solid var(--line);border-radius:7px;color:var(--muted);background:var(--elev2);font-size:12px}
   .evidence-tab-current{padding:3px 9px;color:var(--text);border-color:var(--line2)}
   .evidence-tool{width:26px}
+  .evidence-load-more{display:flex;align-items:center;justify-content:center;gap:12px;padding:14px 10px 4px;color:var(--muted);font-size:12px}
+  .evidence-load-more button{min-height:34px;border:1px solid var(--line2);border-radius:7px;background:var(--elev2);color:var(--text);font-weight:700;padding:7px 12px;cursor:pointer}
+  .evidence-load-more button:hover{background:var(--hover);border-color:var(--brand);color:var(--brand)}
+  .evidence-load-more button:focus-visible{outline:2px solid color-mix(in srgb,var(--brand) 45%,transparent);outline-offset:2px}
+  .evidence-load-more button:disabled{cursor:wait;opacity:.65;color:var(--muted);border-color:var(--line)}
+  .evidence-load-more span{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .evidence-load-more.done{color:var(--faint)}
   .evidence-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:14px 16px}.evidence-summary .stat{min-width:0}
   .evidence-actions{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 14px}.evidence-list{display:grid;gap:8px;padding:14px 16px}.evidence-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:7px 0}.evidence-list-row:last-child{border-bottom:0}.evidence-list-row b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.evidence-list-row span{color:var(--muted);font-size:12px;text-align:right}.evidence-records-table tr{cursor:default}.installer-list{display:flex;flex-wrap:wrap;gap:6px}.installer-list>span{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--elev2);white-space:nowrap}.installer-list small{color:var(--muted);font-size:11px}
   .skills-drawer-backdrop{position:fixed;inset:0;z-index:85;background:color-mix(in srgb,var(--bg) 42%,transparent);backdrop-filter:blur(3px);display:flex;justify-content:flex-end}
