@@ -316,7 +316,7 @@ export function useSkillsOverview(enabled: boolean, days: number, query = `days=
         setDemo(false)
         lastFetch.current = Date.now()
       } catch {
-        setData((old) => old || demoSkillsOverview())
+        setData((old) => old || demoSkillsOverview(demoWindowKey(query, days), days))
         setError('loadError')
         setDemo(true)
       } finally {
@@ -343,6 +343,15 @@ export function useSkillsOverview(enabled: boolean, days: number, query = `days=
   }, [enabled, refresh, url])
 
   return { data, loading, error, demo, refresh }
+}
+
+function demoWindowKey(query: string, days: number) {
+  try {
+    const params = new URLSearchParams(query)
+    return params.get('w') || `${Number(params.get('days') || days) || days}d`
+  } catch {
+    return `${days}d`
+  }
 }
 
 export function useSkillsEvidence(enabled: boolean, query: string): Loadable<SkillsEvidencePayload> {
