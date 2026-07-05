@@ -38,7 +38,17 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
           else onSelect(item.name)
         }
         return (
-          <div role="button" tabIndex={0} key={item.name} aria-expanded={item.isOther ? expanded : undefined} className={`rank-row ${active ? 'selected' : ''} ${dim ? 'dimmed' : ''}`} onClick={click} onKeyDown={(event) => rowKey(event, click)}>
+          <div
+            role="button"
+            tabIndex={0}
+            key={item.name}
+            aria-expanded={item.isOther ? expanded : undefined}
+            aria-label={displayName}
+            title={displayName}
+            className={`rank-row ${active ? 'selected' : ''} ${dim ? 'dimmed' : ''}`}
+            onClick={click}
+            onKeyDown={(event) => rowKey(event, click)}
+          >
             <span className="rank-name">
               <i style={{ background: skillColor(item.name) }} />
               {displayName}
@@ -67,7 +77,7 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
       {expanded && tailRows.length ? (
         <div className="skills-rank-tail">
           {tailRows.map((row) => (
-            <button type="button" key={row.name} className={selected === row.name ? 'selected' : ''} onClick={() => onSelect(row.name)}>
+            <button type="button" key={row.name} className={selected === row.name ? 'selected' : ''} aria-label={row.name} title={row.name} onClick={() => onSelect(row.name)}>
               <span>{row.name}</span>
               <strong>{n(row.sessions_window ?? row.sessions_30d)}</strong>
               <em>{sourceLabel(row.source, t)}</em>
