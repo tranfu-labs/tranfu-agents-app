@@ -13,7 +13,7 @@ import { SkillDrawer } from '../components/skills/SkillDrawer'
 import { SkillsDetailTable } from '../components/skills/SkillsDetailTable'
 import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
-import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
+import { selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
 import { mobileFilterSummary, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
@@ -231,10 +231,12 @@ function OperatorTable({ rows, params, setParams, windowKey, t }: { rows: Operat
 export function SkillsView({ data, loading, error, t }: { data: SkillsOverview | null; loading: boolean; error: string; t: (key: string) => string }) {
   const [params, setParams] = useSkillQueryState()
   const location = useLocation()
-  const [drawerSkill, setDrawerSkill] = useState('')
   const skillsWindow = resolveSkillsWindow(params)
   const view = params.view === 'operator' ? 'operator' : 'skill'
   const selected = selectedSkillOf(params)
+  const [drawerSkill, setDrawerSkill] = useState(selected)
+  const [suppressedDrawerSkill, setSuppressedDrawerSkill] = useState('')
+  const visibleDrawerSkill = drawerSkill || (selected && selected !== suppressedDrawerSkill ? selected : '')
   const topN = TOP_OPTIONS.includes(params.topn) ? params.topn : 8
   const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
   const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorNamePass({ operator: row.operator }, params.q))
@@ -250,9 +252,20 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
 
   const openSkill = (name: string) => {
     setDrawerSkill(name)
+    setSuppressedDrawerSkill('')
     if (selected !== name) void setParams({ sel: name })
   }
-  const selectSkill = (name: string) => setSelectedSkill(params, setParams, name)
+  const closeSkill = () => {
+    setDrawerSkill('')
+    setSuppressedDrawerSkill('')
+    if (selected) void setParams({ sel: '' })
+  }
+  const selectSkill = (name: string) => {
+    const next = selected === name ? '' : name
+    setDrawerSkill('')
+    setSuppressedDrawerSkill(next)
+    void setParams({ sel: next })
+  }
   const setSource = (source: string) => void setParams({ src: params.src === source ? '' : source })
 
   if (loading && !data) {
@@ -293,7 +306,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
       {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
       <FunnelSection data={data} t={t} />
-      {drawerSkill ? <SkillDrawer name={drawerSkill} row={(data?.table || []).find((row) => row.name === drawerSkill)} search={location.search} onClose={() => setDrawerSkill('')} t={t} /> : null}
+      {visibleDrawerSkill ? <SkillDrawer name={visibleDrawerSkill} row={(data?.table || []).find((row) => row.name === visibleDrawerSkill)} search={location.search} onClose={closeSkill} t={t} /> : null}
     </div>
   )
 }

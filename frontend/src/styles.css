@@ -1,5 +1,6 @@
   :root,:root[data-theme="dark"]{
     --bg:#0b0b0c; --grid:rgba(255,255,255,.018); --elev:rgba(255,255,255,.022); --elev2:rgba(255,255,255,.014);
+    --solid-elev:#111214; --solid-elev2:#16181b;
     --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15); --tick:rgba(255,255,255,.3); --hover:rgba(255,255,255,.04);
     --text:#ededee; --muted:#9ca0a6; --faint:#626670; --brand:#ec1c2b;
     --run:#3fb950; --wait:#d29922; --err:#f85149; --info:#58a6ff; --done:#6e7681;
@@ -8,6 +9,7 @@
   }
   :root[data-theme="light"],body.light{
     --bg:#f6f7f8; --grid:rgba(0,0,0,.03); --elev:rgba(0,0,0,.018); --elev2:rgba(0,0,0,.012);
+    --solid-elev:#ffffff; --solid-elev2:#f1f3f5;
     --line:rgba(0,0,0,.1); --line2:rgba(0,0,0,.18); --tick:rgba(0,0,0,.28); --hover:rgba(0,0,0,.03);
     --text:#16181d; --muted:#57606a; --faint:#8b949e;
     --run:#1a7f37; --wait:#9a6700; --err:#cf222e; --info:#0969da; --done:#6e7781;
@@ -280,12 +282,15 @@
   .evidence-load-more.done{color:var(--faint)}
   .evidence-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:14px 16px}.evidence-summary .stat{min-width:0}
   .evidence-actions{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 14px}.evidence-list{display:grid;gap:8px;padding:14px 16px}.evidence-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:7px 0}.evidence-list-row:last-child{border-bottom:0}.evidence-list-row b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.evidence-list-row span{color:var(--muted);font-size:12px;text-align:right}.evidence-records-table tr{cursor:default}.installer-list{display:flex;flex-wrap:wrap;gap:6px}.installer-list>span{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--elev2);white-space:nowrap}.installer-list small{color:var(--muted);font-size:11px}
-  .skills-drawer-backdrop{position:fixed;inset:0;z-index:85;background:color-mix(in srgb,var(--bg) 42%,transparent);backdrop-filter:blur(3px);display:flex;justify-content:flex-end}
-  .skills-drawer{width:min(480px,calc(100vw - 18px));height:100%;overflow:auto;background:var(--elev);border-left:1px solid var(--line2);box-shadow:var(--shadow);padding:16px}
+  .skills-drawer-backdrop{position:fixed;inset:0;z-index:85;background:color-mix(in srgb,var(--bg) 42%,transparent);backdrop-filter:blur(3px);display:flex;justify-content:flex-end;overflow:hidden}
+  .skills-drawer{width:min(480px,calc(100vw - 18px));max-width:100vw;min-width:0;height:100%;overflow-y:auto;overflow-x:hidden;background:var(--solid-elev);isolation:isolate;border-left:1px solid var(--line2);box-shadow:var(--shadow);padding:16px}
   .skills-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.skills-drawer-head>div{display:flex;align-items:center;gap:8px;min-width:0}.skills-drawer-head b{font-size:18px;overflow-wrap:anywhere}
-  .skills-drawer-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}.skills-drawer-kpis .stat{padding:10px}.skills-drawer-kpis .stat .v{font-size:17px}
-  .skills-drawer-section{border-top:1px solid var(--line);padding:12px 0}.skills-drawer-section b{display:block;margin-bottom:8px}.skills-drawer-section p{margin:4px 0;color:var(--muted);font-size:12px}
+  .skills-drawer-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}.skills-drawer-kpis .stat{min-width:0;padding:10px;background:var(--solid-elev2)}.skills-drawer-kpis .stat .v{font-size:17px}
+  .skills-drawer-section{min-width:0;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--solid-elev2)}.skills-drawer-section b{display:block;margin-bottom:8px}.skills-drawer-section p{margin:4px 0;color:var(--muted);font-size:12px}
   .skills-drawer-section p.danger{color:var(--err)}
+  .skills-drawer .empty{background:var(--solid-elev2);border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
+  .skills-drawer .chart-box,.skills-drawer .detail-trend-box{max-width:100%;min-width:0;background:var(--solid-elev);border:1px solid var(--line);border-radius:8px}
+  .skills-drawer .detail-trend-box>svg{width:auto}
   .skills-funnel{padding:14px 16px}.skills-funnel>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}.skills-funnel>summary span{color:var(--muted);font-size:12px}
   .empty.compact{padding:18px}
 
