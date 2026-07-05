@@ -176,9 +176,11 @@
   按人视角问题线索换为 operator 使用信号,至少包含活跃率、人均 skill、Top3 集中度、runtime 覆盖和活跃操作员数;
   使用信号同样只展示当前事实值和 icon 证据入口,不得显示「看操作员名单」「看 runtime 分布」等可见动作文案。
 - 主分析区按当前时间窗口长度切换布局:短窗口(`today`、`this_week`、`last_week`、`7d`、`14d`、有效 `custom<=14天`)
-  在桌面 `>1080px` 下使排行 Bar/操作员排行与每日使用趋势图左右并列并占满整宽;长窗口(`30d`、`90d`、有效 `custom>14天`)
+  在桌面 `>1080px` 下使排行 Bar/操作员排行与每日使用趋势图左右并列并占满整宽,同排两张卡片外框底边须对齐;长窗口(`30d`、`90d`、有效 `custom>14天`)
   在桌面 `>1080px` 下使排行 Bar/操作员排行独占一行、每日使用趋势图独占下一行。按 Skill 视角排行 Bar 显示 Top N +
-  长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;点行设置全局 `sel`,再点取消,并与每日使用趋势图和 Donut 联动。
+  长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;排行长 skill 名在桌面默认可读,不得只依赖 hover/title,
+  窄屏下不得造成根级横滚或与数值、记录动作、条形轨道重叠,必要时用换行、软断行、`title`/`aria-label` 或行详情提供完整可读路径;
+  点行设置全局 `sel`,再点取消,并与每日使用趋势图和 Donut 联动。
   按人视角主分析区显示操作员排行表并继续下钻 `/operator/:name`,不得新增与行跳转冲突的选中态;排行和趋势图继承当前
   `w/days` 以及定义证据范围的 `runtime/source`,但不得继承 skill 搜索词、Skill Top N、隐藏 0 使用或选中 skill。趋势图展示当前筛选后的 operator 分布。
 - 按 Skill 视角待处理线索为独立治理行,3 组固定顺序:有使用但未收录、装了当前时间窗内没用、收录但零装机。每一组必须呈现为独立区块;
@@ -268,6 +270,7 @@
   并默认显示最新日期。页面根不得因趋势图横向滚动。
 - `/skills` 的排行 Bar、Skill 明细表和按人主榜在手机下须从桌面表格/横条压缩为摘要行或单列条:
   首行展示主语名称与来源/占比,后续行展示当前时间窗、上期、Δ%、用户/会话、最近使用日等关键指标。
+  排行 Bar 摘要行中的长 skill 名必须允许断行或保留完整可读路径,数值、记录动作和条形轨道不得重叠。
   Skill 明细整行可点打开抽屉且键盘可达;按人主榜整行可点进入 `/operator/:name` 且键盘可达。
 - `/skill/:name` 与 `/operator/:name` 的指标卡在平板下应压缩为 3-4 列,手机下为 2 列;
   数字和标签不得重叠或溢出卡片。`/skill/:name` 的 runtime/operator 分布区在平板和手机下为单列。
@@ -361,11 +364,21 @@
 - 1440x900 打开 `/skills?view=skill&w=7d&topn=8` → 显示「近 7 天变化」8 格、问题线索 5 项;
   主分析区中排行 Bar 与每日使用趋势图左右并列,每日使用填满右侧面板;待处理线索位于其下一行且每类为独立区块;
   下方还有两张 Donut、明细表和下沉漏斗。
+- 固定 `/api/skills?w=7d` fixture 让 `openspec-driven-development` 成为榜首,1440x900 打开 `/skills?w=7d` →
+  使用排行首行默认可见文本完整包含 `openspec-driven-development`,不能只靠 `title` 或 `aria-label` 才能读到。
+- 固定同一 fixture,1440x900 打开 `/skills?w=7d` → `.skills-rank-panel` 与 `.skills-trend-panel` 外框
+  `getBoundingClientRect().bottom` 差值不超过 `4px`;1280x800 截图作为防回归记录。
+- 固定同一 fixture,375x812 打开 `/skills` → `document.scrollingElement.scrollWidth <= clientWidth`,
+  排行首行名称、数值、记录动作和条形轨道 bounding box 不重叠;若可见文本截断,完整名称存在于 `title`、`aria-label` 或行详情。
+- 将榜首替换为 `openspec-driven-development-with-extra-long-suffix-0123456789`,375x812 与 600px 宽度打开 `/skills?w=7d` →
+  页面根无横向滚动,关键元素不重叠,且完整名称有可读路径。
+- 1081x800 打开 `/skills?w=7d` → 仍按桌面短窗口左右布局且页面根不溢出;1080x800 打开同 URL →
+  降级为单列,不得保留造成空白或横滚的等高副作用。
 - 1280x800 打开 `/skills?view=skill&w=14d` → 主分析区仍为排行 Bar/每日使用左右布局,每日使用填满右侧面板,不出现右侧窄条或大面积空白。
 - 1440x900 打开 `/skills?view=skill&w=30d` → 排行 Bar 独占一行,每日使用趋势图在其下方独占一行,待处理线索再下一行独立呈现。
 - 1440x900 打开 `/skills?view=skill&w=90d` → 每日使用趋势图全宽区域内部横向滚动,默认显示最新日期,页面根无横向滚动。
 - 1440x900 打开 `/skills?view=operator&w=7d` → 操作员排行与每日使用按短窗口规则左右布局;点击操作员排行行进入 `/operator/:name`;
-  待处理线索独立行不拦截行跳转。
+  待处理线索独立行不拦截行跳转;排行与趋势图正常渲染,短窗口等高样式不得破坏行点击/键盘下钻。
 - `/skills?view=skill&w=7d` 首屏不显示旧 KPI / 健康评分语义文案。
 - `/skills?view=skill&w=7d` 的摘要格不得直接渲染 `openspec-driven-development / tranfu-website-design / strategy-first-development` 这类长 skill 串。
 - `/skills` 问题线索卡不出现 `openspec-driven-development`、`figma-implement-d`、`coolify-deploy` 等具体 skill 名;
