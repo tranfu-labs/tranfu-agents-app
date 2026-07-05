@@ -4,6 +4,7 @@ import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import type { SkillDetail, SkillTableRow } from '../../lib/types'
 import { encodePathParam, sourceLabel } from '../../lib/utils'
 import { windowTriggersLabel } from '../../lib/skillsPresentation'
+import { canonicalSkillsSearch } from '../../lib/skillsEvidence'
 
 async function fetchSkill(name: string) {
   const response = await fetch(`/api/skill/${encodeURIComponent(name)}`, { cache: 'no-store' })
@@ -16,7 +17,8 @@ export function SkillDrawer({ name, row, search, onClose, t }: { name: string; r
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [error, setError] = useState('')
   const [trendDays, setTrendDays] = useState(30)
-  const windowKey = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('w') || '7d'
+  const canonicalSearch = canonicalSkillsSearch(search)
+  const windowKey = new URLSearchParams(canonicalSearch.startsWith('?') ? canonicalSearch.slice(1) : canonicalSearch).get('w') || '7d'
   useEffect(() => {
     let cancelled = false
     setDetail(cache.current.get(name) || null)
@@ -38,7 +40,7 @@ export function SkillDrawer({ name, row, search, onClose, t }: { name: string; r
         <div className="skills-drawer-head">
           <div><b>{name}</b>{detail?.source ? <span className="source-pill">{sourceLabel(detail.source, t)}</span> : null}</div>
           <div>
-            <a className="token-link-btn" href={`/skill/${encodePathParam(name)}${search}`}>前往详情页 →</a>
+            <a className="token-link-btn" href={`/skill/${encodePathParam(name)}${canonicalSearch}`}>前往详情页 →</a>
             <button type="button" className="token-link-btn" onClick={onClose}>×</button>
           </div>
         </div>

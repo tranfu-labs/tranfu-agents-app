@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clueApiSearch, cluePath, evidencePath, evidenceSearch, legacyEvidenceCluePath, publishedSkillsPath, publishedSkillsSearch, skillsBackSearch } from './skillsEvidence.ts'
+import { canonicalSkillsSearch, clueApiSearch, cluePath, evidencePath, evidenceSearch, legacyEvidenceCluePath, publishedSkillsPath, publishedSkillsSearch, skillsBackSearch } from './skillsEvidence.ts'
 
 test('evidenceSearch defaults skills window to 7d', () => {
   assert.equal(evidenceSearch('', 'total'), '?w=7d&kind=total')
@@ -36,7 +36,24 @@ test('evidencePath routes governance clues to canonical clue pages', () => {
 
 test('published skill links inherit window and company source filters', () => {
   assert.equal(publishedSkillsPath('?w=14d&src=own&rt=codex&q=figma'), '/skills/new?w=14d&q=figma&src=own')
-  assert.equal(publishedSkillsSearch('?win=30&src=external'), '?win=30&w=30d')
+  assert.equal(publishedSkillsSearch('?win=30&src=external'), '?w=30d')
+})
+
+test('skill links output canonical w and drop legacy win', () => {
+  assert.equal(canonicalSkillsSearch('?w=14d&win=30&rt=codex'), '?w=14d&rt=codex')
+  const evidence = new URLSearchParams(evidenceSearch('?w=14d&win=30&src=own', 'total').slice(1))
+  assert.equal(evidence.get('w'), '14d')
+  assert.equal(evidence.get('src'), 'own')
+  assert.equal(evidence.get('kind'), 'total')
+  assert.equal(evidence.has('win'), false)
+  assert.equal(cluePath('?w=14d&win=30&src=own', 'untracked'), '/skills/clues/untracked?w=14d&src=non_catalog')
+  assert.equal(publishedSkillsPath('?w=14d&win=30&q=figma'), '/skills/new?w=14d&q=figma')
+  assert.equal(skillsBackSearch('?w=14d&win=30&kind=total&skill=figma'), '?w=14d')
+})
+
+test('total evidence and newly published skill KPI paths stay semantically distinct', () => {
+  assert.equal(evidencePath('?w=7d', 'total'), '/skills/evidence?w=7d&kind=total')
+  assert.equal(publishedSkillsPath('?w=7d'), '/skills/new?w=7d')
 })
 
 test('clue api search converts canonical clue pages back to evidence API kinds', () => {

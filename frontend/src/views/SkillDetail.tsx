@@ -4,11 +4,12 @@ import { Empty } from '../components/Common'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillDetail as SkillDetailPayload } from '../lib/types'
 import { RT, sourceLabel } from '../lib/utils'
+import { canonicalSkillsSearch } from '../lib/skillsEvidence'
 
 export function SkillDetailView({ data, loading, error, lang, t }: { data: SkillDetailPayload | null; loading: boolean; error: string; lang: Lang; t: (key: string) => string }) {
   const params = useParams()
   const location = useLocation()
-  const back = `/skills${location.search}`
+  const back = `/skills${canonicalSkillsSearch(location.search)}`
   if (loading && !data) {
     return (
       <div className="skill-detail-page">
