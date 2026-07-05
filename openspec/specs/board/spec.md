@@ -204,6 +204,13 @@
   (`total`、`untracked`、`runtime`、`source`、`top3`、`coverage`、`operators`、`avg_per_session`)默认停在「原始记录」,
   1440x900 第一屏必须露出 records 表头和前几行;无 raw records 的 evidence kind (`idle`、`unused_ratio`、`zero_install`)默认停在「名单」,
   1440x900 第一屏必须露出名单表表头和前几行。
+  raw records 不得只停在 `/api/skills/evidence` 首批默认 `limit=100`;当前筛选下全部 records 必须能通过显式加载更多入口继续访问。
+  加载更多入口必须是标准可聚焦控件,支持 Tab 聚焦和 Enter / Space 触发;页面必须展示已加载数量与当前筛选下可访问总量,
+  例如 `100 / 367`。加载更多请求必须保留当前 evidence URL 的筛选语义,只追加或覆盖 `limit` 与 `offset`;不得改变
+  `kind/w/wstart/wend/q/rt/src/skill/operator` 等筛选条件。加载失败、超时或网络永久 pending 时,页面必须保留已加载记录并提供可聚焦重试入口;
+  慢响应在筛选 URL 变化后返回时必须被丢弃或取消,不得追加到新筛选列表。重试必须复用失败批次的同一筛选参数和同一 `offset`;
+  连续加载完成时必须能以唯一记录数证明全部 records 可达。服务端返回总量在加载期间变化时,页面必须用最新总量和已加载唯一数重新计算入口或完成态,
+  不得出现“已加载数小于总量但没有加载或重试入口”的状态。
   摘要不得固定渲染 `RECORDS / SKILLS / OPERATORS / SESSIONS / UNTRACKED / COMPANY` KPI cards,必须按 kind 收敛为上下文句。
   `kind=total` 的未收录数量必须作为总证据摘要里的上下文切片展示,例如 `其中 N 条来自未收录 skill`,
   并能跳转到保留当前窗口和筛选语义的 `kind=untracked`;不得单独以 `UNTRACKED N` 指标卡形式站着。
@@ -383,6 +390,14 @@
 - `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过当前时间窗变化、问题线索和待处理线索 A 组呈现。
 - 1440x900 打开 `/skills/evidence?kind=total&w=7d` → 第一屏露出 records 表头和前几行;摘要包含
   `其中 N 条来自未收录 skill` 上下文切片,且该切片可跳转到 `/skills/evidence?kind=untracked&w=7d...`。
+- `/skills/evidence?kind=total&w=7d` 当前筛选有 367 条 records 且首批返回 100 条 → 页面显示 `100 / 367`
+  或等价已加载/总量信息,并提供可 Tab 聚焦、Enter / Space 可触发的加载更多入口;连续加载完成后测试能统计到
+  367 条唯一 records,顺序与服务端各页拼接顺序一致,页面显示完成态且不再暴露无效加载入口。
+- 加载下一批失败或超时 → 已加载的 100 条仍保留,用户可通过可聚焦重试入口继续请求同一筛选、同一 offset 的后续记录。
+- `offset=100` 的慢响应返回前用户切到另一个 `/skills/evidence` 筛选 URL → 旧响应不得追加到新筛选列表。
+- 加载过程中服务端总量从 367 变为 368 或 366 → 页面必须更新总量并保持可继续操作或明确完成,不得出现“还有更多但没有入口”的状态。
+- 刷新 `/skills/evidence?kind=total&w=7d&rt=codex&src=own` → 页面回到该 URL 对应首批记录,但仍显示同一筛选下的总量,
+  并能继续加载直到全部 records。
 - 1440x900 打开 `/skills/clues/untracked?w=7d&skill=coolify-deploy` → 第一屏先露 Top Operators,operator 行显示
   `5/7 · 71%` 这类占比,且不显示 Top Skills。
 - 1440x900 打开 `/skills/clues/idle?w=7d&skill=write-spec` → 第一屏显示安装者名单,能看到安装该 skill 的 operator / agent / runtime,
