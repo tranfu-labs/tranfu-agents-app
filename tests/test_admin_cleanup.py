@@ -74,9 +74,14 @@ def test_preview_is_dry_run_and_token_mismatch_conflicts(client, app_mod):
     assert r.status_code == 409
 
 
-def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_mod):
+def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_mod, monkeypatch):
+    import server.routes.board as board
+
+    dirty = {"n": 0}
+    monkeypatch.setattr(board, "mark_state_dirty", lambda: dirty.__setitem__("n", dirty["n"] + 1))
     enable_admin(app_mod)
     ev(client, session_id="s1", status="done", skill="alpha", current_step="done")
+    dirty["n"] = 0
 
     targets = [{"session_ids": ["s1"]}]
     p = preview(client, targets)
@@ -88,6 +93,7 @@ def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_m
     assert skill_first_day(app_mod, "alpha") is None
     assert client.get("/api/skill/alpha").status_code == 404
     assert client.get("/api/admin/trash", headers=ADMIN_HEADERS).json()["trash"][0]["batch_id"] == batch_id
+    assert dirty["n"] == 1
 
     restored = client.post("/api/admin/restore", json={"batch_id": batch_id}, headers=ADMIN_HEADERS)
     assert restored.status_code == 200, restored.text
@@ -96,6 +102,7 @@ def test_delete_by_session_cascades_to_skills_and_restore_recovers(client, app_m
     assert table_count(app_mod, "events") == 1
     assert table_count(app_mod, "skill_uses") == 1
     assert client.get("/api/skill/alpha").status_code == 200
+    assert dirty["n"] == 2
 
 
 def test_restore_reports_key_conflicts_as_skipped(client, app_mod):
@@ -104,7 +111,7 @@ def test_restore_reports_key_conflicts_as_skipped(client, app_mod):
     targets = [{"session_ids": ["s1"]}]
     p = preview(client, targets)
     batch_id = delete_from_preview(client, targets, p).json()["batch_id"]
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = app_mod.stats_day()
     with app_mod.db() as conn:
         conn.execute("""INSERT INTO skill_uses(session_id,skill,mode,operator,runtime,day,first_seen)
           VALUES('s1','alpha','used','alice','codex',?,?)""",
@@ -135,8 +142,8 @@ def test_delete_by_skill_only_removes_skill_usage_not_events(client, app_mod):
 
 def test_skills_seen_first_day_recomputed_after_deleting_first_use(client, app_mod):
     enable_admin(app_mod)
-    old_day = (datetime.now(timezone.utc).date() - timedelta(days=10)).isoformat()
-    new_day = (datetime.now(timezone.utc).date() - timedelta(days=3)).isoformat()
+    old_day = (app_mod.stats_today() - timedelta(days=10)).isoformat()
+    new_day = (app_mod.stats_today() - timedelta(days=3)).isoformat()
     ev(client, session_id="old", status="done", skill="alpha", current_step="old")
     ev(client, session_id="new", status="done", skill="alpha", current_step="new")
     set_skill_day(app_mod, "old", "alpha", old_day)
@@ -184,7 +191,7 @@ def test_operator_delete_clears_profiles_and_identities_but_keeps_token_by_defau
 
 def _insert_event(app_mod, session_id, operator, runtime="codex", status="done",
                   parent_session_id=None, day=None):
-    day = day or datetime.now(timezone.utc).date().isoformat()
+    day = day or app_mod.stats_day()
     ts = f"{day}T12:00:00+00:00"
     with app_mod.db() as conn:
         conn.execute("""INSERT INTO events(ts,recv,day,last_seen,operator,runtime,
@@ -195,7 +202,7 @@ def _insert_event(app_mod, session_id, operator, runtime="codex", status="done",
 
 
 def _insert_skill_use(app_mod, session_id, skill, operator, mode="used", runtime="codex", day=None):
-    day = day or datetime.now(timezone.utc).date().isoformat()
+    day = day or app_mod.stats_day()
     with app_mod.db() as conn:
         conn.execute("""INSERT INTO skill_uses(session_id,skill,mode,operator,runtime,day,first_seen)
           VALUES(?,?,?,?,?,?,?)""",
@@ -293,7 +300,7 @@ def test_cascade_children_scopes_to_operator(client, app_mod):
 
 def test_inventory_and_delete_cover_orphan_skill_uses(client, app_mod):
     enable_admin(app_mod)
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = app_mod.stats_day()
     with app_mod.db() as conn:
         conn.execute("""INSERT INTO skill_uses(session_id,skill,mode,operator,runtime,day,first_seen)
           VALUES('orphan','alpha','used','ghost','codex',?,?)""",
@@ -379,7 +386,7 @@ def test_trash_prune_and_retention_prune_are_audited_without_trash(client, app_m
     assert trash == []
     assert table_count(app_mod, "admin_audit", "action='purge_trash'") == 1
 
-    old_day = (datetime.now(timezone.utc).date() - timedelta(days=120)).isoformat()
+    old_day = (app_mod.stats_today() - timedelta(days=120)).isoformat()
     with app_mod.db() as conn:
         conn.execute("""INSERT INTO events(ts,recv,day,last_seen,operator,runtime,session_id,status,source)
           VALUES(?,?,?,?,?,?,?,?,?)""",

@@ -4,6 +4,11 @@
 """
 import os
 
+import pytest
+from fastapi import HTTPException
+
+from server.routes import onboarding
+
 
 # ---- /shims/{path} 目录穿越拒绝 ------------------------------------------
 def test_shims_dotdot_returns_404(client):
@@ -73,6 +78,81 @@ def test_robots_txt_missing_returns_404(client, app_mod, monkeypatch):
     assert client.get("/robots.txt").status_code == 404
 
 
+def test_frontend_root_static_assets_support_get_and_head(client, app_mod, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_mod, "FRONTEND_DIST", str(tmp_path))
+    legacy_assets = {
+        "favicon.ico": (b"\x00\x00\x01\x00", "image/x-icon"),
+        "favicon-32x32.png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        "favicon-16x16.png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        "apple-touch-icon.png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        "manifest.json": (b"{}", "application/json"),
+    }
+    for filename, (content, _) in legacy_assets.items():
+        (tmp_path / filename).write_bytes(content)
+    (tmp_path / "favicon.svg").write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+    (tmp_path / "favicon-20260626.ico").write_bytes(b"\x00\x00\x01\x00")
+    versioned_pngs = (
+        "favicon-32x32-20260530.png",
+        "favicon-16x16-20260530.png",
+        "apple-touch-icon-20260530.png",
+        "android-chrome-192x192-20260530.png",
+        "android-chrome-512x512-20260530.png",
+    )
+    for filename in versioned_pngs:
+        (tmp_path / filename).write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "og-image-1200x630.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "theme-init.js").write_text("document.documentElement.dataset.theme='dark'", encoding="utf-8")
+
+    favicon = client.get("/favicon.svg")
+    assert favicon.status_code == 200
+    assert "image/svg+xml" in favicon.headers["content-type"]
+    assert "<svg" in favicon.text
+
+    for filename, (_, media) in legacy_assets.items():
+        asset = client.get(f"/{filename}")
+        assert asset.status_code == 200
+        assert media in asset.headers["content-type"]
+
+    ico_head = client.head("/favicon-20260626.ico")
+    assert ico_head.status_code == 200
+    assert "image/x-icon" in ico_head.headers["content-type"]
+    assert ico_head.content == b""
+
+    for filename in versioned_pngs:
+        asset = client.get(f"/{filename}")
+        assert asset.status_code == 200
+        assert "image/png" in asset.headers["content-type"]
+        assert asset.content.startswith(b"\x89PNG")
+
+    og_head = client.head("/og-image-1200x630.png")
+    assert og_head.status_code == 200
+    assert "image/png" in og_head.headers["content-type"]
+    assert og_head.content == b""
+
+    theme_init = client.get("/theme-init.js")
+    assert theme_init.status_code == 200
+    assert "text/javascript" in theme_init.headers["content-type"]
+    assert "dataset.theme" in theme_init.text
+
+    theme_init_head = client.head("/theme-init.js")
+    assert theme_init_head.status_code == 200
+    assert "text/javascript" in theme_init_head.headers["content-type"]
+    assert theme_init_head.content == b""
+
+    assert client.get("/favicon-20260529.ico").status_code == 404
+
+
+def test_frontend_root_static_rejects_non_whitelisted_name():
+    with pytest.raises(HTTPException) as exc:
+        onboarding._frontend_root_static("not-allowed.png")
+    assert exc.value.status_code == 404
+
+
+def test_frontend_root_static_missing_whitelisted_asset_returns_404(client, app_mod, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_mod, "FRONTEND_DIST", str(tmp_path))
+    assert client.get("/favicon.ico").status_code == 404
+
+
 # ---- /healthz -------------------------------------------------------------
 def test_healthz_is_ok_and_does_not_touch_db(client):
     r = client.get("/healthz")
@@ -85,6 +165,42 @@ def test_spa_fallback_serves_index_for_unknown_route(client):
     r = client.get("/some-deep-link")
     # 取决于 frontend/dist 是否构建;响应应为 200(SPA)或 404(无 build)
     assert r.status_code in (200, 404)
+
+
+def test_spa_fallback_serves_skills_deep_links(client, app_mod):
+    expected = 200 if os.path.exists(os.path.abspath(app_mod.FRONTEND_INDEX)) else 404
+    for path in (
+        "/skills?view=skill&lens=untracked",
+        "/skill/ghost-skill?lens=untracked",
+        "/operator/alice?view=operator&lens=untracked",
+    ):
+        r = client.get(path)
+        assert r.status_code == expected
+        if expected == 200:
+            assert '<div id="root"></div>' in r.text
+
+
+def test_spa_html_uses_no_cache(client, app_mod, monkeypatch, tmp_path):
+    index = tmp_path / "index.html"
+    index.write_text('<div id="root"></div>', encoding="utf-8")
+    monkeypatch.setattr(app_mod, "FRONTEND_INDEX", str(index))
+
+    r = client.get("/skills")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_cache_headers_for_fingerprinted_assets():
+    from starlette.responses import Response
+    from server.security import _cache_headers
+
+    resp = Response()
+    _cache_headers("/assets/index-abc123.js", resp)
+    assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    html = Response(media_type="text/html")
+    _cache_headers("/skills", html)
+    assert html.headers["cache-control"] == "no-cache"
 
 
 def test_spa_fallback_does_not_swallow_api_routes(client):

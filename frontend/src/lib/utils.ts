@@ -1,4 +1,5 @@
 import type { AgentSession, Lang } from './types'
+import { formatLocalTimestamp } from './timeFormat'
 
 export const RT: Record<string, string> = {
   'claude-code': 'Claude Code',
@@ -128,5 +129,5 @@ export function encodePathParam(value: string) {
 }
 
 export function fmtTs(iso?: string) {
-  return iso ? iso.slice(0, 19).replace('T', ' ') : ''
+  return formatLocalTimestamp(iso).label
 }

@@ -16,10 +16,13 @@ Read:
   GET  /api/state        snapshot the dashboard polls (sessions + profile +
                          computed quality + leverage + 90d activity)
   GET  /api/skills       SKILLS overview (skill and operator aggregates)
+  GET  /api/skills/evidence
+                         windowed evidence records/lists behind SKILLS signals
   GET  /api/skill/{name} single skill detail
   GET  /api/operator/{name}
                          single operator skill-usage detail
   GET  /api/agent/{key}  single agent detail (key = "operator::agentOrRuntime")
+  GET  /api/token-usage  read-only external token usage mirror
   GET  /api/admin/inventory
   POST /api/admin/preview
   DELETE /api/admin/data
@@ -100,6 +103,7 @@ _catalog_lock = threading.Lock()
 
 
 STATE_TTL_SECONDS = _env_float("TF_STATE_TTL", "1.5")
+HEARTBEAT_BATCH_SECONDS = _env_float("TF_HEARTBEAT_BATCH_SECONDS", "15")
 TRASH_DAYS = _env_int("TF_TRASH_DAYS", 30)
 ADMIN_MAX_ROWS = _env_int("TF_ADMIN_MAX_ROWS", 200)
 
@@ -124,7 +128,8 @@ from server.shim import _shim_target, _build_shim_manifest
 # DB schema / 迁移 / 共用工具(now_iso/_sha/_json/_clip/db/init_db)与保留策略
 # (_maybe_prune/_maybe_prune_trash)+ _audit 全部搬到 server.db。
 from server.db import (
-    now_iso, _sha, _json, _clip,
+    now_iso, now_utc, stats_now, stats_today, stats_day, stats_day_for,
+    _sha, _json, _clip,
     db, init_db, _ensure_skill_uses_schema,
     _audit, _maybe_prune, _maybe_prune_trash, _prune_state,
 )
@@ -166,9 +171,11 @@ from server.routes import ingest as _ingest_routes  # noqa: E402
 from server.routes import admin as _admin_routes  # noqa: E402
 from server.routes import board as _board_routes  # noqa: E402
 from server.routes import onboarding as _onboarding_routes  # noqa: E402
+from server.routes import token_usage as _token_usage_routes  # noqa: E402
 app.include_router(_ingest_routes.router)
 app.include_router(_admin_routes.router)
 app.include_router(_board_routes.router)
+app.include_router(_token_usage_routes.router)
 app.include_router(_onboarding_routes.router)
 
 # onboarding 命名空间 re-export(tests/test_onboarding.py 通过 _spa_index / spa_fallback 等读)。
@@ -181,9 +188,13 @@ from server.routes.onboarding import (  # noqa: E402,F401
 # conftest 兼容 re-export(必须在 board import 之后,使 app._state_cache_lock 与 board 内部同一对象)。
 from server.routes.board import (  # noqa: E402,F401
     _state_cache, _state_cache_lock,
+    mark_state_dirty,
     _snapshot, _state_compute_or_cache, metrics, leverage, skill_usage,
-    skills_overview, operator_detail_payload, skill_detail_payload,
-    state, skills_stats, skill_detail, operator_detail, agent_detail,
+    skills_overview, skills_evidence_payload, operator_detail_payload, skill_detail_payload,
+    state, state_stream, skills_stats, skills_evidence, skill_detail, operator_detail, agent_detail,
+)
+from server.routes.ingest import (  # noqa: E402,F401
+    _heartbeat_pending, _heartbeat_pending_lock, flush_heartbeat_batch,
 )
 
 # _day_cutoff 搬到 server.db(admin 与 board 共享)。

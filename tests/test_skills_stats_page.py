@@ -1,6 +1,9 @@
 from datetime import datetime, timezone, timedelta
 
+import pytest
+
 from conftest import ev
+from server.db import STATS_TZ
 
 
 CATALOG = [
@@ -30,7 +33,7 @@ def _clear_catalog(app_mod, error=None):
 
 
 def _set_skill_day(app_mod, session_id, skill, days_ago, mode="used"):
-    day = (datetime.now(timezone.utc).date() - timedelta(days=days_ago)).isoformat()
+    day = (app_mod.stats_today() - timedelta(days=days_ago)).isoformat()
     first_seen = f"{day}T12:00:00+00:00"
     with app_mod.db() as conn:
         conn.execute("""UPDATE skill_uses SET day=?, first_seen=?
@@ -38,6 +41,12 @@ def _set_skill_day(app_mod, session_id, skill, days_ago, mode="used"):
           (day, first_seen, session_id, skill, mode))
         conn.commit()
     return day
+
+
+def _published_at(app_mod, days_ago):
+    day = app_mod.stats_today() - timedelta(days=days_ago)
+    value = datetime(day.year, day.month, day.day, 12, 0, tzinfo=STATS_TZ)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _seed_skill_stats(client, app_mod):
@@ -58,6 +67,36 @@ def _seed_skill_stats(client, app_mod):
         "equipped": _set_skill_day(app_mod, "e-new", "alpha", 1, mode="equipped"),
     }
     return days
+
+
+def test_parse_catalog_payload_keeps_publish_metadata(app_mod):
+    data = app_mod._parse_catalog_payload({
+        "version": 1,
+        "generated_at": "2026-07-03T00:00:00Z",
+        "skills": [{
+            "name": "published-skill",
+            "type": "own",
+            "description": "published",
+            "version": "0.2.0",
+            "author": "alice",
+            "updated_at": "2026-07-03",
+            "published_at": "2026-07-03T09:04:22.000Z",
+            "path": "own-skills/published-skill",
+            "sha": "abc123",
+        }],
+    })
+    item = data["skills"][0]
+    assert item == {
+        "name": "published-skill",
+        "type": "own",
+        "description": "published",
+        "version": "0.2.0",
+        "author": "alice",
+        "updated_at": "2026-07-03",
+        "published_at": "2026-07-03T09:04:22.000Z",
+        "path": "own-skills/published-skill",
+        "sha": "abc123",
+    }
 
 
 def test_catalog_sync_success_then_failure_marks_old_cache_stale(client, app_mod, monkeypatch):
@@ -83,7 +122,7 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     days = _seed_skill_stats(client, app_mod)
 
     data = client.get("/api/skills?days=7").json()
-    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["today"] == app_mod.stats_day()
     assert data["catalog"]["available"] is True
     alpha = next(r for r in data["table"] if r["name"] == "alpha")
     assert alpha["source"] == "own"
@@ -103,6 +142,75 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     assert {x["name"] for x in data["funnel"]["installed"]} == {"alpha", "idle-own"}
     assert {x["name"] for x in data["funnel"]["used_30d"]} == {"alpha"}
     assert {x["name"] for x in data["funnel"]["idle"]} == {"idle-own"}
+
+
+def test_skills_overview_published_skills_include_unused_company_catalog(client, app_mod):
+    current_own = {
+        "name": "fresh-own",
+        "type": "own",
+        "description": "new own skill",
+        "version": "0.1.0",
+        "author": "alice",
+        "updated_at": app_mod.stats_day(),
+        "published_at": _published_at(app_mod, 1),
+        "path": "own-skills/fresh-own",
+        "sha": "own-sha",
+    }
+    current_meta = {
+        "name": "fresh-meta",
+        "type": "meta",
+        "description": "new meta skill",
+        "version": "0.2.0",
+        "author": "bob",
+        "updated_at": app_mod.stats_day(),
+        "published_at": _published_at(app_mod, 0),
+        "path": "meta-skills/fresh-meta",
+        "sha": "meta-sha",
+    }
+    previous_meta = {
+        "name": "previous-meta",
+        "type": "meta",
+        "description": "previous window",
+        "published_at": _published_at(app_mod, 9),
+    }
+    external = {
+        "name": "fresh-external",
+        "type": "external",
+        "description": "external",
+        "published_at": _published_at(app_mod, 1),
+    }
+    invalid = {
+        "name": "bad-published-at",
+        "type": "own",
+        "description": "invalid date",
+        "published_at": "not-a-date",
+    }
+    _set_catalog(app_mod, CATALOG + [current_own, current_meta, previous_meta, external, invalid])
+
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "fresh-own"}]})
+    ev(client, operator="alice", runtime="codex", session_id="fresh-meta-use",
+       skill="fresh-meta", current_step="fresh-meta-use")
+    used_day = _set_skill_day(app_mod, "fresh-meta-use", "fresh-meta", 1)
+
+    data = client.get("/api/skills?w=7d").json()
+    period = data["period_comparison"]
+    assert period["current_published_skill_count"] == 2
+    assert period["previous_published_skill_count"] == 1
+
+    published = {row["name"]: row for row in data["published_skills"]}
+    assert set(published) == {"fresh-own", "fresh-meta"}
+    assert published["fresh-own"]["source"] == "own"
+    assert published["fresh-own"]["version"] == "0.1.0"
+    assert published["fresh-own"]["author"] == "alice"
+    assert published["fresh-own"]["path"] == "own-skills/fresh-own"
+    assert published["fresh-own"]["sha"] == "own-sha"
+    assert published["fresh-own"]["installers"] == 1
+    assert published["fresh-own"]["window_sessions"] == 0
+    assert published["fresh-own"]["last_day"] is None
+    assert published["fresh-meta"]["source"] == "meta"
+    assert published["fresh-meta"]["window_sessions"] == 1
+    assert published["fresh-meta"]["last_day"] == used_day
 
 
 def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_mod):
@@ -140,11 +248,464 @@ def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_
     }
 
 
-def test_skills_overview_today_and_daily_window_use_server_utc(client, app_mod, monkeypatch):
+def test_skills_overview_operator_table_follows_window_runtime_and_source(client, app_mod):
+    _set_catalog(app_mod)
+
+    def report_many(operator, runtime, skill, count, prefix, days_ago):
+        for i in range(count):
+            sid = f"{prefix}-{i}"
+            ev(client, operator=operator, runtime=runtime, session_id=sid, skill=skill, current_step=sid)
+            _set_skill_day(app_mod, sid, skill, days_ago)
+
+    report_many("alice", "codex", "alpha", 3, "alice-current", 1)
+    report_many("alice", "codex", "alpha", 1, "alice-prev", 9)
+    report_many("bob", "codex", "alpha", 1, "bob-current", 1)
+    report_many("bob", "codex", "alpha", 10, "bob-history", 20)
+    report_many("chen", "codex", "beta", 2, "chen-external", 1)
+    report_many("dora", "hermes", "alpha", 4, "dora-runtime", 1)
+    report_many("", "codex", "alpha", 5, "blank-operator", 1)
+    ev(client, operator="erin", runtime="codex", session_id="equipped", skill="alpha",
+       skill_mode="equipped", current_step="equipped")
+    _set_skill_day(app_mod, "equipped", "alpha", 1, mode="equipped")
+
+    data7 = client.get("/api/skills?w=7d").json()
+    assert [row["operator"] for row in data7["operator_table"]] == ["dora", "alice", "chen", "bob"]
+    assert next(row for row in data7["operator_table"] if row["operator"] == "alice")["sessions_window"] == 3
+    assert next(row for row in data7["operator_table"] if row["operator"] == "bob")["sessions_window"] == 1
+
+    data30 = client.get("/api/skills?w=30d").json()
+    assert data30["operator_table"][0]["operator"] == "bob"
+    assert data30["operator_table"][0]["sessions_window"] == 11
+
+    scoped = client.get("/api/skills?w=7d&rt=codex&src=own").json()
+    assert [row["operator"] for row in scoped["operator_table"]] == ["alice", "bob"]
+    alice = scoped["operator_table"][0]
+    assert alice["sessions_window"] == 3
+    assert alice["previous_sessions"] == 1
+    assert alice["sessions_30d"] == 4
+    assert alice["window_runtime_counts"] == {"codex": 3}
+    assert alice["window_source_counts"] == {"own": 3}
+    assert alice["window_skill_count"] == 1
+    assert {row["operator"] for row in scoped["operator_daily"]} == {"alice", "bob"}
+    assert {row["runtime"] for row in scoped["operator_daily"]} == {"codex"}
+    assert {row["source"] for row in scoped["operator_daily"]} == {"own"}
+
+
+def test_skills_overview_operator_rollup_keeps_distinct_session_count(client, app_mod):
+    _set_catalog(app_mod, CATALOG + [{"name": "gamma", "type": "own", "description": "second own skill"}])
+
+    ev(client, operator="alice", runtime="codex", session_id="shared", skill="alpha", current_step="shared-alpha")
+    ev(client, operator="alice", runtime="codex", session_id="shared", skill="gamma", current_step="shared-gamma")
+    ev(client, operator="alice", runtime="codex", session_id="solo", skill="alpha", current_step="solo-alpha")
+    _set_skill_day(app_mod, "shared", "alpha", 1)
+    _set_skill_day(app_mod, "shared", "gamma", 1)
+    _set_skill_day(app_mod, "solo", "alpha", 1)
+
+    data = client.get("/api/skills?w=7d").json()
+    alice = next(row for row in data["operator_table"] if row["operator"] == "alice")
+    assert alice["sessions_window"] == 3
+    assert alice["sessions_total"] == 3
+    assert alice["session_count"] == 2
+    assert alice["skill_count"] == 2
+    assert alice["window_skill_count"] == 2
+
+    scoped = client.get("/api/skills?w=7d&rt=codex&src=own").json()
+    scoped_alice = next(row for row in scoped["operator_table"] if row["operator"] == "alice")
+    assert scoped_alice["sessions_window"] == 3
+    assert scoped_alice["session_count"] == 2
+    assert sum(row["sessions"] for row in scoped["operator_daily"] if row["operator"] == "alice") == 3
+
+
+def test_skill_uses_has_skills_overview_query_indexes(app_mod):
+    with app_mod.db() as conn:
+        indexes = {row["name"] for row in conn.execute("PRAGMA index_list(skill_uses)")}
+    assert {
+        "idx_skill_uses_mode_day_skill_runtime_operator",
+        "idx_skill_uses_mode_operator_day_skill_runtime_session",
+        "idx_skill_uses_mode_skill_day_operator_runtime",
+    } <= indexes
+
+
+def test_skills_overview_new_scope_uses_first_used_day_and_operator_contribution(client, app_mod):
+    _set_catalog(app_mod)
+
+    ev(client, operator="alice", runtime="codex", session_id="new-a", skill="fresh", current_step="new-a")
+    ev(client, operator="bob", runtime="claude-code", session_id="new-b", skill="fresh", current_step="new-b")
+    ev(client, operator="chen", runtime="codex", session_id="old-first", skill="old-but-active", current_step="old-first")
+    ev(client, operator="chen", runtime="codex", session_id="old-current", skill="old-but-active", current_step="old-current")
+    ev(client, operator="dora", runtime="codex", session_id="equipped", skill="equipped-only",
+       skill_mode="equipped", current_step="equipped")
+    _set_skill_day(app_mod, "new-a", "fresh", 1)
+    _set_skill_day(app_mod, "new-b", "fresh", 1)
+    _set_skill_day(app_mod, "old-first", "old-but-active", 9)
+    _set_skill_day(app_mod, "old-current", "old-but-active", 1)
+    _set_skill_day(app_mod, "equipped", "equipped-only", 1, mode="equipped")
+
+    data = client.get("/api/skills?w=7d&scope=new").json()
+    assert data["scope"] == "new"
+    assert data["new_skill_count"] == 1
+    assert [row["name"] for row in data["table"]] == ["fresh"]
+    fresh = data["table"][0]
+    assert fresh["sessions_window"] == 2
+    assert fresh["previous_sessions"] == 0
+    assert {row["skill"] for row in data["daily"]} == {"fresh"}
+    assert {row["operator"] for row in data["operator_table"]} == {"alice", "bob"}
+    assert {row["operator"] for row in data["operator_daily"]} == {"alice", "bob"}
+    assert data["period_comparison"]["current_sessions"] == 2
+    assert data["period_comparison"]["previous_sessions"] == 0
+    assert {row["runtime"]: row["sessions"] for row in data["attribution"]["by_runtime"]} == {
+        "claude-code": 1,
+        "codex": 1,
+    }
+
+    all_data = client.get("/api/skills?w=7d").json()
+    assert {row["name"] for row in all_data["table"]} >= {"fresh", "old-but-active"}
+
+
+def test_skills_overview_rejects_invalid_scope(client):
+    assert client.get("/api/skills?w=7d&scope=weird").status_code == 400
+
+
+def test_skills_overview_governance_untracked_usage_is_windowed_used_only(client, app_mod):
+    _set_catalog(app_mod)
+
+    def report_many(skill, count, prefix, days_ago=1, mode="used", operators=None, runtimes=None):
+        operators = operators or ["alice"]
+        runtimes = runtimes or ["codex"]
+        for i in range(count):
+            sid = f"{prefix}-{i}"
+            ev(client, operator=operators[i % len(operators)], runtime=runtimes[i % len(runtimes)],
+               session_id=sid, skill=skill, skill_mode=mode, current_step=sid)
+            _set_skill_day(app_mod, sid, skill, days_ago, mode=mode)
+
+    report_many("alpha", 6, "own")                      # own catalog skill
+    report_many("beta", 2, "external")                  # catalog external, not untracked
+    report_many("ghost-a", 3, "ghost-a", operators=["alice", "bob", "chen"],
+                runtimes=["codex", "claude-code"])
+    report_many("ghost-b", 1, "ghost-b")
+    report_many("ghost-equipped", 3, "ghost-equipped", mode="equipped")
+    report_many("ghost-old", 2, "ghost-old", days_ago=20)
+
+    data7 = client.get("/api/skills?days=7").json()["governance"]["untracked_usage"]
+    assert data7["total_sessions"] == 12
+    assert data7["used_sessions"] == 4
+    assert data7["skill_count"] == 2
+    assert data7["ratio"] == pytest.approx(4 / 12)
+    assert [row["name"] for row in data7["top"]] == ["ghost-a", "ghost-b"]
+    assert data7["top"][0]["source"] == "非公司库"
+    assert data7["top"][0]["sessions"] == 3
+    assert data7["top"][0]["share"] == pytest.approx(3 / 12)
+    assert data7["top"][0]["users_30d"] == 3
+    assert data7["top"][0]["runtime_counts"] == {"claude-code": 1, "codex": 2}
+    assert len(data7["top"][0]["trend_days"]) == 14
+    assert len(data7["top"][0]["trend_14d"]) == 14
+    assert sum(data7["top"][0]["trend_14d"]) == 3
+    assert "beta" not in {row["name"] for row in data7["top"]}
+    assert "ghost-equipped" not in {row["name"] for row in data7["top"]}
+
+    data30 = client.get("/api/skills?days=30").json()["governance"]["untracked_usage"]
+    assert data30["total_sessions"] == 14
+    assert data30["used_sessions"] == 6
+    assert data30["ratio"] == pytest.approx(6 / 14)
+    assert [row["name"] for row in data30["top"]] == ["ghost-a", "ghost-old", "ghost-b"]
+
+
+def test_skills_overview_governance_empty_and_tie_sort(client, app_mod):
+    _set_catalog(app_mod)
+    empty = client.get("/api/skills?days=7").json()["governance"]["untracked_usage"]
+    assert empty == {
+        "ratio": 0,
+        "used_sessions": 0,
+        "total_sessions": 0,
+        "skill_count": 0,
+        "top": [],
+    }
+
+    ev(client, operator="alice", runtime="codex", session_id="older", skill="ghost-older", current_step="older")
+    ev(client, operator="alice", runtime="codex", session_id="newer", skill="ghost-newer", current_step="newer")
+    old_day = _set_skill_day(app_mod, "older", "ghost-older", 2)
+    new_day = _set_skill_day(app_mod, "newer", "ghost-newer", 0)
+
+    data = client.get("/api/skills?days=7").json()["governance"]["untracked_usage"]
+    assert data["total_sessions"] == 2
+    assert data["used_sessions"] == 2
+    assert data["ratio"] == 1
+    assert [(row["name"], row["last_day"]) for row in data["top"]] == [
+        ("ghost-newer", new_day),
+        ("ghost-older", old_day),
+    ]
+
+
+def test_skills_evidence_total_and_untracked_records_are_windowed_used_only(client, app_mod):
+    _set_catalog(app_mod)
+
+    def report_many(skill, count, prefix, mode="used"):
+        for i in range(count):
+            sid = f"{prefix}-{i}"
+            ev(client, operator=f"op-{i % 2}", runtime="codex", session_id=sid,
+               skill=skill, skill_mode=mode, current_step=sid)
+            _set_skill_day(app_mod, sid, skill, 1, mode=mode)
+
+    report_many("alpha", 2, "own")
+    report_many("beta", 1, "external")
+    report_many("ghost", 3, "ghost")
+    report_many("ghost", 2, "equipped", mode="equipped")
+
+    overview = client.get("/api/skills?w=7d").json()
+    total = client.get("/api/skills/evidence?kind=total&w=7d").json()
+    assert total["summary"]["records"] == overview["period_comparison"]["current_sessions"] == 6
+    assert total["summary"]["skills"] == 3
+    assert total["summary"]["untracked_records"] == 3
+    assert total["summary"]["external_records"] == 1
+    assert {row["skill"] for row in total["records"]} == {"alpha", "beta", "ghost"}
+    assert all(row["skill"] != "ghost" or row["source"] == "非公司库" for row in total["records"])
+
+    untracked = client.get("/api/skills/evidence?kind=untracked&w=7d").json()
+    assert untracked["summary"]["records"] == 3
+    assert {row["skill"] for row in untracked["records"]} == {"ghost"}
+    assert {row["source"] for row in untracked["records"]} == {"非公司库"}
+    assert "beta" not in {row["skill"] for row in untracked["records"]}
+
+
+def test_skills_evidence_untracked_ignores_conflicting_source_filter(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="own", skill="alpha", current_step="own")
+    ev(client, operator="bob", runtime="codex", session_id="ghost", skill="ghost", current_step="ghost")
+    _set_skill_day(app_mod, "own", "alpha", 1)
+    _set_skill_day(app_mod, "ghost", "ghost", 1)
+
+    data = client.get("/api/skills/evidence?kind=untracked&w=7d&src=own").json()
+    assert data["summary"]["records"] == 1
+    assert data["records"][0]["skill"] == "ghost"
+    assert data["applied_filters"]["src"] == "non_catalog"
+    assert data["ignored_filters"] == [{
+        "name": "src",
+        "value": "own",
+        "reason": "kind_untracked_forces_non_catalog",
+    }]
+
+
+def test_skills_evidence_filters_affect_records_and_groups(client, app_mod):
+    _set_catalog(app_mod)
+    rows = [
+        ("keep", "alice", "codex", "alpha"),
+        ("operator-out", "bob", "codex", "alpha"),
+        ("runtime-out", "alice", "hermes", "alpha"),
+        ("skill-out", "alice", "codex", "ghost"),
+    ]
+    for session_id, operator, runtime, skill in rows:
+        ev(client, operator=operator, runtime=runtime, session_id=session_id,
+           skill=skill, current_step=session_id)
+        _set_skill_day(app_mod, session_id, skill, 1)
+
+    data = client.get(
+        "/api/skills/evidence?kind=total&w=7d&q=alp&rt=codex&src=own&skill=alpha&operator=alice"
+    ).json()
+    assert data["summary"]["records"] == 1
+    assert data["records"][0]["session_id"] == "keep"
+    assert data["records"][0]["skill"] == "alpha"
+    assert data["records"][0]["operator"] == "alice"
+    assert data["records"][0]["runtime"] == "codex"
+    assert [(row["name"], row["records"]) for row in data["top_skills"]] == [("alpha", 1)]
+    assert [(row["operator"], row["records"]) for row in data["top_operators"]] == [("alice", 1)]
+    assert data["applied_filters"]["q"] == "alp"
+    assert data["applied_filters"]["rt"] == "codex"
+    assert data["applied_filters"]["src"] == "own"
+    assert data["applied_filters"]["skill"] == "alpha"
+    assert data["applied_filters"]["operator"] == "alice"
+
+
+def test_skills_evidence_idle_returns_installed_unused_items(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="alpha", skill="alpha", current_step="alpha")
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+    _set_skill_day(app_mod, "alpha", "alpha", 1)
+
+    data = client.get("/api/skills/evidence?kind=idle&w=7d").json()
+    assert data["summary"]["records"] == 0
+    assert data["summary"]["items"] == 1
+    assert data["summary"]["installed"] == 2
+    assert data["records"] == []
+    assert [item["name"] for item in data["items"]] == ["idle-own"]
+    assert data["items"][0]["installers"] == 1
+    assert data["items"][0]["installers_detail"] == [{
+        "operator": "zoe",
+        "agent_key": "code",
+        "runtime": "codex",
+        "profile_updated_at": data["items"][0]["installers_detail"][0]["profile_updated_at"],
+    }]
+    assert data["items"][0]["installers_detail"][0]["profile_updated_at"]
+
+    zero = client.get("/api/skills/evidence?kind=zero_install&w=7d").json()
+    assert zero["summary"]["records"] == 0
+    assert zero["summary"]["items"] == 1
+    assert [item["name"] for item in zero["items"]] == ["meta-tool"]
+    assert zero["items"][0]["installers"] == 0
+    assert zero["items"][0]["installers_detail"] == []
+
+
+def test_skills_evidence_idle_installer_details_respect_skill_filter(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="wing", runtime="claude-code", agent="claude", session_id="profile-a",
+       current_step="profile-a", skills={"local": [{"name": "idle-own"}]})
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile-b",
+       current_step="profile-b", skills={"local": [{"name": "idle-own"}]})
+
+    data = client.get("/api/skills/evidence?kind=idle&w=7d&skill=idle-own").json()
+    assert data["summary"]["items"] == 1
+    assert data["items"][0]["name"] == "idle-own"
+    assert data["items"][0]["installers"] == 2
+    assert [
+        (item["operator"], item["agent_key"], item["runtime"])
+        for item in data["items"][0]["installers_detail"]
+    ] == [
+        ("wing", "claude", "claude-code"),
+        ("zoe", "code", "codex"),
+    ]
+
+
+def test_skills_evidence_rejects_invalid_kind_and_limit(client):
+    assert client.get("/api/skills/evidence?kind=nope").status_code == 400
+    assert client.get("/api/skills/evidence?limit=0").status_code == 400
+    assert client.get("/api/skills/evidence?offset=-1").status_code == 400
+
+
+def test_skills_overview_etag_revalidates_same_query_and_changes_on_data(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="etag-a", skill="alpha", current_step="etag-a")
+    _set_skill_day(app_mod, "etag-a", "alpha", 1)
+
+    first = client.get("/api/skills?w=7d")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+
+    second = client.get("/api/skills?w=7d", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.content == b""
+
+    different_query = client.get("/api/skills?w=14d", headers={"If-None-Match": etag})
+    assert different_query.status_code == 200
+
+    ev(client, operator="bob", runtime="codex", session_id="etag-b", skill="beta", current_step="etag-b")
+    _set_skill_day(app_mod, "etag-b", "beta", 1)
+    changed = client.get("/api/skills?w=7d", headers={"If-None-Match": etag})
+    assert changed.status_code == 200
+    assert changed.headers["etag"] != etag
+    assert "beta" in {row["name"] for row in changed.json()["table"]}
+
+
+def test_skills_evidence_etag_revalidates_same_query(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="ev-etag", skill="alpha", current_step="ev-etag")
+    _set_skill_day(app_mod, "ev-etag", "alpha", 1)
+
+    first = client.get("/api/skills/evidence?kind=total&w=7d")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+
+    second = client.get("/api/skills/evidence?kind=total&w=7d", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.content == b""
+
+
+def test_skills_overview_dashboard_optional_aggregates(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="cur-a", skill="alpha", current_step="cur-a")
+    ev(client, operator="bob", runtime="claude-code", session_id="cur-b", skill="ghost", current_step="cur-b")
+    ev(client, operator="bob", runtime="hermes", session_id="cur-c", skill="ghost", current_step="cur-c")
+    ev(client, operator="alice", runtime="codex", session_id="prev-a", skill="alpha", current_step="prev-a")
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+    _set_skill_day(app_mod, "cur-a", "alpha", 1)
+    _set_skill_day(app_mod, "cur-b", "ghost", 1)
+    _set_skill_day(app_mod, "cur-c", "ghost", 1)
+    _set_skill_day(app_mod, "prev-a", "alpha", 9)
+
+    data = client.get("/api/skills?w=7d").json()
+    period = data["period_comparison"]
+    assert period["window"] == "7d"
+    assert period["current_sessions"] == 3
+    assert period["previous_sessions"] == 1
+    assert period["current_operators"] == 2
+    assert period["current_avg_skills_per_session"] == 1
+    assert period["current_top3_share"] == 1
+    assert period["current_untracked_share"] == pytest.approx(2 / 3)
+
+    attrs = data["attribution"]
+    assert {r["source"]: r["sessions"] for r in attrs["by_source"]} == {
+        "own": 1,
+        "meta": 0,
+        "external": 0,
+        "non_catalog": 2,
+    }
+    assert {r["runtime"]: r["sessions"] for r in attrs["by_runtime"]} == {
+        "claude-code": 1,
+        "codex": 1,
+        "hermes": 1,
+    }
+
+    assert data["governance"]["idle_installed"]["count"] == 1
+    assert data["governance"]["idle_installed"]["top"][0]["name"] == "idle-own"
+    assert "last_day" in data["governance"]["idle_installed"]["top"][0]
+    assert data["governance"]["cataloged_not_installed"]["count"] == 1
+    assert data["governance"]["cataloged_not_installed"]["top"][0]["name"] == "meta-tool"
+    alpha = next(row for row in data["table"] if row["name"] == "alpha")
+    assert alpha["sessions_window"] == 1
+    assert alpha["previous_sessions"] == 1
+
+
+def test_skills_overview_named_windows_use_explicit_date_ranges(client, app_mod):
+    _set_catalog(app_mod)
+    today = app_mod.stats_today()
+    last_week_days_ago = today.weekday() + 2
+    previous_week_days_ago = last_week_days_ago + 7
+
+    ev(client, operator="alice", runtime="codex", session_id="current", skill="alpha", current_step="current")
+    ev(client, operator="bob", runtime="codex", session_id="last-week", skill="beta", current_step="last")
+    ev(client, operator="chen", runtime="codex", session_id="previous-week", skill="ghost", current_step="previous")
+    _set_skill_day(app_mod, "current", "alpha", 0)
+    last_week_day = _set_skill_day(app_mod, "last-week", "beta", last_week_days_ago)
+    previous_week_day = _set_skill_day(app_mod, "previous-week", "ghost", previous_week_days_ago)
+
+    data = client.get("/api/skills?w=last_week").json()
+    assert {row["skill"] for row in data["daily"]} == {"beta"}
+    assert data["period_comparison"]["current_window_start"] <= last_week_day <= data["period_comparison"]["current_window_end"]
+    assert data["period_comparison"]["previous_window_start"] <= previous_week_day <= data["period_comparison"]["previous_window_end"]
+    assert data["period_comparison"]["current_sessions"] == 1
+    assert data["period_comparison"]["previous_sessions"] == 1
+    assert next(row for row in data["table"] if row["name"] == "beta")["sessions_window"] == 1
+    assert next(row for row in data["table"] if row["name"] == "alpha")["sessions_window"] == 0
+
+
+def test_skills_overview_custom_window_respects_start_and_end(client, app_mod):
+    _set_catalog(app_mod)
+    today = app_mod.stats_today()
+    window_day = today - timedelta(days=10)
+    outside_day = today - timedelta(days=8)
+
+    ev(client, operator="alice", runtime="codex", session_id="inside", skill="alpha", current_step="inside")
+    ev(client, operator="bob", runtime="codex", session_id="outside", skill="beta", current_step="outside")
+    _set_skill_day(app_mod, "inside", "alpha", 10)
+    _set_skill_day(app_mod, "outside", "beta", 8)
+
+    start = int(datetime(window_day.year, window_day.month, window_day.day, tzinfo=STATS_TZ).timestamp())
+    end = int((datetime(window_day.year, window_day.month, window_day.day, tzinfo=STATS_TZ) + timedelta(hours=23, minutes=59)).timestamp())
+    data = client.get(f"/api/skills?w=custom&wstart={start}&wend={end}").json()
+    assert data["window"]["start"] == window_day.isoformat()
+    assert data["window"]["end"] == window_day.isoformat()
+    assert {row["skill"] for row in data["daily"]} == {"alpha"}
+    assert next(row for row in data["table"] if row["name"] == "alpha")["sessions_window"] == 1
+    assert next(row for row in data["table"] if row["name"] == "beta")["sessions_window"] == 0
+
+
+def test_skills_overview_today_and_daily_window_use_shanghai_stats_day(client, app_mod, monkeypatch):
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            value = cls(2026, 6, 13, 0, 5, tzinfo=timezone.utc)
+            value = cls(2026, 6, 12, 16, 5, tzinfo=timezone.utc)
             return value if tz else value.replace(tzinfo=None)
 
     monkeypatch.setattr(app_mod, "datetime", FixedDatetime)
@@ -186,7 +747,7 @@ def test_skills_overview_empty_when_catalog_unavailable(client, app_mod):
 def test_skill_detail_keeps_used_and_equipped_separate(client, app_mod):
     days = _seed_skill_stats(client, app_mod)
     data = client.get("/api/skill/alpha").json()
-    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["today"] == app_mod.stats_day()
     assert data["source"] == "own"
     assert data["metrics"]["sessions_total"] == 3
     assert data["metrics"]["sessions_30d"] == 2
@@ -212,7 +773,7 @@ def test_operator_detail_used_only_skill_breakdown_and_recent_records(client, ap
     _set_skill_day(app_mod, "a-new", "meta-tool", 5, mode="equipped")
 
     data = client.get("/api/operator/alice").json()
-    assert data["today"] == datetime.now(timezone.utc).date().isoformat()
+    assert data["today"] == app_mod.stats_day()
     assert data["operator"] == "alice"
     assert data["metrics"] == {
         "sessions_7d": 2,

@@ -257,7 +257,91 @@ def scan_codex_skills(d):
 # prompt 字段是裸文本无 markup,所以必须在 Stop/SessionEnd 时去扫 transcript_path
 # 指向的那份 jsonl —— 与 scan_codex_skills 同构,只是来源不同。
 CLAUDE_SCAN_EVENTS = ("Stop", "SessionEnd")
-_CLAUDE_SLASH_RE = re.compile(r"<command-name>/?([\w-]{2,80})</command-name>")
+_CLAUDE_BUILTIN_SLASH = frozenset({
+    "add-dir",
+    "agents",
+    "bashes",
+    "bug",
+    "clear",
+    "compact",
+    "config",
+    "context",
+    "cost",
+    "doctor",
+    "exit",
+    "fast",
+    "help",
+    "hooks",
+    "ide",
+    "login",
+    "logout",
+    "mcp",
+    "memory",
+    "microphone",
+    "migrate-installer",
+    "model",
+    "output-style",
+    "permissions",
+    "pr-comments",
+    "pr_comments",
+    "quit",
+    "release-notes",
+    "resume",
+    "status",
+    "terminal-setup",
+    "usage",
+    "vim",
+})
+
+
+def _extract_user_command_name(line):
+    try:
+        row = json.loads(line)
+    except Exception:
+        return None
+    if not isinstance(row, dict) or row.get("type") != "user":
+        return None
+    message = row.get("message")
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    text = ""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                value = block.get("text")
+                if isinstance(value, str):
+                    text = value
+                break
+    stripped = text.lstrip()
+    if stripped.startswith("<command-name>"):
+        match = re.match(r"<command-name>(/?[\w:-]{1,80})</command-name>", stripped)
+        return match.group(1) if match else None
+    if not stripped.startswith("<command-message>"):
+        return None
+    match = re.match(
+        r"<command-message>[\s\S]{0,200}?</command-message>\s*"
+        r"<command-name>(/?[\w:-]{1,80})</command-name>",
+        stripped,
+    )
+    return match.group(1) if match else None
+
+
+def _normalize_skill_name(raw):
+    if not isinstance(raw, str):
+        return None
+    name = raw.lstrip("/").split(":", 1)[0]
+    if not name:
+        return None
+    if name.isdigit():
+        return None
+    if name.startswith(("-", "_")) or name.endswith(("-", "_")):
+        return None
+    if "--" in name:
+        return None
+    return name
 
 
 def scan_claude_skills(d):
@@ -281,18 +365,14 @@ def scan_claude_skills(d):
     try:
         with open(transcript, errors="replace") as f:
             for line in f:
-                for m in _CLAUDE_SLASH_RE.finditer(line):
-                    nm = m.group(1)
-                    if nm.isdigit():
-                        continue
-                    if nm.startswith(("-", "_")) or nm.endswith(("-", "_")):
-                        continue
-                    if "--" in nm:
-                        continue
-                    names.add(nm)
+                raw = _extract_user_command_name(line)
+                nm = _normalize_skill_name(raw)
+                if not nm or nm in _CLAUDE_BUILTIN_SLASH:
+                    continue
+                names.add(nm)
     except Exception:
         return
-    for nm in names:
+    for nm in sorted(names):
         _run_report(["--status", "done", "--step", f"skill: {nm}",
                      "--session", str(sid), "--skill", nm])
 

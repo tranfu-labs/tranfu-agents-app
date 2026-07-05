@@ -7,11 +7,13 @@
 """
 import json
 import secrets
+import threading
+import time
 from contextlib import closing
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from server.db import _audit, _clip, _maybe_prune, _sha, db, now_iso
+from server.db import _audit, _clip, _maybe_prune, _sha, db, now_iso, now_utc, stats_day_for
 from server.identity import canon_operator, verify_operator
 from server.profile import _skill_mode, _skill_names, _skill_use_name
 from server.security import (
@@ -20,6 +22,74 @@ from server.security import (
 )
 
 router = APIRouter()
+
+_heartbeat_pending_lock = threading.Lock()
+_heartbeat_pending = {}
+_heartbeat_thread_started = False
+
+
+def _mark_state_dirty():
+    from server.routes.board import mark_state_dirty
+    mark_state_dirty()
+
+
+def _heartbeat_batch_seconds():
+    from server import app
+    try:
+        return max(0.0, float(app.HEARTBEAT_BATCH_SECONDS))
+    except Exception:  # pragma: no cover
+        return 15.0
+
+
+def _start_heartbeat_flush_thread():
+    global _heartbeat_thread_started
+    with _heartbeat_pending_lock:
+        if _heartbeat_thread_started:
+            return
+        _heartbeat_thread_started = True
+    t = threading.Thread(target=_heartbeat_flush_loop, name="tf-heartbeat-flush", daemon=True)
+    t.start()
+
+
+def _heartbeat_flush_loop():
+    while True:
+        interval = _heartbeat_batch_seconds()
+        time.sleep(interval if interval > 0 else 1.0)
+        if interval > 0:
+            flush_heartbeat_batch()
+
+
+def _queue_heartbeat(event_id, last_seen):
+    if _heartbeat_batch_seconds() <= 0:
+        return False
+    _start_heartbeat_flush_thread()
+    with _heartbeat_pending_lock:
+        _heartbeat_pending[int(event_id)] = last_seen
+    return True
+
+
+def _drop_pending_heartbeat(event_id):
+    if event_id is None:
+        return
+    with _heartbeat_pending_lock:
+        _heartbeat_pending.pop(int(event_id), None)
+
+
+def flush_heartbeat_batch():
+    with _heartbeat_pending_lock:
+        batch = dict(_heartbeat_pending)
+        _heartbeat_pending.clear()
+    if not batch:
+        return 0
+    from server import app
+    with app._lock, closing(db()) as conn:
+        conn.executemany(
+            "UPDATE events SET last_seen=? WHERE id=?",
+            [(last_seen, event_id) for event_id, last_seen in sorted(batch.items())],
+        )
+        conn.commit()
+    _mark_state_dirty()
+    return len(batch)
 
 
 # ---------------------------------------------------------------- enroll (§4)
@@ -81,8 +151,10 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         if skill_name:
             return {"ok": True, "logged": False, "skill_ignored": True}
         raise HTTPException(400, "operator, runtime, session_id, status are required")
-    ts = e.get("ts") or now_iso()
-    recv = now_iso()                               # server-authoritative time (§6)
+    recv_dt = now_utc()                            # server-authoritative time (§6)
+    recv = recv_dt.isoformat()
+    day = stats_day_for(recv_dt)
+    ts = e.get("ts") or recv
     sid = e["session_id"]
     status, step = e["status"], e.get("current_step")
 
@@ -95,6 +167,7 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
     meta_json = _clip(json.dumps(e.get("meta"), ensure_ascii=False), MAX_META) if e.get("meta") else None
 
     with app._lock, closing(db()) as conn:
+        state_dirty = False
         # normalize identity: operator case/space-insensitive, runtime lowercased
         op = canon_operator(conn, e["operator"], recv)
         rt = (e["runtime"] or "").strip().lower()
@@ -104,21 +177,23 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         # Usage is processed before heartbeat dedup so a repeated tool step can
         # still record the first sighting of session×skill.
         if skill_name:
-            conn.execute("""INSERT OR IGNORE INTO skill_uses
+            if conn.execute("""INSERT OR IGNORE INTO skill_uses
               (session_id,skill,mode,operator,runtime,day,first_seen) VALUES(?,?,?,?,?,?,?)""",
-              (sid, skill_name, skill_mode, op, rt, recv[:10], recv))
+              (sid, skill_name, skill_mode, op, rt, day, recv)).rowcount:
+                state_dirty = True
             conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)",
-                         (skill_name, recv[:10]))
+                         (skill_name, day))
 
         # OPTIONAL profile payload — full-snapshot replace per identity (§6)
         profile = {k: e[k] for k in PROFILE_KEYS if e.get(k) is not None}
         if profile:
+            state_dirty = True
             conn.execute("""INSERT INTO profiles(operator,ak,runtime,json,updated)
               VALUES(?,?,?,?,?)
               ON CONFLICT(operator,ak,runtime) DO UPDATE SET json=excluded.json,updated=excluded.updated""",
               (op, ag, rt, json.dumps(profile, ensure_ascii=False), recv))
             for nm in _skill_names(profile.get("skills")):
-                conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, recv[:10]))
+                conn.execute("INSERT OR IGNORE INTO skills_seen(name,first_day) VALUES(?,?)", (nm, day))
 
         # OPTIONAL shim_version — sticky per identity. Top-level field on every
         # heartbeat in the new protocol; older shims only set it inside the
@@ -127,11 +202,13 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         # when the field is absent — that's the whole point of sticky.
         sv = e.get("shim_version")
         if isinstance(sv, str) and sv.strip():
-            conn.execute("""INSERT INTO agent_shim_versions(operator,ak,runtime,shim_version,updated)
+            if conn.execute("""INSERT INTO agent_shim_versions(operator,ak,runtime,shim_version,updated)
               VALUES(?,?,?,?,?)
               ON CONFLICT(operator,ak,runtime) DO UPDATE SET
-                shim_version=excluded.shim_version, updated=excluded.updated""",
-              (op, ag, rt, sv.strip(), recv))
+                shim_version=excluded.shim_version, updated=excluded.updated
+              WHERE agent_shim_versions.shim_version IS NOT excluded.shim_version""",
+              (op, ag, rt, sv.strip(), recv)).rowcount:
+                state_dirty = True
 
         # dedup key now includes session_id (§6) so concurrent sessions of one
         # identity don't swallow each other's liveness.
@@ -139,17 +216,23 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
             WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=? AND session_id=?
             ORDER BY id DESC LIMIT 1""", (op, rt, ag, sid)).fetchone()
         if last and last["status"] == status and (last["current_step"] or "") == (step or ""):
-            # pure heartbeat: nothing changed -> only refresh liveness (server time)
-            conn.execute("UPDATE events SET last_seen=? WHERE id=?", (recv, last["id"]))
+            if state_dirty or not _queue_heartbeat(last["id"], recv):
+                # semantic writes stay immediate; otherwise pure liveness can batch.
+                conn.execute("UPDATE events SET last_seen=? WHERE id=?", (recv, last["id"]))
+                state_dirty = True
             conn.commit()
+            if state_dirty:
+                _mark_state_dirty()
             return {"ok": True, "heartbeat": True, "verified": bool(verified)}
+        _drop_pending_heartbeat(last["id"] if last else None)
         conn.execute("""INSERT INTO events
           (ts,recv,day,last_seen,v,operator,agent,runtime,session_id,parent_session_id,verified,
            status,task,current_step,model,input,output,meta,source)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-          (ts, recv, recv[:10], recv, e.get("v"), op, e.get("agent"), rt, sid,
+          (ts, recv, day, recv, e.get("v"), op, e.get("agent"), rt, sid,
            e.get("parent_session_id"), verified, status,
            e.get("task"), step, e.get("model"), inp, outp, meta_json, "heartbeat"))
         _maybe_prune(conn)
         conn.commit()
+    _mark_state_dirty()
     return {"ok": True, "logged": True, "verified": bool(verified)}

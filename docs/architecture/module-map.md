@@ -19,7 +19,7 @@ agent 机器                         中心服务器(单容器)                 
 ### M1 — 服务端 collector (`server/`)
 - **目录结构(按 `openspec/specs/` 域拆分,详见 `server/AGENTS.md`)**:
   - `app.py` — 组装入口(挂中间件、注册 routers、re-export 可变开关供测试 monkeypatch);
-  - `config.py` — 环境变量与全局开关(`TF_KEY` / `TF_ADMIN_*` / `STATE_TTL_SECONDS` 等);
+  - `config.py` — 环境变量与全局开关(`TF_KEY` / `TF_ADMIN_*` / `STATE_TTL_SECONDS` / `TF_HEARTBEAT_BATCH_SECONDS` 等);
   - `db.py` — SQLite 连接与建表(`events` / `profiles` / `skills_seen` / `skill_uses` / `admin_trash` / `admin_audit`);
   - `security.py` — `_security_headers` 中间件 + CSP/HSTS + 常量时间 key 比较 + IP 限流/退避;
   - `identity.py` — 身份合并、按身份聚合的 leverage/质量/复用计算;
@@ -28,10 +28,13 @@ agent 机器                         中心服务器(单容器)                 
   - `shim.py` — `_build_shim_manifest` / `_SHIM_MANIFEST` 内容版本与文件清单;
   - `routes/ingest.py` — `POST /v1/events` 写入 + 兼容 `DELETE /v1/events` + `/v1/enroll`;
   - `routes/admin.py` — `/api/admin/inventory` / `preview` / `data` / `trash` / `restore` / `export`;
-  - `routes/board.py` — `/api/state` / `/api/skills` / `/api/skill/{name}` / `/api/operator/{name}` / `/api/agent/{key}` + `/healthz` + SPA 静态托管;
+  - `routes/board.py` — `/api/state` / `/api/state/stream` / `/api/skills` / `/api/skills/evidence` / `/api/skill/{name}` / `/api/operator/{name}` / `/api/agent/{key}` + `/healthz` + SPA 静态托管;
   - `routes/onboarding.py` — `/install.sh` / `/shims/manifest` / `/shims/{path}` + `/llms.txt` / `/robots.txt`。
-- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 UTC `today` 作为图表时间轴右端)、
-  提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 高频轮询快照必须经进程内 TTL 缓存复用,
+- **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
+  提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 与 `/api/state/stream` 快照必须经进程内 TTL 缓存和 single-flight 复用,
+  `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL,
+  `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
+  纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
 - **入口(路由)**:见上方目录结构 `routes/*` 一栏。子模块禁止跨层互调,边界由 `tests/test_module_boundary.py` 守门。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
@@ -41,19 +44,27 @@ agent 机器                         中心服务器(单容器)                 
   新增删除路径不得绕过 `_purge` 的级联、回收站与审计。
 
 ### M2 — 看板前端 (`frontend/`)
-- **职责**:轮询 `/api/state` 渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
-  `/api/skills`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / Skill 详情 / Operator 详情;SKILLS 图表按服务端 UTC `today`
-  铺满 7/30/90 天或详情页 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
-  SKILLS 总览的按 Skill/按人视角切换使用独立标准 `frame` 卡片(标题栏说明 + 内容行 32px 分段按钮),可下钻表格整行跳转,
-  最近记录显示 `first_seen` 秒级时间且不呈现可点态;
-  暗亮主题、中英、手机适配;path 深链与 SKILLS search params。
+- **职责**:优先通过 `/api/state/stream` SSE(失败时回退 `/api/state` adaptive polling)渲染 Pods 看板 / Agents 列表 / 治理详情;低频读取
+  `/api/skills`、`/api/skills/evidence`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / 新增发布 Skill 列表 / 记录页 / clue 详情 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
+  `window.start..window.end` 铺满所选 `w/days` 窗口,详情页按 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
+  SKILLS 总览使用证据导向 dashboard 结构(控制条/过去 W 变化/问题线索/主分析区:排行+趋势图|待处理线索/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
+  首屏聚合数字必须能下钻到 `/skills/evidence`、`/skills/new` 或同页名单记录;待处理线索三类下钻到 `/skills/clues/:kind`;记录页、新增发布页和 clue 页继承当前时间窗并展示下一步动作、分组、原始记录或名单;
+  Skill 明细整行打开抽屉并由抽屉按钮跳详情,抽屉展示 W/环比/装机、14/30/90 趋势、runtime、使用操作员 Top 与装备未使用差集;按人主榜和操作员详情 Skill 排行整行跳转,
+  最近记录按浏览器本地时区展示 `first_seen`(本地今天内相对时间,昨天显示`昨天 HH:mm`,近 7 天显示星期+时刻,
+  今年更早显示`MM-DD HH:mm`,跨年显示`YYYY-MM-DD HH:mm`,hover 显示完整本地绝对时间+时区;
+  缺失 `first_seen` 时按服务端统计 `day` 显示今天/昨天/星期/MM-DD/YYYY-MM-DD,hover 保留原始日期)且不呈现可点态;
+  `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
+  未收录使用占比由过去 W 变化、问题线索与待处理线索呈现;
+  暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
+  `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并并行请求 SKILLS API。
+  SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
-  `/agents`、`/agent/:key`、`/skills`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
-  `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
-- **上游**:M1 的 `/api/state`、`/api/skills`、`/api/skill/{name}`、`/api/operator/{name}`;`/api/state` 取不到时退回内置演示数据,
+  `/agents`、`/agent/:key`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
+  `/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
+- **上游**:M1 的 `/api/state/stream`、`/api/state`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;状态流与 `/api/state` 取不到时退回内置演示数据,
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
-- **禁止依赖**:浏览器本地存储(localStorage 等;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
+- **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
   独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
 
 ### M3 — 采集 shim (`shims/`)
@@ -65,7 +76,8 @@ agent 机器                         中心服务器(单容器)                 
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
   - `tf_hook.py` Claude Code / Codex / Hermes 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
-    Claude Code 识别 `Skill`,Hermes 识别 `skill_view`;
+    Claude Code 识别 `Skill` 工具调用,并在 `Stop` / `SessionEnd` 按位置守门扫描 transcript 里的真实斜杠 skill,
+    过滤 Claude Code 内置 UI 命令;Hermes 识别 `skill_view`;
     Codex 在轮次/会话结束时拉起 `tf_rollout_scan.py`;
     Hermes 链路另落 `~/.tranfu/logs/hermes-hook.ndjson` 常态结构化诊断日志,双文件 5MB rotate,
     `TF_HOOK_DEBUG=0` 关闭,见 ADR-0022);
@@ -97,7 +109,7 @@ agent 机器                         中心服务器(单容器)                 
 | 模块 | 不得依赖 |
 |---|---|
 | M1 服务端 | 外部 DB/MQ;token 成本;主动读使用者敏感内容 |
-| M2 前端 | 浏览器持久存储(例外:`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
+| M2 前端 | 浏览器持久存储(例外:主题模式 `tf-theme-mode` localStorage;`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
 | M3 shim | 第三方库;抛错阻塞;默认上报内容/记忆 |
 | M4 安装 | 仓库必须公开 |
 | 全部 | 把密钥写进仓库/文档正文 |

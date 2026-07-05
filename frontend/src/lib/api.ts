@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_STATE, demoOperatorDetail, demoSkillDetail, demoSkillsOverview } from './demo'
+import { createRevalidatedJsonFetcher } from './apiCache'
+import { makeTokenUsageComparisonRange } from './tokenUsageRange'
 import type {
   AdminInventory,
   AdminPreview,
@@ -8,8 +10,12 @@ import type {
   Loadable,
   OperatorDetail,
   SkillDetail,
+  SkillsEvidenceKind,
+  SkillsEvidencePayload,
   SkillsOverview,
   StatePayload,
+  TokenUsageQuery,
+  TokenUsagePayload,
 } from './types'
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -18,8 +24,79 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+const fetchRevalidatedJson = createRevalidatedJsonFetcher()
+
+function normalizeState(next: StatePayload): StatePayload {
+  next.leverage = next.leverage || DEMO_STATE.leverage
+  next.skills = next.skills || []
+  return next
+}
+
 function adminHeaders(key: string) {
   return { 'content-type': 'application/json', 'X-TF-Admin-Key': key }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+const TOKEN_USAGE_GRANULARITIES: TokenUsageQuery['timeGranularity'][] = ['hour', 'four_hour', 'day', 'week', 'month']
+
+function tokenUsageQueryKey(query: TokenUsageQuery) {
+  return `${query.startTimestamp}:${query.endTimestamp}:${query.timeGranularity}`
+}
+
+function tokenUsageUrl(query: TokenUsageQuery) {
+  const timezoneOffsetMinutes = -new Date().getTimezoneOffset()
+  const params = new URLSearchParams({
+    start_timestamp: String(query.startTimestamp),
+    end_timestamp: String(query.endTimestamp),
+    time_granularity: query.timeGranularity,
+    timezone_offset_minutes: String(timezoneOffsetMinutes),
+  })
+  return `/api/token-usage?${params.toString()}`
+}
+
+async function fetchTokenUsagePayload(query: TokenUsageQuery, signal?: AbortSignal) {
+  return fetchJson<TokenUsagePayload>(tokenUsageUrl(query), signal ? { signal } : undefined)
+}
+
+function emptySkillsEvidence(query: string): SkillsEvidencePayload {
+  const params = new URLSearchParams(query)
+  return {
+    kind: (params.get('kind') || 'total') as SkillsEvidenceKind,
+    today: new Date().toISOString().slice(0, 10),
+    summary: {},
+    actions: [],
+    applied_filters: {},
+    ignored_filters: [],
+    top_skills: [],
+    top_operators: [],
+    daily: [],
+    records: [],
+    items: [],
+  }
+}
+
+async function fetchTokenUsageWithComparison(query: TokenUsageQuery, signal?: AbortSignal) {
+  const comparison = makeTokenUsageComparisonRange(query)
+  const next = await fetchTokenUsagePayload(query, signal)
+  try {
+    const previous = await fetchTokenUsagePayload(comparison.query, signal)
+    return {
+      ...next,
+      comparison: {
+        label: comparison.label,
+        data: previous.data,
+        range: previous.range,
+        source: previous.source,
+        cached: previous.cached,
+      },
+    }
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw err
+    return next
+  }
 }
 
 export async function fetchAdminInventory(key: string, q: string, limit = 200): Promise<AdminInventory> {
@@ -95,43 +172,133 @@ export async function exportAdminDb(key: string): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
-export function usePollingState(): Loadable<StatePayload> {
+export function usePollingState(enabled = true): Loadable<StatePayload> {
   const [data, setData] = useState<StatePayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
+  const dataRef = useRef<StatePayload | null>(null)
+  const inFlight = useRef(false)
+  const fallbackActive = useRef(false)
+
+  const applyState = useCallback((next: StatePayload) => {
+    const normalized = normalizeState(next)
+    dataRef.current = normalized
+    setData(normalized)
+    setError('')
+    setDemo(false)
+    setLoading(false)
+  }, [])
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
+    if (inFlight.current) return
+    inFlight.current = true
     try {
       const next = await fetchJson<StatePayload>('/api/state')
-      next.leverage = next.leverage || DEMO_STATE.leverage
-      next.skills = next.skills || []
-      setData(next)
-      setError('')
-      setDemo(false)
+      applyState(next)
     } catch {
+      dataRef.current = DEMO_STATE
       setData(DEMO_STATE)
       setError('offline')
       setDemo(true)
-    } finally {
       setLoading(false)
+    } finally {
+      inFlight.current = false
     }
-  }, [])
+  }, [applyState, enabled])
 
   useEffect(() => {
-    const first = window.setTimeout(() => void refresh(), 0)
-    const timer = window.setInterval(() => void refresh(), 3000)
-    return () => {
-      window.clearTimeout(first)
-      window.clearInterval(timer)
+    if (!enabled) {
+      fallbackActive.current = false
+      return
     }
-  }, [refresh])
+    let stopped = false
+    let fallbackTimer: number | undefined
+    let source: EventSource | null = null
+    let opened = false
+    let openGuard: number | undefined
+
+    const clearFallbackTimer = () => {
+      if (fallbackTimer !== undefined) {
+        window.clearTimeout(fallbackTimer)
+        fallbackTimer = undefined
+      }
+    }
+
+    const fallbackDelay = () => {
+      if (document.visibilityState === 'hidden') return 60000
+      return (dataRef.current?.totals?.live || 0) > 0 ? 3000 : 15000
+    }
+
+    const scheduleFallback = (delay = fallbackDelay()) => {
+      if (stopped || !fallbackActive.current) return
+      clearFallbackTimer()
+      fallbackTimer = window.setTimeout(async () => {
+        await refresh()
+        scheduleFallback()
+      }, delay)
+    }
+
+    const startFallback = () => {
+      if (stopped || fallbackActive.current) return
+      fallbackActive.current = true
+      scheduleFallback(0)
+    }
+
+    if (typeof EventSource === 'undefined') {
+      startFallback()
+    } else {
+      source = new EventSource('/api/state/stream')
+      source.onopen = () => {
+        opened = true
+        fallbackActive.current = false
+        clearFallbackTimer()
+      }
+      source.addEventListener('state', (event) => {
+        try {
+          applyState(JSON.parse((event as MessageEvent).data) as StatePayload)
+        } catch {
+          source?.close()
+          startFallback()
+        }
+      })
+      source.onerror = () => {
+        source?.close()
+        startFallback()
+      }
+      openGuard = window.setTimeout(() => {
+        if (!opened) {
+          source?.close()
+          startFallback()
+        }
+      }, 4000)
+    }
+
+    const onVisibility = () => {
+      if (fallbackActive.current) scheduleFallback(0)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      stopped = true
+      source?.close()
+      if (openGuard !== undefined) window.clearTimeout(openGuard)
+      clearFallbackTimer()
+      fallbackActive.current = false
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [applyState, enabled, refresh])
 
   return { data, loading, error, demo, refresh }
 }
 
-export function useSkillsOverview(enabled: boolean, days: number): Loadable<SkillsOverview> {
-  const [data, setData] = useState<SkillsOverview | null>(null)
+export function useSkillsOverview(enabled: boolean, days: number, query = `days=${days}`): Loadable<SkillsOverview> {
+  const url = `/api/skills?${query}`
+  const [data, setData] = useState<SkillsOverview | null>(() => (enabled ? fetchRevalidatedJson.peek<SkillsOverview>(url) : null))
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
@@ -143,7 +310,7 @@ export function useSkillsOverview(enabled: boolean, days: number): Loadable<Skil
       if (!enabled || (!force && now - lastFetch.current < 9500)) return
       setLoading(true)
       try {
-        const next = await fetchJson<SkillsOverview>(`/api/skills?days=${days}`)
+        const next = await fetchRevalidatedJson<SkillsOverview>(url)
         setData(next)
         setError('')
         setDemo(false)
@@ -156,18 +323,73 @@ export function useSkillsOverview(enabled: boolean, days: number): Loadable<Skil
         setLoading(false)
       }
     },
-    [days, enabled],
+    [enabled, url],
   )
 
   useEffect(() => {
     if (!enabled) return
+    const cached = fetchRevalidatedJson.peek<SkillsOverview>(url)
+    if (cached) {
+      setData(cached)
+      setError('')
+      setDemo(false)
+    }
     const first = window.setTimeout(() => void refresh(true), 0)
     const timer = window.setInterval(() => void refresh(false), 10000)
     return () => {
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [enabled, refresh])
+  }, [enabled, refresh, url])
+
+  return { data, loading, error, demo, refresh }
+}
+
+export function useSkillsEvidence(enabled: boolean, query: string): Loadable<SkillsEvidencePayload> {
+  const url = `/api/skills/evidence?${query}`
+  const [data, setData] = useState<SkillsEvidencePayload | null>(() => (enabled ? fetchRevalidatedJson.peek<SkillsEvidencePayload>(url) : null))
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  const [demo, setDemo] = useState(false)
+  const lastFetch = useRef(0)
+
+  const refresh = useCallback(
+    async (force = false) => {
+      const now = Date.now()
+      if (!enabled || (!force && now - lastFetch.current < 9500)) return
+      setLoading(true)
+      try {
+        const next = await fetchRevalidatedJson<SkillsEvidencePayload>(url)
+        setData(next)
+        setError('')
+        setDemo(false)
+        lastFetch.current = Date.now()
+      } catch {
+        setData((old) => old || emptySkillsEvidence(query))
+        setError('loadError')
+        setDemo(true)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [enabled, query, url],
+  )
+
+  useEffect(() => {
+    if (!enabled) return
+    const cached = fetchRevalidatedJson.peek<SkillsEvidencePayload>(url)
+    if (cached) {
+      setData(cached)
+      setError('')
+      setDemo(false)
+    }
+    const first = window.setTimeout(() => void refresh(true), 0)
+    const timer = window.setInterval(() => void refresh(false), 10000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+    }
+  }, [enabled, refresh, url])
 
   return { data, loading, error, demo, refresh }
 }
@@ -258,4 +480,98 @@ export function useOperatorDetail(enabled: boolean, name: string | undefined, fa
   const visibleData = name && data?.operator !== name ? null : data
   const visibleLoading = loading || Boolean(name && data && data.operator !== name)
   return { data: visibleData, loading: visibleLoading, error, demo, refresh }
+}
+
+export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadable<TokenUsagePayload> {
+  const [data, setData] = useState<TokenUsagePayload | null>(null)
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  const [demo, setDemo] = useState(false)
+  const cacheRef = useRef(new Map<string, { data: TokenUsagePayload; ts: number }>())
+  const prefetchingRef = useRef(new Set<string>())
+  const requestSeq = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  const queryKey = tokenUsageQueryKey(query)
+
+  const prefetchPeerGranularities = useCallback(
+    (baseQuery: TokenUsageQuery) => {
+      TOKEN_USAGE_GRANULARITIES.forEach((timeGranularity, index) => {
+        if (timeGranularity === baseQuery.timeGranularity) return
+        const nextQuery = { ...baseQuery, timeGranularity }
+        const nextKey = tokenUsageQueryKey(nextQuery)
+        if (cacheRef.current.has(nextKey) || prefetchingRef.current.has(nextKey)) return
+        prefetchingRef.current.add(nextKey)
+        window.setTimeout(() => {
+          void fetchTokenUsagePayload(nextQuery)
+            .then((next) => {
+              cacheRef.current.set(nextKey, { data: next, ts: Date.now() })
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              prefetchingRef.current.delete(nextKey)
+            })
+        }, 200 + index * 120)
+      })
+    },
+    [],
+  )
+
+  const refresh = useCallback(
+    async (force = false) => {
+      const now = Date.now()
+      if (!enabled) return
+      const cached = cacheRef.current.get(queryKey)
+      if (cached) {
+        setData(cached.data)
+        setError('')
+        setDemo(cached.data.source === 'demo')
+        prefetchPeerGranularities(query)
+        if (!force && now - cached.ts < 55000) return
+      }
+      const seq = requestSeq.current + 1
+      requestSeq.current = seq
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      setLoading(true)
+      try {
+        let next: TokenUsagePayload | null = null
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            next = await fetchTokenUsageWithComparison(query, controller.signal)
+            break
+          } catch (err) {
+            if ((err as Error)?.name === 'AbortError' || attempt === 1) throw err
+            await wait(700)
+          }
+        }
+        if (requestSeq.current !== seq) return
+        if (!next) throw new Error('empty response')
+        cacheRef.current.set(queryKey, { data: next, ts: Date.now() })
+        setData(next)
+        setError('')
+        setDemo(next.source === 'demo')
+        prefetchPeerGranularities(query)
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+        if (requestSeq.current !== seq) return
+        setError('loadError')
+        setDemo(false)
+      } finally {
+        if (requestSeq.current === seq) setLoading(false)
+      }
+    },
+    [enabled, prefetchPeerGranularities, query, queryKey],
+  )
+  useEffect(() => {
+    if (!enabled) return
+    const first = window.setTimeout(() => void refresh(false), 120)
+    const timer = window.setInterval(() => void refresh(false), 60000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+      abortRef.current?.abort()
+    }
+  }, [enabled, queryKey, refresh])
+  return { data, loading, error, demo, refresh }
 }

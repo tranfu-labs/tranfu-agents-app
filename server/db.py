@@ -11,14 +11,48 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 # ---- 共用工具 -------------------------------------------------------------
-def now_iso():
+STATS_TZ_NAME = "Asia/Shanghai"
+try:
+    STATS_TZ = ZoneInfo(STATS_TZ_NAME)
+except ZoneInfoNotFoundError:  # pragma: no cover  — 极简镜像缺 tzdata 时的固定 +08 兜底
+    STATS_TZ = timezone(timedelta(hours=8), STATS_TZ_NAME)
+
+
+def _app_now_utc():
     # 通过 server.app 延迟读 datetime,保留原有「app.datetime 是单一时间源」语义
     # (tests/test_skills_stats_page.py 等会 monkeypatch app_mod.datetime)。
     from server import app
-    return app.datetime.now(timezone.utc).isoformat()
+    return app.datetime.now(timezone.utc)
+
+
+def now_iso():
+    return _app_now_utc().isoformat()
+
+
+def now_utc():
+    return _app_now_utc()
+
+
+def stats_now():
+    return _app_now_utc().astimezone(STATS_TZ)
+
+
+def stats_today():
+    return stats_now().date()
+
+
+def stats_day_for(dt):
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(STATS_TZ).date().isoformat()
+
+
+def stats_day():
+    return stats_today().isoformat()
 
 
 def _sha(s):
@@ -52,8 +86,7 @@ def _parse(ts):
 
 
 def _day_cutoff(days):
-    from server import app  # 延迟读 datetime(可被 monkeypatch)
-    return (app.datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
+    return (stats_today() - timedelta(days=days - 1)).isoformat()
 
 
 # ---- 连接 -----------------------------------------------------------------
@@ -223,6 +256,12 @@ def _ensure_skill_uses_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill ON skill_uses(skill)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_skill_mode ON skill_uses(skill, mode)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_uses_day ON skill_uses(day)")
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_skill_uses_mode_day_skill_runtime_operator
+      ON skill_uses(mode, day, skill, runtime, operator)""")
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_skill_uses_mode_operator_day_skill_runtime_session
+      ON skill_uses(mode, operator, day, skill, runtime, session_id)""")
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_skill_uses_mode_skill_day_operator_runtime
+      ON skill_uses(mode, skill, day, operator, runtime)""")
 
 
 # ---- 审计 + 保留 ---------------------------------------------------------
@@ -237,11 +276,11 @@ _prune_state = {"n": 0}
 
 def _maybe_prune(conn):
     """Retention (§6): every ~200 inserts, drop events older than the window."""
-    from server import app  # 延迟读 datetime(可被 monkeypatch)与 WINDOW_DAYS
+    from server import app  # 延迟读 WINDOW_DAYS
     _prune_state["n"] += 1
     if _prune_state["n"] % 200 != 1:
         return
-    cutoff = (app.datetime.now(timezone.utc).date() - timedelta(days=app.WINDOW_DAYS - 1)).isoformat()
+    cutoff = _day_cutoff(app.WINDOW_DAYS)
     deleted = conn.execute("DELETE FROM events WHERE day < ?", (cutoff,)).rowcount
     if deleted:
         _audit(conn, "system", "retention_prune", {"cutoff": cutoff}, {"events": deleted}, None)

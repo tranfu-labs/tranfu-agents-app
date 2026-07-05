@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "skipLibCheck": true,
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "node_modules/.tmp/test",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["src/lib/run-tests.ts", "src/lib/theme.test.ts", "src/lib/timeFormat.test.ts", "src/lib/skillsDashboard.test.ts"]
+}

@@ -33,7 +33,7 @@
 - 选择器恰为以下之一:
   - `session_ids`:精确全 id(不支持前缀)。
   - `operator`(可选 `agent`/`runtime`):operator 比较走 `lower(trim)`。
-  - `before_day`(必须带 `operator`):语义 `day < before_day`,UTC 日期;禁止全局无 operator 作用域。
+  - `before_day`(必须带 `operator`):语义 `day < before_day`,`Asia/Shanghai` 统计日期;禁止全局无 operator 作用域。
   - `skill`:库内原值精确匹配(不做 lower)。
 - 删除集按选择器类型确定作用域,**session 不再是 operator 路径的删除原子单位**:
   - `operator`(含其 `agent`/`runtime`/`before_day` 变体):删除集只含 `lower(trim(operator))` **等于该 operator**
@@ -99,6 +99,10 @@
 - 进页输入 `X-TF-Admin-Key`,本会话用 `sessionStorage` 暂存;后续请求带同名请求头。
 - 页面包含清单(operators/identities/sessions/skills 四视角)、按 operator+before_day 的日期清理入口、预览、
   活跃会话明细、确认删除、回收站恢复。
+- 来自 ISO 时间戳的具体时刻字段(如清单 `last_seen`、删除预览活跃会话 `last_seen`、回收站批次
+  `created`)须按浏览器本地时区显示为绝对时间 `YYYY-MM-DD HH:mm:ss`。date-only 字段(如
+  `first_day`)保持服务端 `Asia/Shanghai` 统计日期语义,不得按浏览器时区换算。`/admin` 不使用相对时间展示具体时间戳,
+  以保证清理判断稳定。
 - 警示条右端提供「导出 DB」按钮:点击先弹二次确认;因 `<a download>` 带不了请求头,走 `POST`(带
   `X-TF-Admin-Key` 与 `{"confirm":"EXPORT"}`)→ blob → 触发下载;文件名取响应 `Content-Disposition`。
 
@@ -127,3 +131,6 @@
 - `TF_TRUST_PROXY=0` 时伪造 `X-Forwarded-For` 不改变限流分桶;`=1` 时不同真实 IP 各自独立计数。
 - 兼容 `DELETE /v1/events` 超 `MAX_ROWS` 无 `confirm_count` → 拒绝;删活跃会话无 `force` → 拒绝。
 - 响应含上述安全头;非 HTTPS 不发 HSTS。
+- 浏览器时区为 Asia/Shanghai,`last_seen=2026-06-27T16:30:00+00:00` → `/admin` 可见时间为
+  `2026-06-28 00:30:00`。
+- 清单行无 `last_seen` 但有 `first_day=2026-06-27` → 仍显示 `2026-06-27`。

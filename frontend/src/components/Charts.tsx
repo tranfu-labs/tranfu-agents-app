@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
-import type { OperatorDailyRow, SkillDailyRow, SkillDetail, SkillsOverview } from '../lib/types'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react'
+import { resolveSkillsChartLayout } from '../lib/skillsChartLayout'
+import type { SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
 type TipItem = { name: string; value: number; color: string }
@@ -12,6 +13,34 @@ type SegmentKey = 'skill' | 'operator'
 const PLOT_TOP = 24
 const TIP_GAP = 10
 const VIEWPORT_PAD = 12
+
+function contentWidthOf(element: HTMLElement) {
+  const style = window.getComputedStyle(element)
+  const pad = Number.parseFloat(style.paddingLeft || '0') + Number.parseFloat(style.paddingRight || '0')
+  return Math.max(0, Math.round(element.clientWidth - pad))
+}
+
+function useContentWidth(ref: RefObject<HTMLElement | null>) {
+  const [width, setWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return undefined
+    const update = () => setWidth(contentWidthOf(element))
+    update()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
+
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [ref])
+
+  return width
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max))
@@ -102,9 +131,12 @@ export function StackedSkillChart({
   t,
   segmentKey = 'skill',
   today,
+  currentDay,
   emptyTitle,
   emptyHint,
   ariaLabel,
+  selectedSegment,
+  topN = 8,
 }: {
   rows: StackRow[]
   overview?: SkillsOverview | null
@@ -112,17 +144,24 @@ export function StackedSkillChart({
   t: (key: string) => string
   segmentKey?: SegmentKey
   today?: string
+  currentDay?: string
   emptyTitle?: string
   emptyHint?: string
   ariaLabel?: string
+  selectedSegment?: string
+  topN?: number
 }) {
+  const chartBoxRef = useRef<HTMLDivElement | null>(null)
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
+  const chartBoxWidth = useContentWidth(chartBoxRef)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
+  const axisEnd = today || overview?.window?.end || apiToday(overview)
+  const currentMarkerDay = currentDay || overview?.today || today || apiToday(overview)
   const model = useMemo(() => {
-    const axis = daySeries(today || apiToday(overview), days)
+    const axis = daySeries(axisEnd, days)
     const daySet = new Set(axis)
     const byDay: Record<string, Record<string, number>> = {}
     const totalBySegment: Record<string, number> = {}
@@ -138,13 +177,21 @@ export function StackedSkillChart({
     })
     const top = Object.entries(totalBySegment)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 8)
+      .slice(0, topN)
       .map(([name]) => name)
     const totals = axis.map((day) => Object.values(byDay[day] || {}).reduce((a, b) => a + b, 0))
     const legend = [...top]
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
-  }, [days, overview, rows, segmentKey, today])
+  }, [axisEnd, days, rows, segmentKey, topN])
+  const layout = resolveSkillsChartLayout(model.axis.length, chartBoxWidth)
+
+  useLayoutEffect(() => {
+    if (!layout.scrollToEnd) return
+    const box = chartBoxRef.current
+    if (!box) return
+    box.scrollLeft = Math.max(0, box.scrollWidth - box.clientWidth)
+  }, [axisEnd, days, layout.scrollToEnd, layout.trackWidth, segmentKey])
 
   if (!rows.length || !model.totals.some(Boolean)) {
     return (
@@ -156,18 +203,18 @@ export function StackedSkillChart({
   }
 
   const max = Math.max(...model.totals, 1)
-  const w = Math.max(680, model.axis.length * 28 + 50)
+  const w = layout.trackWidth
   const h = 220
   const base = 190
   const bh = 165
   const step = (w - 54) / model.axis.length
-  const bw = Math.max(8, step - 5)
-  const end = model.axis[model.axis.length - 1]
+  const bw = layout.barWidth
   const patternId = `skillStripe-${segmentKey}-${days}-${model.axis.length}`
 
   return (
     <div
-      className="chart-box"
+      ref={chartBoxRef}
+      className={`chart-box skill-chart-box ${layout.rightAlign ? 'align-end' : ''}`}
       onMouseLeave={() => setTip(null)}
       onPointerDown={(event) => {
         const target = event.target
@@ -175,7 +222,7 @@ export function StackedSkillChart({
       }}
       onScroll={() => setTip(null)}
     >
-      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }} role="img" aria-label={ariaLabel || t('dailyUsed')}>
+      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ width: w, minWidth: w }} role="img" aria-label={ariaLabel || t('dailyUsed')}>
         <defs>
           <pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <path d="M 0 0 L 0 6" stroke="var(--text)" strokeOpacity=".22" strokeWidth="2" />
@@ -201,17 +248,20 @@ export function StackedSkillChart({
             .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
             .map(([name, value]) => ({ name: name === '__other' ? t('other') : name, value, color: skillColor(name) }))
           const totalHeight = total ? Math.max(2, Math.round((total / max) * bh)) : 0
+          const isCurrent = day === currentMarkerDay
           return (
             <g key={day} className={`day-col ${tip?.day === day ? 'hovered' : ''}`}>
               {vals.map(([name, value]) => {
                 if (!value) return null
                 const height = Math.max(2, Math.round((value / max) * bh))
                 y -= height
-                const dim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
-                return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={dim ? 0.45 : 1} />
+                const selectedDim = selectedSegment && selectedSegment !== name
+                const hoverDim = hoverSegment && !((hoverSegment === '__other' && name === '__other') || hoverSegment === name)
+                const emphasized = selectedSegment === name
+                return <rect key={name} className="bar-seg" x={x} y={y} width={bw} height={height} fill={skillColor(name)} opacity={selectedDim || hoverDim ? 0.4 : 1} stroke={emphasized ? 'var(--text)' : undefined} strokeWidth={emphasized ? 1.4 : undefined} />
               })}
-              {day === end && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
-              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: day === end, items, total })} onClick={(event) => showTip(event, { day, today: day === end, items, total })} />
+              {isCurrent && totalHeight ? <rect x={x} y={base - totalHeight} width={bw} height={totalHeight} fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" strokeWidth="1" pointerEvents="none" /> : null}
+              <rect className="bar-hit" x={x} y="24" width={bw} height={base - 24} fill="transparent" onMouseEnter={(event) => showTip(event, { day, today: isCurrent, items, total })} onClick={(event) => showTip(event, { day, today: isCurrent, items, total })} />
             </g>
           )
         })}
@@ -253,17 +303,17 @@ export function RuntimeBars({ counts }: { counts?: Record<string, number> }) {
   )
 }
 
-export function DetailTrend({ detail, t }: { detail: SkillDetail; t: (key: string) => string }) {
+export function DetailTrend({ detail, t, days = 30 }: { detail: SkillDetail; t: (key: string) => string; days?: number }) {
   const [tip, setTip] = useState<Tip | null>(null)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
-  const days = daySeries(detail.today || apiToday(detail), 30)
+  const axis = daySeries(detail.today || apiToday(detail), days)
   const byDay: Record<string, { used: number; equipped: number }> = {}
   ;(detail.daily || []).forEach((row) => {
     byDay[row.day] = { used: Number(row.used || 0), equipped: Number(row.equipped || 0) }
   })
-  const series = days.map((day) => ({ day, used: byDay[day]?.used || 0, equipped: byDay[day]?.equipped || 0 }))
+  const series = axis.map((day) => ({ day, used: byDay[day]?.used || 0, equipped: byDay[day]?.equipped || 0 }))
   const max = Math.max(...series.map((row) => Math.max(row.used, row.equipped)), 1)
   const w = Math.max(680, series.length * 28 + 50)
   const h = 210
@@ -271,7 +321,7 @@ export function DetailTrend({ detail, t }: { detail: SkillDetail; t: (key: strin
   const bh = 140
   const step = (w - 54) / series.length
   const bw = Math.max(8, step - 5)
-  const end = days[days.length - 1]
+  const end = axis[axis.length - 1]
   const points = series.map((row, index) => {
     const x = 38 + index * step
     const mid = x + bw / 2
