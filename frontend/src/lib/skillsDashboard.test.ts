@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { angleSpan, buildDonutSegments, buildSourceDonutSegments } from './skillsAttribution.ts'
 import { buildRankItems, deltaRatio, formatDelta } from './skillsDashboard.ts'
-import { SKILLS_CHART_MAX_BAR_WIDTH, resolveSkillsChartLayout } from './skillsChartLayout.ts'
+import { SKILLS_CHART_MAX_BAR_WIDTH, resolveDetailTrendEndDay, resolveDetailTrendLayout, resolveSkillsChartLayout } from './skillsChartLayout.ts'
 import { classifySkillHealth } from './skillsThresholds.ts'
 import { resolveSkillsWindow } from './skillsWindow.ts'
 import { skillsWindowQuery } from './skillsWindow.ts'
@@ -68,6 +68,32 @@ test('skills chart layout fits short windows and scrolls longer windows to the e
   assert.equal(oneDay.barWidth, SKILLS_CHART_MAX_BAR_WIDTH)
   assert.ok(sevenDays.barWidth <= SKILLS_CHART_MAX_BAR_WIDTH)
   assert.ok(thirtyDays.trackWidth > sevenDays.trackWidth)
+})
+
+test('detail trend layout fits short windows and scrolls longer windows to the end', () => {
+  const fourteenDays = resolveDetailTrendLayout(14, 360)
+  const thirtyDays = resolveDetailTrendLayout(30, 360)
+  const ninetyDays = resolveDetailTrendLayout(90, 360)
+  const invalidDays = resolveDetailTrendLayout(Number.NaN, 360)
+  assert.equal(fourteenDays.scrollToEnd, false)
+  assert.equal(fourteenDays.trackWidth, 360)
+  assert.equal(thirtyDays.scrollToEnd, true)
+  assert.ok(thirtyDays.trackWidth > 360)
+  assert.equal(ninetyDays.scrollToEnd, true)
+  assert.ok(ninetyDays.trackWidth > thirtyDays.trackWidth)
+  assert.ok(thirtyDays.barWidth >= 8)
+  assert.ok(thirtyDays.barWidth <= SKILLS_CHART_MAX_BAR_WIDTH)
+  assert.equal(invalidDays.dayCount, 14)
+})
+
+test('detail trend end day prefers payload today then max daily day before runtime fallback', () => {
+  assert.equal(resolveDetailTrendEndDay('2026-07-03', [{ day: '2026-07-04' }], '2026-07-05'), '2026-07-03')
+  assert.equal(
+    resolveDetailTrendEndDay(undefined, [{ day: '2026-07-01' }, { day: '2026-07-04' }, { day: '2026-07-02' }], '2026-07-05'),
+    '2026-07-04',
+  )
+  assert.equal(resolveDetailTrendEndDay('', [{ day: 'bad' }], '2026-07-05'), '2026-07-05')
+  assert.equal(resolveDetailTrendEndDay('', [{ day: 'bad' }], 'bad'), '')
 })
 
 test('skill health thresholds keep boundary values in expected buckets', () => {

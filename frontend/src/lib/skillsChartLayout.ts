@@ -32,3 +32,44 @@ export function resolveSkillsChartLayout(dayCount: number, viewportWidth = 0): S
     scrollToEnd: !fitMode,
   }
 }
+
+export type DetailTrendLayout = {
+  dayCount: number
+  trackWidth: number
+  daySlot: number
+  barWidth: number
+  scrollToEnd: boolean
+}
+
+function validIsoDay(value?: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return ''
+  return String(value)
+}
+
+export function resolveDetailTrendEndDay(today?: string, daily?: Array<{ day?: string }>, fallback?: string) {
+  const payloadToday = validIsoDay(today)
+  if (payloadToday) return payloadToday
+  const maxDailyDay = (daily || [])
+    .map((row) => validIsoDay(row.day))
+    .filter(Boolean)
+    .sort()
+    .at(-1)
+  return maxDailyDay || validIsoDay(fallback) || ''
+}
+
+export function resolveDetailTrendLayout(dayCount: number, viewportWidth = 0): DetailTrendLayout {
+  const safeDayCount = Math.max(1, Math.round(Number.isFinite(dayCount) ? dayCount : SKILLS_CHART_SHORT_DAYS))
+  const fitMode = safeDayCount <= SKILLS_CHART_SHORT_DAYS
+  const safeViewportWidth = Math.max(0, Math.round(Number.isFinite(viewportWidth) ? viewportWidth : 0))
+  const fixedTrackWidth = SKILLS_CHART_AXIS_PAD + safeDayCount * SKILLS_CHART_DAY_SLOT
+  const minFitWidth = SKILLS_CHART_AXIS_PAD + safeDayCount * SKILLS_CHART_MIN_DAY_SLOT
+  const trackWidth = fitMode ? Math.max(minFitWidth, safeViewportWidth || fixedTrackWidth) : fixedTrackWidth
+  const daySlot = (trackWidth - SKILLS_CHART_AXIS_PAD) / safeDayCount
+  return {
+    dayCount: safeDayCount,
+    trackWidth,
+    daySlot,
+    barWidth: Math.min(SKILLS_CHART_MAX_BAR_WIDTH, Math.max(8, daySlot * 0.64)),
+    scrollToEnd: !fitMode,
+  }
+}
