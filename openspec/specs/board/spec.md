@@ -68,14 +68,19 @@
     `published_day` 后再与 `window.start..window.end` 比较。当前窗口内发布但没有任何 `mode=used`
     记录的 skill 仍必须进入 `published_skills[]`,其 `window_sessions=0`;`external`、缺失或非法
     `published_at` 均不得计入。`previous_published_skill_count` 使用上一同长窗口同口径计算。
+    当前窗口内有 `mode=used` 记录但 installers=0 的 company skill 不得进入当前窗口 `published_skills[]`
+    或 `current_published_skill_count`,避免在总览中出现"0 人安装但有使用"的并列表达。
 15. `/api/skills.governance.untracked_usage` 输出"未收录使用占比"管理口径:当前 `days/w` 窗口内
     `source=非公司库` 且 `mode=used` 的会话×skill 记录数 / 当前窗口全部 `mode=used` 记录数;空分母为 0。
     catalog 中 `external` 不算未收录;`equipped` 不得进入分母、分子或 Top 列表。`top[]` 按窗口内
     used 会话数降序(平手按最近使用日、再按名称),每项含 `name/source/sessions/share/users_30d/runtime_counts/trend_14d/trend_days/last_day`;
-    `users_30d` 固定保持近 30 天用户数语义。
+    `users_30d` 固定保持近 30 天用户数语义。`used_sessions` 与 `skill_count` 是未收录使用展示的总量事实源;
+    `top[]` 只是预览名单,前端 KPI、问题线索和待处理线索不得用 `top.length` 替代总量。
 16. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
     已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、当前 `days/w` 窗口有人使用名单(按 `Asia/Shanghai` 日切;
     字段名 `used_30d` 保留兼容);并返回闲置名单 = 已安装 − 当前窗口使用。三层均返回名单而非仅数字。
+    `governance.cataloged_not_installed` 与 funnel 的零装机总览不得包含当前窗口有 `mode=used` 记录但 installers=0
+    的 company skill。
 17. `/api/skills/evidence` 的 `kind` 是强制证据口径,用户筛选是附加约束。`q/rt/skill/operator` 与 `kind`
     取交集;`src` 只有在不与 `kind` 的强制 source 口径冲突时才生效。若冲突,后端必须忽略冲突 `src`
     并在 `ignored_filters` 说明。`src=non_catalog` 等价于服务端来源 `非公司库`;catalog 中 `external` 不算未收录。
@@ -99,6 +104,9 @@
     `EXPLAIN QUERY PLAN` 不可得,不得声称已验证生产 P95,只能报告可复现环境和合成样本数据。不得优先用缓存掩盖聚合根因;
     只有 SQL/索引优化后仍无法达到性能目标时,才允许引入 `/api/skills` 短 TTL 缓存。若引入缓存,默认 TTL 为 5 秒
     (允许 3-10 秒),缓存键必须归一化 `days/w/wstart/wend/rt/src/scope`,且缓存容量必须有上限。
+    `/api/skills?w=7d` overview 展示层必须过滤 `$name`、`$d`、`$s`、`foo`、`foo-bar`、`dbs*`、`gstack*`
+    占位/测试 skill 名;过滤范围包括 table、daily、operator_table、operator_daily、governance、funnel、
+    published 与 period comparison。原始 evidence/detail 不作为该过滤规则范围。
 22. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
 23. `/api/state` 与 `/api/state/stream` 必须共用同一份进程内快照缓存,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
@@ -155,6 +163,9 @@
   选中态使用品牌色 `--brand`;切换视角不重置时间窗。时间窗口选项与首屏核心文案必须随当前中英文语言切换,
   不得直接把 `7d` / `30d` 等 query key 作为用户可见选项文案。桌面与平板下搜索 Skill 名字段内部必须单行展示:
   label 与 input 同行、label 不换行、input 使用剩余宽度。公司库漏斗常驻且始终使用 skill/catalog 口径。
+  `/skills?w=7d` settled render 与 SKILLS API 失败后的 demo fallback 均必须显示「近 7 天」/ `Last 7 days`,
+  且排行集中度文案使用 `Top3`。demo fallback 不得泄漏 `$name`、`$d`、`$s`、`foo`、`foo-bar`、`dbs*`
+  或 `gstack*` 占位/测试名。
 - 顶部导航的 `+N 7天新发现` 必须可键盘聚焦并跳转 `/skills?w=7d&scope=new`;顶部 `N Skill 资产`
   必须使用 used-only distinct skill 口径,不得暗示安装量或已发现量。手机端可隐藏顶部新增数字,但 `/skills`
   首屏控制摘要旁必须提供一键/键盘可达的新增名单入口。
@@ -260,7 +271,7 @@
   `/skills` 在手机下必须优先首屏判断流:控制摘要 → 问题线索 → 待处理线索 → 排行/操作员排行 → 趋势图 →
   当前时间窗变化 → 归因 → 明细 → 公司库漏斗。
 - `/skills` 的控制条在手机下默认折叠为一行摘要,摘要至少包含当前窗口、视角、runtime/source 筛选摘要和筛选入口,
-  例如中文 `7 天 · 按 Skill · 全部 runtime/source · 筛选` 或英文 `7 days · By skill · all runtime/source · Filter`;
+  例如中文 `近 7 天 · 按 Skill · 全部 runtime/source · 筛选` 或英文 `Last 7 days · By skill · all runtime/source · Filter`;
   `scope=new` 时摘要须体现新增名单态,并在摘要旁显示新增名单入口;
   完整筛选控件只能在用户展开后显示。
   展开后搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。

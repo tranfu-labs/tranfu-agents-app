@@ -1,4 +1,4 @@
-import type { SkillsEvidenceKind, SkillsEvidencePayload } from './types'
+import type { SkillsEvidenceKind, SkillsEvidencePayload, SkillsOverview } from './types'
 
 type QueryLike = {
   w?: string
@@ -140,4 +140,17 @@ export function kpiShortConclusion(kind: SkillsEvidenceKind, value: string, name
   if (kind === 'top3') return t('top3Concentrated')
   if (kind === 'avg_per_session') return value
   return value
+}
+
+export function untrackedUsageCounts(data: Pick<SkillsOverview, 'governance'> | null | undefined) {
+  const untracked = data?.governance?.untracked_usage
+  return {
+    records: Number(untracked?.used_sessions || 0),
+    skills: Number(untracked?.skill_count || 0),
+  }
+}
+
+export function untrackedUsageSummary(data: Pick<SkillsOverview, 'governance'> | null | undefined, t: T) {
+  const counts = untrackedUsageCounts(data)
+  return `${fmt(counts.skills)} ${t('skillsUnit')} · ${fmt(counts.records)} ${t('records')}`
 }
