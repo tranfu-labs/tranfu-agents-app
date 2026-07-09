@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
 import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
@@ -51,7 +51,7 @@ function SkillsClueRoute({ lang, t }: { lang: Lang; t: (key: string) => string }
   const { clueKind = 'untracked' } = useParams()
   const normalized = clueKind as SkillsClueKind
   if (!['untracked', 'idle', 'zero-install'].includes(normalized)) {
-    return <Navigate to={`/skills${location.search || '?w=7d'}`} replace />
+    return <NotFoundRoute t={t} />
   }
   const evidence = useSkillsEvidence(true, clueApiSearch(location.search, normalized))
   return <SkillsClueView clueKind={normalized} data={evidence.data} loading={evidence.loading} error={evidence.error} lang={lang} search={location.search} t={t} />
@@ -86,6 +86,23 @@ function RouteLoading({ t }: { t: (key: string) => string }) {
     <section className="frame">
       <div className="empty">
         <div className="t">{t('loading')}</div>
+      </div>
+    </section>
+  )
+}
+
+function NotFoundRoute({ t }: { t: (key: string) => string }) {
+  const location = useLocation()
+  return (
+    <section className="frame">
+      <div className="empty">
+        <div className="t">404 / Not Found</div>
+        <div className="h">{t('notFoundHint')}</div>
+        <code>{location.pathname}</code>
+        <div className="toolbar" style={{ justifyContent: 'center', marginTop: 12 }}>
+          <Link className="token-link-btn" to="/">{t('board')}</Link>
+          <Link className="token-link-btn" to="/skills?w=7d">{t('skillsNav')}</Link>
+        </div>
       </div>
     </section>
   )
@@ -166,7 +183,7 @@ export default function App() {
           <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
           <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
           <Route path="/admin" element={<AdminView t={t} />} />
-          <Route path="*" element={<StateRoute state={state.data} t={t}>{(data) => <Board data={data} lang={lang} t={t} />}</StateRoute>} />
+          <Route path="*" element={<NotFoundRoute t={t} />} />
         </Routes>
       </main>
       <Toast message={toast} onDone={clearToast} />

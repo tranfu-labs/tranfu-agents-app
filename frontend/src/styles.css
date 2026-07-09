@@ -217,9 +217,9 @@
   .skills-analysis--short>.skills-rank-panel,.skills-analysis--short>.skills-trend-panel{height:100%}
   .skills-rank-panel,.skills-trend-panel{min-width:0;max-width:100%}
   .skills-rank-bars{display:grid;gap:7px;padding:14px 16px}
-  .skills-rank-bars button{display:grid;grid-template-columns:minmax(150px,240px) minmax(120px,1fr) 72px 82px;gap:8px 10px;align-items:center;text-align:left;border:1px solid transparent;border-radius:7px;padding:7px 9px;color:var(--muted);min-width:0;max-width:100%}
-  .skills-rank-bars button:hover,.skills-rank-bars button.selected{background:var(--hover);border-color:var(--line)}
-  .skills-rank-bars button.dimmed{opacity:.42}
+  .skills-rank-bars .rank-row,.skills-rank-bars button{display:grid;grid-template-columns:minmax(150px,240px) minmax(120px,1fr) 72px 82px;gap:8px 10px;align-items:center;text-align:left;border:1px solid transparent;border-radius:7px;padding:7px 9px;color:var(--muted);min-width:0;max-width:100%}
+  .skills-rank-bars .rank-row:hover,.skills-rank-bars .rank-row.selected,.skills-rank-bars button:hover,.skills-rank-bars button.selected{background:var(--hover);border-color:var(--line)}
+  .skills-rank-bars .rank-row.dimmed,.skills-rank-bars button.dimmed{opacity:.42}
   .rank-name{display:flex;align-items:flex-start;gap:7px;min-width:0;color:var(--text);font-weight:600;line-height:1.25;white-space:normal;overflow-wrap:anywhere;word-break:normal}
   .rank-name i{width:8px;height:8px;border-radius:2px;flex:none}.rank-track{height:12px;background:var(--line);border-radius:2px;overflow:hidden}.rank-track i{display:block;height:100%;min-width:2px}
   .rank-name i{margin-top:.35em}.rank-track{min-width:0}
@@ -595,7 +595,7 @@
     .skills-gov-item{grid-template-columns:1fr auto;gap:8px}.skills-gov-actions{justify-content:flex-end;flex-wrap:nowrap}
     .skills-gov-inline-actions{display:none}.skills-gov-menu{display:block}
     .skills-rank-bars{padding:12px}
-    .skills-rank-bars button{grid-template-columns:minmax(0,1fr) auto;gap:6px 9px;align-items:start;padding:8px}
+    .skills-rank-bars .rank-row,.skills-rank-bars button{grid-template-columns:minmax(0,1fr) auto;gap:6px 9px;align-items:start;padding:8px}
     .skills-rank-bars strong{align-self:start;padding-top:1px}
     .skills-rank-bars em{grid-column:2;justify-self:end;max-width:100%;text-align:right;justify-content:flex-end}
     .rank-name{grid-column:1;grid-row:1 / span 2}

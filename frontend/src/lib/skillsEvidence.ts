@@ -1,8 +1,8 @@
 import type { SkillsEvidenceItem, SkillsEvidenceKind, SkillsEvidencePayload, SkillsEvidenceRecord } from './types'
 
-const PRESERVE = ['w', 'wstart', 'wend', 'q', 'rt', 'view', 'topn', 'win'] as const
-const CLUE_PRESERVE = ['w', 'wstart', 'wend', 'q', 'rt', 'view', 'topn', 'win', 'skill', 'operator', 'limit', 'offset'] as const
-const PUBLISHED_PRESERVE = ['w', 'wstart', 'wend', 'q', 'win'] as const
+const PRESERVE = ['w', 'wstart', 'wend', 'q', 'rt', 'view', 'topn'] as const
+const CLUE_PRESERVE = ['w', 'wstart', 'wend', 'q', 'rt', 'view', 'topn', 'skill', 'operator', 'limit', 'offset'] as const
+const PUBLISHED_PRESERVE = ['w', 'wstart', 'wend', 'q'] as const
 const COMPANY_SOURCES = new Set(['own', 'meta'])
 const QUERY_KEY_EXCLUDE = new Set(['limit', 'offset', 'focus'])
 export type SkillsClueKind = 'untracked' | 'idle' | 'zero-install'
@@ -33,6 +33,13 @@ function normalizeWindow(params: URLSearchParams) {
 function normalizedSource(value: string | null) {
   if (!value) return ''
   return value === '非公司库' ? 'non_catalog' : value
+}
+
+export function canonicalSkillsSearch(search: string) {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  params.set('w', normalizeWindow(params))
+  params.delete('win')
+  return params.toString() ? `?${params.toString()}` : ''
 }
 
 export function evidenceSearch(search: string, kind: SkillsEvidenceKind, extra: Record<string, string | number | undefined> = {}) {
@@ -130,6 +137,8 @@ export function legacyEvidenceCluePath(search: string) {
 export function skillsBackSearch(search: string) {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
   ;['kind', 'limit', 'offset', 'focus', 'skill', 'operator'].forEach((key) => params.delete(key))
+  params.set('w', normalizeWindow(params))
+  params.delete('win')
   return params.toString() ? `?${params.toString()}` : ''
 }
 

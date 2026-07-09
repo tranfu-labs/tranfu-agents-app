@@ -139,11 +139,14 @@
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
+  未知客户端 route 必须渲染明确 404 / Not Found 状态,不得回退渲染 Pods 看板首页;已匹配但参数非法的 SKILLS 子路由
+  (例如非法 `/skills/clues/:kind`)也必须进入 Not Found,不得静默重定向到 `/skills`。
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
   `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`scope`(`all|new`)。
   旧参数 `win` 保留向下兼容并在没有 `w` 时映射为 `w`;旧参数 `lens` 保留但不再驱动 UI。筛选变化使用 replace,
   不污染浏览器历史;详情跳转使用 push。`cmp` 保留为向下兼容 no-op,不得驱动可见开关。`/skills` 无 `w` 且无合法旧 `win`
-  参数时前端默认 `w=7d`;无效 custom 也回退 `7d`。
+  参数时前端默认 `w=7d`;无效 custom 也回退 `7d`。SKILLS 新生成的出站链接必须只输出 canonical 时间窗参数
+  `w`;不得同时输出 `w` 与旧参数 `win`。当输入 URL 同时包含 `w` 与 `win` 时,以 `w` 为准并在新生成链接中删除 `win`。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按服务端返回的 `window.start..window.end`
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
@@ -408,6 +411,8 @@
 - 点击 `/skills` 首屏 `总触发次数` 的证据入口 → 跳到 `/skills/evidence?kind=total&w=7d...`,证据表显示当前窗口 records。
 - 点击 `/skills` 首屏 `新增发布 Skill` 的记录入口 → 跳到 `/skills/new?w=7d...`,页面展示同一窗口内按
   `published_at` 统计的新发布公司库 skill 列表;无 used 详情的行仍保留可读名单,不隐藏。
+- `/skills` 顶部 KPI 与问题线索的显式 `查看记录` 入口必须是可键盘聚焦的 `a[href]` 或 Router Link,不得只用行点击、
+  button 或 JS navigate 代替。
 - 点击 `/skills` 首屏 `有使用但未收录` 的证据 icon 或 mobile 待处理线索行 → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
 - `/skills?view=skill&w=7d` 的 `待处理线索` 不得显示可见文案 `找人`;对应查看 action 的可访问名称为 `查看记录`、`查看名单` 或同义语义。
 - `/skills?view=skill&w=7d` 的 `待处理线索` 三组摘要不得显示 `8/48`;必须显示明文总数和展示数量。
@@ -434,6 +439,11 @@
   `来源:未收录` 或等价文案,不显示 `non_catalog`。
 - `/skills/evidence` 中 `Top skills / Top operators` 不得让主表列宽小到无法读清 `time / skill / operator / runtime / source`;不足时分组下置。
 - 点击 Skill 明细表任意行 → 同页打开右侧抽屉并写入 `sel=<skill>`;抽屉内点「前往详情页」才跳 `/skill/:name`。
+- 刷新、前进后退或复制 `/skills?...&sel=<skill>` 进入页面时,若 `sel` 对应当前明细表中存在的 skill,右侧抽屉必须恢复打开并选中同一 skill;
+  若 `sel` 为空、非法或当前明细表不包含该 skill,抽屉关闭。
+- 打开 `/skills/bogus-route-test` 或 `/skills/clues/not-a-kind` → 页面显示明确 404 / Not Found,不重定向到 `/skills`,不渲染 Pods 看板首页。
+- 从 `/skills?win=30` 或 `/skills?w=14d&win=30` 进入后点击 SKILLS 下钻链接 → 新 href 不得同时包含 `w` 与 `win`;
+  只有 `win` 输入时映射为 `w=30d`,两者同时存在时以 `w=14d` 为准。
 - 浏览器时区为 Asia/Shanghai,当前本地时间为 `2026-06-28 01:00:00`,记录
   `first_seen=2026-06-27T16:30:00+00:00` → 最近记录可见文本为 `30分钟前`,hover title 为
   `2026-06-28 00:30:00 Asia/Shanghai`。

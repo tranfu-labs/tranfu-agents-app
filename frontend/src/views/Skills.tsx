@@ -13,7 +13,8 @@ import { SkillDrawer } from '../components/skills/SkillDrawer'
 import { SkillsDetailTable } from '../components/skills/SkillsDetailTable'
 import type { SetSkillQueryState, SkillQueryState } from '../lib/skillQuery'
 import { useSkillQueryState } from '../lib/skillQuery'
-import { selectedSkillOf } from '../lib/skillsSelection'
+import { canonicalSkillsSearch } from '../lib/skillsEvidence'
+import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
 import { mobileFilterSummary, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
@@ -83,8 +84,8 @@ function SkillsToolbar({ data, params, setParams, view, t }: { data: SkillsOverv
   const update = (patch: Partial<typeof params>) => void setParams(patch)
   const currentWindow = params.w || `${params.win || 30}d`
   const newScopeSearch = useMemo(() => {
-    const search = new URLSearchParams(location.search)
-    search.set('w', params.w || `${params.win || 7}d`)
+    const search = new URLSearchParams(canonicalSkillsSearch(location.search).slice(1))
+    search.set('w', params.w || search.get('w') || `${params.win || 7}d`)
     search.set('scope', 'new')
     return `/skills?${search.toString()}`
   }, [location.search, params.w, params.win])
@@ -177,7 +178,7 @@ function OperatorTable({ rows, params, setParams, windowKey, t }: { rows: Operat
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
     void setParams({ sort: key, dir })
   }
-  const openOperator = (operator: string) => navigate(`/operator/${encodePathParam(operator)}${location.search}`)
+  const openOperator = (operator: string) => navigate(`/operator/${encodePathParam(operator)}${canonicalSkillsSearch(location.search)}`)
   const head = (key: string, label: string, cls = '') => (
     <th className={`sort ${cls}`} onClick={(event: MouseEvent<HTMLTableCellElement>) => {
       event.stopPropagation()
@@ -234,9 +235,9 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const skillsWindow = resolveSkillsWindow(params)
   const view = params.view === 'operator' ? 'operator' : 'skill'
   const selected = selectedSkillOf(params)
-  const [drawerSkill, setDrawerSkill] = useState(selected)
-  const [suppressedDrawerSkill, setSuppressedDrawerSkill] = useState('')
-  const visibleDrawerSkill = drawerSkill || (selected && selected !== suppressedDrawerSkill ? selected : '')
+  const drawerRow = selected ? (data?.table || []).find((row) => row.name === selected) : undefined
+  const drawerSkill = drawerRow ? selected : ''
+  const canonicalSearch = canonicalSkillsSearch(location.search)
   const topN = TOP_OPTIONS.includes(params.topn) ? params.topn : 8
   const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
   const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorNamePass({ operator: row.operator }, params.q))
@@ -251,21 +252,10 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const isShortWindow = chartDays <= 14
 
   const openSkill = (name: string) => {
-    setDrawerSkill(name)
-    setSuppressedDrawerSkill('')
-    if (selected !== name) void setParams({ sel: name })
+    void setParams({ sel: name })
   }
-  const closeSkill = () => {
-    setDrawerSkill('')
-    setSuppressedDrawerSkill('')
-    if (selected) void setParams({ sel: '' })
-  }
-  const selectSkill = (name: string) => {
-    const next = selected === name ? '' : name
-    setDrawerSkill('')
-    setSuppressedDrawerSkill(next)
-    void setParams({ sel: next })
-  }
+  const closeSkill = () => void setParams({ sel: '' })
+  const selectSkill = (name: string) => setSelectedSkill(params, setParams, name)
   const setSource = (source: string) => void setParams({ src: params.src === source ? '' : source })
 
   if (loading && !data) {
@@ -306,7 +296,7 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
       {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
       {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
       <FunnelSection data={data} t={t} />
-      {visibleDrawerSkill ? <SkillDrawer name={visibleDrawerSkill} row={(data?.table || []).find((row) => row.name === visibleDrawerSkill)} search={location.search} onClose={closeSkill} t={t} /> : null}
+      {drawerSkill ? <SkillDrawer name={drawerSkill} row={drawerRow} search={canonicalSearch} onClose={closeSkill} t={t} /> : null}
     </div>
   )
 }
