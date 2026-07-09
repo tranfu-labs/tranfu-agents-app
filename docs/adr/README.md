@@ -28,3 +28,4 @@
 | 0021 | 按 operator 删除收口到本人行(session 不再是 operator 路径的删除原子单位;修订 0020) | Proposed |
 | 0022 | Hermes 钩子链路常态结构化诊断日志(默认开 / 双文件 5MB rotate / 不与 harden-codex 重复 raw dump) | Proposed |
 | 0023 | 主题偏好的 localStorage 窄例外 | Proposed |
+| 0024 | 路由状态是本地导航;实时数据只更新 payload | Accepted |

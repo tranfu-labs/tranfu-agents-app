@@ -56,6 +56,8 @@ agent 机器                         中心服务器(单容器)                 
   `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
   未收录使用占比由过去 W 变化、问题线索与待处理线索呈现;
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
+  SKILLS 路由组的 route/search/view state 是当前浏览器会话内导航状态;SSE、polling、SKILLS revalidate 与详情 API hooks 只允许更新数据 payload/loading/error,
+  不得驱动 `window.history`、React Router navigation、search params 或 `sel`;不得通过 storage、BroadcastChannel、服务端状态或实时 state payload 同步公开访客业务路由状态。
   `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并并行请求 SKILLS API。
   SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
@@ -65,7 +67,7 @@ agent 机器                         中心服务器(单容器)                 
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
-  独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
+  storage event / BroadcastChannel / 服务端状态保存或广播业务 route/search/view state;独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
 
 ### M3 — 采集 shim (`shims/`)
 - **职责**:在使用者机器上把状态/档案上报给 M1。
@@ -109,7 +111,7 @@ agent 机器                         中心服务器(单容器)                 
 | 模块 | 不得依赖 |
 |---|---|
 | M1 服务端 | 外部 DB/MQ;token 成本;主动读使用者敏感内容 |
-| M2 前端 | 浏览器持久存储(例外:主题模式 `tf-theme-mode` localStorage;`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
+| M2 前端 | 浏览器持久存储(例外:主题模式 `tf-theme-mode` localStorage;`/admin` sessionStorage 暂存管理钥匙);storage event / BroadcastChannel / 服务端状态同步业务路由;独立前端服务/运行期 node;后端端口/绝对地址 |
 | M3 shim | 第三方库;抛错阻塞;默认上报内容/记忆 |
 | M4 安装 | 仓库必须公开 |
 | 全部 | 把密钥写进仓库/文档正文 |
