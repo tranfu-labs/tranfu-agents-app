@@ -5,6 +5,7 @@ const CLUE_PRESERVE = ['w', 'wstart', 'wend', 'q', 'rt', 'view', 'topn', 'skill'
 const PUBLISHED_PRESERVE = ['w', 'wstart', 'wend', 'q'] as const
 const COMPANY_SOURCES = new Set(['own', 'meta'])
 const QUERY_KEY_EXCLUDE = new Set(['limit', 'offset', 'focus'])
+const PAGE_IDENTITY_EXCLUDE = new Set(['focus'])
 export type SkillsClueKind = 'untracked' | 'idle' | 'zero-install'
 export type SkillsEvidencePageMode = 'records' | 'items'
 export type EvidencePageFetcher = (query: string, signal: AbortSignal) => Promise<SkillsEvidencePayload>
@@ -154,6 +155,11 @@ function finiteCount(value: unknown) {
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0
 }
 
+function nonNegativeInt(value: unknown) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0
+}
+
 function recordKey(record: SkillsEvidenceRecord) {
   return [
     record.session_id || '',
@@ -183,7 +189,7 @@ function uniqueBy<T>(items: T[], keyFor: (item: T) => string) {
 
 export function evidencePageQuery(search: string, loadedCount: number, limit = 100) {
   const params = evidenceParams(search)
-  params.set('offset', String(Math.max(0, Math.floor(loadedCount || 0))))
+  params.set('offset', String(evidenceBaseOffset(search) + Math.max(0, Math.floor(loadedCount || 0))))
   params.set('limit', String(Math.max(1, Math.floor(limit || 100))))
   return params.toString()
 }
@@ -194,8 +200,27 @@ export function evidenceQueryKey(search: string) {
   return new URLSearchParams([...params.entries()].sort(([a], [b]) => a.localeCompare(b))).toString()
 }
 
+export function evidencePageIdentity(search: string) {
+  const params = evidenceParams(search)
+  PAGE_IDENTITY_EXCLUDE.forEach((key) => params.delete(key))
+  return new URLSearchParams([...params.entries()].sort(([a], [b]) => a.localeCompare(b))).toString()
+}
+
+export function evidenceBaseOffset(search: string) {
+  const params = evidenceParams(search)
+  return nonNegativeInt(params.get('offset'))
+}
+
 export function shouldApplyEvidencePage(requestKey: string, currentSearch: string) {
   return requestKey === evidenceQueryKey(currentSearch)
+}
+
+export function shouldApplyEvidencePageIdentity(requestKey: string, currentSearch: string) {
+  return requestKey === evidencePageIdentity(currentSearch)
+}
+
+export function shouldApplyEvidenceResponse(requestUrl: string, currentUrl: string, requestSeq: number, currentSeq: number) {
+  return requestUrl === currentUrl && requestSeq === currentSeq
 }
 
 export function evidencePayloadForQuery<T>(payload: T | null | undefined, payloadKey: string, currentKey: string) {
@@ -224,19 +249,30 @@ export function evidenceLoadedCount(payload: SkillsEvidencePayload | null | unde
     : uniqueBy(payload.records || [], recordKey).length
 }
 
-export function evidenceTotalCount(payload: SkillsEvidencePayload | null | undefined, mode: SkillsEvidencePageMode) {
+export function evidenceTotalCount(payload: SkillsEvidencePayload | null | undefined, mode: SkillsEvidencePageMode, baseOffset = 0) {
   if (!payload) return 0
   const summary = payload.summary || {}
   const total = mode === 'items' ? finiteCount(summary.items) : finiteCount(summary.records)
-  return total || evidenceLoadedCount(payload, mode)
+  const remainingTotal = Math.max(0, total - nonNegativeInt(baseOffset))
+  return remainingTotal || evidenceLoadedCount(payload, mode)
 }
 
-export function evidenceDisplayTotalCount(payload: SkillsEvidencePayload | null | undefined, mode: SkillsEvidencePageMode) {
-  return Math.max(evidenceTotalCount(payload, mode), evidenceLoadedCount(payload, mode))
+export function evidenceDisplayTotalCount(payload: SkillsEvidencePayload | null | undefined, mode: SkillsEvidencePageMode, baseOffset = 0) {
+  return Math.max(evidenceTotalCount(payload, mode, baseOffset), evidenceLoadedCount(payload, mode))
 }
 
-export function evidenceHasMore(payload: SkillsEvidencePayload | null | undefined, mode: SkillsEvidencePageMode) {
-  return evidenceTotalCount(payload, mode) > evidenceLoadedCount(payload, mode)
+export function evidenceHasMore(payload: SkillsEvidencePayload | null | undefined, mode: SkillsEvidencePageMode, baseOffset = 0) {
+  return evidenceTotalCount(payload, mode, baseOffset) > evidenceLoadedCount(payload, mode)
+}
+
+export function evidenceShouldShowLoadControl(
+  payload: SkillsEvidencePayload | null | undefined,
+  mode: SkillsEvidencePageMode,
+  options: { loading?: boolean; error?: string; baseOffset?: number; baselineLimit?: number } = {},
+) {
+  const baseline = Math.max(1, Math.floor(options.baselineLimit || 100))
+  const loaded = evidenceLoadedCount(payload, mode)
+  return evidenceHasMore(payload, mode, options.baseOffset || 0) || Boolean(options.loading) || Boolean(options.error) || loaded > baseline
 }
 
 export function mergeEvidencePage(current: SkillsEvidencePayload, next: SkillsEvidencePayload, mode: SkillsEvidencePageMode) {

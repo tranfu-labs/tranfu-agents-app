@@ -5,15 +5,17 @@ import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillsEvidenceKind, SkillsEvidencePayload } from '../lib/types'
 import { sourceLabel } from '../lib/utils'
 import {
+  evidenceBaseOffset,
   evidenceDisplayTotalCount,
   evidenceHasMore,
   evidenceLoadedCount,
+  evidencePageIdentity,
   evidencePageQuery,
   evidencePath,
   evidencePayloadForQuery,
-  evidenceQueryKey,
+  evidenceShouldShowLoadControl,
   mergeEvidencePage,
-  shouldApplyEvidencePage,
+  shouldApplyEvidencePageIdentity,
   skillsBackSearch,
   startEvidencePageRequest,
   type SkillsEvidencePageMode,
@@ -116,6 +118,11 @@ function keepLoadedRowsWithFreshContext(fresh: SkillsEvidencePayload, previous: 
   }
 }
 
+type EvidencePageState = {
+  key: string
+  data: SkillsEvidencePayload
+}
+
 async function fetchEvidencePage(query: string, signal: AbortSignal) {
   const response = await fetch(`/api/skills/evidence?${query}`, { cache: 'no-store', signal })
   if (!response.ok) throw new Error(String(response.status))
@@ -123,16 +130,17 @@ async function fetchEvidencePage(query: string, signal: AbortSignal) {
 }
 
 export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { data: SkillsEvidencePayload | null; loading: boolean; error: string; lang: Lang; search: string; t: (key: string) => string }) {
-  const currentQueryKey = useMemo(() => evidenceQueryKey(search), [search])
+  const currentPageKey = useMemo(() => evidencePageIdentity(search), [search])
+  const pageBaseOffset = useMemo(() => evidenceBaseOffset(search), [search])
   const currentSearchRef = useRef(search)
   currentSearchRef.current = search
-  const currentQueryKeyRef = useRef(currentQueryKey)
-  currentQueryKeyRef.current = currentQueryKey
-  const appliedQueryKeyRef = useRef(currentQueryKey)
+  const currentPageKeyRef = useRef(currentPageKey)
+  currentPageKeyRef.current = currentPageKey
+  const appliedPageKeyRef = useRef(currentPageKey)
   const mountedRef = useRef(false)
-  const pageDataRef = useRef<SkillsEvidencePayload | null>(data)
+  const pageDataRef = useRef<EvidencePageState | null>(data ? { key: currentPageKey, data } : null)
   const requestRef = useRef<{ controller: AbortController; key: string } | null>(null)
-  const [pageData, setPageData] = useState<SkillsEvidencePayload | null>(data)
+  const [pageData, setPageData] = useState<EvidencePageState | null>(() => (data ? { key: currentPageKey, data } : null))
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState('')
 
@@ -150,9 +158,9 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
   }, [pageData])
 
   useEffect(() => {
-    const previousKey = appliedQueryKeyRef.current
-    const queryChanged = previousKey !== currentQueryKey
-    appliedQueryKeyRef.current = currentQueryKey
+    const previousKey = appliedPageKeyRef.current
+    const queryChanged = previousKey !== currentPageKey
+    appliedPageKeyRef.current = currentPageKey
     if (queryChanged) {
       requestRef.current?.controller.abort()
       requestRef.current = null
@@ -164,14 +172,14 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
     setPageData((previous) => {
       if (!data) return null
       const mode = pageMode(data)
-      if (!queryChanged && previous && previous.kind === data.kind && evidenceLoadedCount(previous, mode) > evidenceLoadedCount(data, mode)) {
-        return keepLoadedRowsWithFreshContext(data, previous, mode)
+      if (previous?.data && previous.key === currentPageKey && previous.data.kind === data.kind && evidenceLoadedCount(previous.data, mode) > evidenceLoadedCount(data, mode)) {
+        return { key: currentPageKey, data: keepLoadedRowsWithFreshContext(data, previous.data, mode) }
       }
-      return data
+      return { key: currentPageKey, data }
     })
-  }, [currentQueryKey, data])
+  }, [currentPageKey, data])
 
-  const displayData = evidencePayloadForQuery(pageData, appliedQueryKeyRef.current, currentQueryKey)
+  const displayData = evidencePayloadForQuery(pageData?.data, pageData?.key || '', currentPageKey)
   const mode = pageMode(displayData)
   const records = displayData?.records || []
   const items = displayData?.items || []
@@ -180,20 +188,26 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
   const untrackedRecords = Number(displayData?.summary?.untracked_records || 0)
   const showUntrackedSlice = displayData?.kind === 'total' && untrackedRecords > 0
   const loadedCount = evidenceLoadedCount(displayData, mode)
-  const totalCount = evidenceDisplayTotalCount(displayData, mode)
-  const hasMore = evidenceHasMore(displayData, mode)
-  const showLoadControl = totalCount > EVIDENCE_PAGE_LIMIT || loadingMore || Boolean(loadMoreError)
+  const totalCount = evidenceDisplayTotalCount(displayData, mode, pageBaseOffset)
+  const hasMore = evidenceHasMore(displayData, mode, pageBaseOffset)
+  const showLoadControl = evidenceShouldShowLoadControl(displayData, mode, {
+    loading: loadingMore,
+    error: loadMoreError,
+    baseOffset: pageBaseOffset,
+    baselineLimit: EVIDENCE_PAGE_LIMIT,
+  })
   const progressLabel = `${n(loadedCount)} / ${n(totalCount)}`
   const recordsSectionCount = mode === 'records' && showLoadControl ? progressLabel : records.length
   const itemsSectionCount = mode === 'items' && showLoadControl ? progressLabel : items.length
 
   const loadMore = useCallback(async () => {
     const current = pageDataRef.current
-    if (!current) return
-    const requestMode = pageMode(current)
-    const requestKey = evidenceQueryKey(search)
-    const loaded = evidenceLoadedCount(current, requestMode)
-    if (!evidenceHasMore(current, requestMode)) return
+    if (!current || current.key !== currentPageKeyRef.current) return
+    const requestMode = pageMode(current.data)
+    const requestKey = evidencePageIdentity(search)
+    const loaded = evidenceLoadedCount(current.data, requestMode)
+    const baseOffset = evidenceBaseOffset(search)
+    if (!evidenceHasMore(current.data, requestMode, baseOffset)) return
     const query = evidencePageQuery(search, loaded, EVIDENCE_PAGE_LIMIT)
     requestRef.current?.controller.abort()
     const request = startEvidencePageRequest(query, fetchEvidencePage, LOAD_MORE_TIMEOUT_MS)
@@ -202,20 +216,20 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
     setLoadMoreError('')
     try {
       const next = await request.promise
-      if (!mountedRef.current || !shouldApplyEvidencePage(requestKey, currentSearchRef.current) || currentQueryKeyRef.current !== requestKey) return
+      if (!mountedRef.current || !shouldApplyEvidencePageIdentity(requestKey, currentSearchRef.current) || currentPageKeyRef.current !== requestKey) return
       const base = pageDataRef.current
-      if (!base) return
-      const before = evidenceLoadedCount(base, requestMode)
-      const merged = mergeEvidencePage(base, next, requestMode)
+      if (!base || base.key !== requestKey) return
+      const before = evidenceLoadedCount(base.data, requestMode)
+      const merged = mergeEvidencePage(base.data, next, requestMode)
       const after = evidenceLoadedCount(merged, requestMode)
-      setPageData(merged)
-      setLoadMoreError(after <= before && evidenceHasMore(merged, requestMode) ? 'stalled' : '')
+      setPageData({ key: requestKey, data: merged })
+      setLoadMoreError(after <= before && evidenceHasMore(merged, requestMode, baseOffset) ? 'stalled' : '')
     } catch {
-      if (!mountedRef.current || !shouldApplyEvidencePage(requestKey, currentSearchRef.current) || currentQueryKeyRef.current !== requestKey) return
+      if (!mountedRef.current || !shouldApplyEvidencePageIdentity(requestKey, currentSearchRef.current) || currentPageKeyRef.current !== requestKey) return
       setLoadMoreError(request.didTimeout() ? 'timeout' : 'failed')
     } finally {
       if (requestRef.current?.controller === request.controller) requestRef.current = null
-      if (mountedRef.current && currentQueryKeyRef.current === requestKey) setLoadingMore(false)
+      if (mountedRef.current && currentPageKeyRef.current === requestKey) setLoadingMore(false)
     }
   }, [search])
 

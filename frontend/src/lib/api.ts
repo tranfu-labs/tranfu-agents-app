@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_STATE, demoOperatorDetail, demoSkillDetail, demoSkillsOverview } from './demo'
 import { createRevalidatedJsonFetcher } from './apiCache'
+import { shouldApplyEvidenceResponse } from './skillsEvidence'
 import { makeTokenUsageComparisonRange } from './tokenUsageRange'
 import type {
   AdminInventory,
@@ -361,24 +362,32 @@ export function useSkillsEvidence(enabled: boolean, query: string): Loadable<Ski
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
   const lastFetch = useRef(0)
+  const requestSeq = useRef(0)
+  const currentUrlRef = useRef(url)
+  currentUrlRef.current = url
 
   const refresh = useCallback(
     async (force = false) => {
       const now = Date.now()
       if (!enabled || (!force && now - lastFetch.current < 9500)) return
+      const requestUrl = url
+      const seq = requestSeq.current + 1
+      requestSeq.current = seq
       setLoading(true)
       try {
         const next = await fetchRevalidatedJson<SkillsEvidencePayload>(url)
+        if (!shouldApplyEvidenceResponse(requestUrl, currentUrlRef.current, seq, requestSeq.current)) return
         setData(next)
         setError('')
         setDemo(false)
         lastFetch.current = Date.now()
       } catch {
+        if (!shouldApplyEvidenceResponse(requestUrl, currentUrlRef.current, seq, requestSeq.current)) return
         setData((old) => old || emptySkillsEvidence(query))
         setError('loadError')
         setDemo(true)
       } finally {
-        setLoading(false)
+        if (shouldApplyEvidenceResponse(requestUrl, currentUrlRef.current, seq, requestSeq.current)) setLoading(false)
       }
     },
     [enabled, query, url],

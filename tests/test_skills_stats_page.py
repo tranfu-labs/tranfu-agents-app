@@ -227,17 +227,24 @@ def test_skills_overview_excludes_used_uninstalled_company_skills_from_zero_inst
             "description": "current meta",
             "published_at": _published_at(app_mod, 1),
         },
+        {
+            "name": "previous-window-used-no-install",
+            "type": "meta",
+            "description": "previous meta",
+            "published_at": _published_at(app_mod, 9),
+        },
     ]
     _set_catalog(app_mod, CATALOG + targets)
     for target in targets:
         skill = target["name"]
         ev(client, operator="alice", runtime="codex", session_id=f"{skill}-used",
            skill=skill, current_step=skill)
-        _set_skill_day(app_mod, f"{skill}-used", skill, 1)
+        _set_skill_day(app_mod, f"{skill}-used", skill, 9 if skill.startswith("previous-") else 1)
 
     data = client.get("/api/skills?w=7d").json()
 
     assert data["period_comparison"]["current_published_skill_count"] == 0
+    assert data["period_comparison"]["previous_published_skill_count"] == 0
     assert not {
         "post-illustration-images",
         "product-title-generation",
@@ -249,7 +256,7 @@ def test_skills_overview_excludes_used_uninstalled_company_skills_from_zero_inst
 
 
 def test_skills_overview_filters_placeholder_skill_names_from_overview_response(client, app_mod):
-    placeholder_names = ["$name", "$d", "$s", "foo", "foo-bar", "dbs-placeholder", "gstack-placeholder"]
+    placeholder_names = ["$NAME", "$D", "$S", "FOO", "Foo-Bar", "DBS-placeholder", "GStack-placeholder"]
     catalog = CATALOG + [
         {
             "name": "release-alpha",
@@ -544,6 +551,14 @@ def test_skills_evidence_total_and_untracked_records_are_windowed_used_only(clie
     assert {row["skill"] for row in total["records"]} == {"alpha", "beta", "ghost"}
     assert all(row["skill"] != "ghost" or row["source"] == "非公司库" for row in total["records"])
 
+    report_many("FOO", 1, "placeholder-exact")
+    report_many("DBS-placeholder", 1, "placeholder-prefix")
+    overview = client.get("/api/skills?w=7d").json()
+    total = client.get("/api/skills/evidence?kind=total&w=7d").json()
+    assert total["summary"]["records"] == overview["period_comparison"]["current_sessions"] == 6
+    assert {"FOO", "DBS-placeholder"}.isdisjoint({row["skill"] for row in total["records"]})
+    assert {"FOO", "DBS-placeholder"}.isdisjoint({row["name"] for row in total["top_skills"]})
+
     untracked = client.get("/api/skills/evidence?kind=untracked&w=7d").json()
     assert untracked["summary"]["records"] == 3
     assert {row["skill"] for row in untracked["records"]} == {"ghost"}
@@ -600,10 +615,13 @@ def test_skills_evidence_filters_affect_records_and_groups(client, app_mod):
 
 
 def test_skills_evidence_idle_returns_installed_unused_items(client, app_mod):
-    _set_catalog(app_mod)
+    _set_catalog(app_mod, CATALOG + [
+        {"name": "FOO", "type": "own", "description": "placeholder exact"},
+        {"name": "DBS-catalog", "type": "meta", "description": "placeholder prefix"},
+    ])
     ev(client, operator="alice", runtime="codex", session_id="alpha", skill="alpha", current_step="alpha")
     ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
-       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}, {"name": "FOO"}]})
     _set_skill_day(app_mod, "alpha", "alpha", 1)
 
     data = client.get("/api/skills/evidence?kind=idle&w=7d").json()

@@ -212,7 +212,7 @@ def _is_overview_placeholder_skill(name):
 
 
 def _overview_skill_filter_sql(prefix="AND"):
-    terms = ["trim(COALESCE(skill,'')) NOT IN (?,?,?,?,?)"]
+    terms = ["lower(trim(COALESCE(skill,''))) NOT IN (?,?,?,?,?)"]
     terms.extend(["lower(trim(COALESCE(skill,''))) NOT LIKE ?" for _ in _OVERVIEW_PLACEHOLDER_PREFIXES])
     params = [*sorted(_OVERVIEW_PLACEHOLDER_SKILLS), *[f"{prefix}%" for prefix in _OVERVIEW_PLACEHOLDER_PREFIXES]]
     lead = f" {prefix} " if prefix else ""
@@ -537,21 +537,30 @@ def _published_skill_summary(conn, catalog_items, catalog_by, window):
     usage = {
         r["skill"]: {
             "window_sessions": int(r["window_sessions"] or 0),
+            "previous_sessions": int(r["previous_sessions"] or 0),
             "last_day": r["last_day"],
         }
         for r in conn.execute(f"""
           SELECT skill,
             SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) window_sessions,
+            SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) previous_sessions,
             MAX(day) last_day
           FROM skill_uses
           WHERE mode='used'{overview_sql}
           GROUP BY skill
-        """, (window["start"], window["end"], *overview_params))
+        """, (
+            window["start"], window["end"],
+            window["previous_start"], window["previous_end"],
+            *overview_params,
+        ))
     }
 
     def is_company_item(item):
         name = item.get("name")
         return bool(name) and not _is_overview_placeholder_skill(name) and _skill_source(name, catalog_by) in CATALOG_COMPANY_TYPES
+
+    def has_uninstalled_window_usage(name, sessions):
+        return int(sessions or 0) > 0 and int(install_counts.get(name, 0)) == 0
 
     current = []
     previous_count = 0
@@ -561,15 +570,18 @@ def _published_skill_summary(conn, catalog_items, catalog_by, window):
         published_day = _catalog_published_day(item.get("published_at"))
         if not published_day:
             continue
-        if window["previous_start"] <= published_day <= window["previous_end"]:
+        name = item["name"]
+        if (
+            window["previous_start"] <= published_day <= window["previous_end"]
+            and not has_uninstalled_window_usage(name, usage.get(name, {}).get("previous_sessions", 0))
+        ):
             previous_count += 1
         if not (window["start"] <= published_day <= window["end"]):
             continue
-        name = item["name"]
         stat = usage.get(name, {})
         window_sessions = int(stat.get("window_sessions") or 0)
         installers = int(install_counts.get(name, 0))
-        if window_sessions > 0 and installers == 0:
+        if has_uninstalled_window_usage(name, window_sessions):
             continue
         current.append({
             "name": name,
@@ -659,6 +671,9 @@ def _source_filter(kind, src, ignored):
 def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", operator=""):
     clauses = ["mode='used'", "day >= ?", "day <= ?"]
     params = [window_start, window_end]
+    overview_sql, overview_params = _overview_skill_filter_sql(prefix="")
+    clauses.append(overview_sql)
+    params.extend(overview_params)
     if rt:
         clauses.append("COALESCE(runtime,'') = ?")
         params.append(rt)
@@ -783,7 +798,7 @@ def _evidence_record_summary(rows, items=None, installed=0):
 
 def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q="", skill="", rt="", operator="", catalog_by=None):
     catalog_by = catalog_by or {}
-    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
+    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES and not _is_overview_placeholder_skill(n)}
     installed_names = _installed_skill_names(conn) & company_names
     used_rows = _evidence_fetch_rows(conn, window_start, window_end, q="", rt=rt, skill="", operator=operator)
     used_rows = _annotate_evidence_rows(used_rows, catalog_by)

@@ -1,22 +1,27 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  evidenceBaseOffset,
   canonicalSkillsSearch,
   clueApiSearch,
   cluePath,
   evidenceDisplayTotalCount,
   evidenceHasMore,
   evidenceLoadedCount,
+  evidencePageIdentity,
   evidencePageQuery,
   evidencePath,
   evidencePayloadForQuery,
   evidenceQueryKey,
   evidenceSearch,
+  evidenceShouldShowLoadControl,
   evidenceTotalCount,
   legacyEvidenceCluePath,
   mergeEvidencePage,
   publishedSkillsPath,
   publishedSkillsSearch,
+  shouldApplyEvidencePageIdentity,
+  shouldApplyEvidenceResponse,
   shouldApplyEvidencePage,
   skillsBackSearch,
   startEvidencePageRequest,
@@ -135,6 +140,14 @@ test('evidencePageQuery preserves filters and advances offset without persisting
   assert.equal(params.get('limit'), '100')
 })
 
+test('evidencePageQuery advances from the URL base offset', () => {
+  const query = evidencePageQuery('?kind=total&w=7d&rt=codex&offset=100&limit=100', 100, 100)
+  const params = new URLSearchParams(query)
+  assert.equal(evidenceBaseOffset('?kind=total&w=7d&offset=100&limit=100'), 100)
+  assert.equal(params.get('offset'), '200')
+  assert.equal(params.get('limit'), '100')
+})
+
 test('evidenceQueryKey ignores pagination and focus but keeps filter identity', () => {
   assert.equal(
     evidenceQueryKey('?kind=total&w=7d&rt=codex&offset=0&limit=100&focus=records'),
@@ -146,10 +159,33 @@ test('evidenceQueryKey ignores pagination and focus but keeps filter identity', 
   )
 })
 
+test('evidencePageIdentity keeps pagination as page identity', () => {
+  assert.notEqual(
+    evidencePageIdentity('?kind=total&w=7d&rt=codex&offset=0&limit=100'),
+    evidencePageIdentity('?w=7d&kind=total&rt=codex&offset=100&limit=100'),
+  )
+  assert.equal(
+    evidencePageIdentity('?kind=total&w=7d&rt=codex&offset=100&limit=50&focus=records'),
+    evidencePageIdentity('?w=7d&kind=total&rt=codex&limit=50&offset=100'),
+  )
+})
+
 test('shouldApplyEvidencePage rejects slow responses from a previous filter URL', () => {
   const requestKey = evidenceQueryKey('?kind=total&w=7d&rt=codex&offset=100')
   assert.equal(shouldApplyEvidencePage(requestKey, '?w=7d&kind=total&rt=codex&offset=0'), true)
   assert.equal(shouldApplyEvidencePage(requestKey, '?w=7d&kind=total&rt=claude-code&offset=0'), false)
+})
+
+test('shouldApplyEvidencePageIdentity rejects slow responses from a previous page URL', () => {
+  const requestKey = evidencePageIdentity('?kind=total&w=7d&rt=codex&offset=100')
+  assert.equal(shouldApplyEvidencePageIdentity(requestKey, '?w=7d&kind=total&rt=codex&offset=100'), true)
+  assert.equal(shouldApplyEvidencePageIdentity(requestKey, '?w=7d&kind=total&rt=codex&offset=0'), false)
+})
+
+test('shouldApplyEvidenceResponse only accepts the current URL and request sequence', () => {
+  assert.equal(shouldApplyEvidenceResponse('/api/skills/evidence?w=7d', '/api/skills/evidence?w=7d', 3, 3), true)
+  assert.equal(shouldApplyEvidenceResponse('/api/skills/evidence?w=7d', '/api/skills/evidence?w=14d', 3, 3), false)
+  assert.equal(shouldApplyEvidenceResponse('/api/skills/evidence?w=7d', '/api/skills/evidence?w=7d', 2, 3), false)
 })
 
 test('evidencePayloadForQuery hides stale payloads from previous filter URLs', () => {
@@ -170,6 +206,22 @@ test('startEvidencePageRequest aborts permanent pending requests after timeout',
   )
   await assert.rejects(request.promise, /aborted/)
   assert.equal(request.didTimeout(), true)
+})
+
+test('limit 50 evidence pages show load control when hasMore is true', () => {
+  const first = evidence(Array.from({ length: 50 }, (_, index) => record(index)), 80)
+  assert.equal(evidenceLoadedCount(first, 'records'), 50)
+  assert.equal(evidenceTotalCount(first, 'records'), 80)
+  assert.equal(evidenceDisplayTotalCount(first, 'records'), 80)
+  assert.equal(evidenceHasMore(first, 'records'), true)
+  assert.equal(evidenceShouldShowLoadControl(first, 'records', { baselineLimit: 100 }), true)
+})
+
+test('offset evidence hasMore uses the remaining page range', () => {
+  const page = evidence(Array.from({ length: 50 }, (_, index) => record(index + 100)), 150)
+  assert.equal(evidenceTotalCount(page, 'records', 100), 50)
+  assert.equal(evidenceHasMore(page, 'records', 100), false)
+  assert.equal(evidenceShouldShowLoadControl(page, 'records', { baseOffset: 100, baselineLimit: 100 }), false)
 })
 
 test('mergeEvidencePage loads 367 unique records in server page order', () => {
