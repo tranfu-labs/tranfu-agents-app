@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { angleSpan, buildDonutSegments, buildSourceDonutSegments } from './skillsAttribution.ts'
 import { buildRankItems, deltaRatio, formatDelta } from './skillsDashboard.ts'
-import { SKILLS_CHART_MAX_BAR_WIDTH, resolveDetailTrendEndDay, resolveDetailTrendLayout, resolveSkillsChartLayout } from './skillsChartLayout.ts'
+import { SKILLS_CHART_MAX_BAR_WIDTH, isoDayRange, resolveDetailTrendEndDay, resolveDetailTrendLayout, resolveSkillsChartAxis, resolveSkillsChartLayout } from './skillsChartLayout.ts'
 import { classifySkillHealth } from './skillsThresholds.ts'
 import { resolveSkillsWindow } from './skillsWindow.ts'
 import { skillsWindowQuery } from './skillsWindow.ts'
@@ -68,6 +68,31 @@ test('skills chart layout fits short windows and scrolls longer windows to the e
   assert.equal(oneDay.barWidth, SKILLS_CHART_MAX_BAR_WIDTH)
   assert.ok(sevenDays.barWidth <= SKILLS_CHART_MAX_BAR_WIDTH)
   assert.ok(thirtyDays.trackWidth > sevenDays.trackWidth)
+})
+
+test('skills chart axis can be generated from explicit payload window boundaries', () => {
+  assert.deepEqual(isoDayRange('2026-07-01', '2026-07-07'), [
+    '2026-07-01',
+    '2026-07-02',
+    '2026-07-03',
+    '2026-07-04',
+    '2026-07-05',
+    '2026-07-06',
+    '2026-07-07',
+  ])
+  assert.deepEqual(isoDayRange('2026-07-07', '2026-07-01'), [])
+  assert.deepEqual(isoDayRange('2026-02-30', '2026-03-02'), [])
+  assert.deepEqual(isoDayRange('2026-07-01', '2026-07-04', 3), [])
+  assert.deepEqual(resolveSkillsChartAxis({ start: '2026-07-01', end: '2026-07-03' }, 30, '2026-07-30'), [
+    '2026-07-01',
+    '2026-07-02',
+    '2026-07-03',
+  ])
+  assert.deepEqual(resolveSkillsChartAxis({ start: 'bad', end: '2026-07-03' }, 3, '2026-07-30'), [
+    '2026-07-28',
+    '2026-07-29',
+    '2026-07-30',
+  ])
 })
 
 test('detail trend layout fits short windows and scrolls longer windows to the end', () => {

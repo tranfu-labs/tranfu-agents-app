@@ -149,7 +149,8 @@
   `w`;不得同时输出 `w` 与旧参数 `win`。当输入 URL 同时包含 `w` 与 `win` 时,以 `w` 为准并在新生成链接中删除 `win`。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按服务端返回的 `window.start..window.end`
-  逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
+  逐日铺满;有效 `window.start..window.end` 是趋势图日期轴事实源,只有响应缺失有效窗口边界时才允许回退到以右端日期和 `days` 推导日期轴。
+  旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
 - `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
@@ -191,7 +192,9 @@
   使用信号同样只展示当前事实值和 icon 证据入口,不得显示「看操作员名单」「看 runtime 分布」等可见动作文案。
 - 主分析区按当前时间窗口长度切换布局:短窗口(`today`、`this_week`、`last_week`、`7d`、`14d`、有效 `custom<=14天`)
   在桌面 `>1080px` 下使排行 Bar/操作员排行与每日使用趋势图左右并列并占满整宽,同排两张卡片外框底边须对齐;长窗口(`30d`、`90d`、有效 `custom>14天`)
-  在桌面 `>1080px` 下使排行 Bar/操作员排行独占一行、每日使用趋势图独占下一行。按 Skill 视角排行 Bar 显示 Top N +
+  在桌面 `>1080px` 下使排行 Bar/操作员排行独占一行、每日使用趋势图独占下一行。每日使用趋势图标题必须由当前时间窗口 i18n label 派生,
+  例如「近 7 天使用」/ `Used in Last 7 days`;按人视角标题必须继续表达 operator 口径,例如「近 7 天使用 · 按人」/ `Used in Last 7 days · by operator`。
+  按 Skill 视角排行 Bar 显示 Top N +
   长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;排行长 skill 名在桌面默认可读,不得只依赖 hover/title,
   窄屏下不得造成根级横滚或与数值、记录动作、条形轨道重叠,必要时用换行、软断行、`title`/`aria-label` 或行详情提供完整可读路径;
   点行设置全局 `sel`,再点取消,并与每日使用趋势图和 Donut 联动。

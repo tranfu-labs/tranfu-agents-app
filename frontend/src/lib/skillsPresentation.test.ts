@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeT } from './i18n.ts'
 import { humanFilterChips, operatorShare, showTopSkillsForClue } from './skillsClues.ts'
-import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary, untrackedUsageSummary, windowChangeLabel, windowDisplayLabel, windowTriggersLabel, windowUsedLabel, windowZeroUsageLabel } from './skillsPresentation.ts'
+import { compactNameList, defaultEvidenceTab, evidenceSummaryLine, mobileFilterSummary, untrackedUsageSummary, windowChangeLabel, windowDailyUsageTitle, windowDisplayLabel, windowTriggersLabel, windowUsedLabel, windowZeroUsageLabel } from './skillsPresentation.ts'
 import type { SkillsEvidencePayload } from './types.ts'
 
 test('mobileFilterSummary defaults to a single compressed line', () => {
@@ -38,6 +38,13 @@ test('window labels derive human-readable period copy without raw W', () => {
   assert.equal(windowZeroUsageLabel('7d', makeT('en')), '0 in Last 7 days')
   assert.equal(windowTriggersLabel('14d', makeT('zh')), '近 14 天触发')
   assert.ok(!windowChangeLabel('7d', makeT('zh')).includes('W'))
+})
+
+test('daily usage titles derive from the selected window and view', () => {
+  assert.equal(windowDailyUsageTitle('7d', 'skill', makeT('zh')), '近 7 天使用')
+  assert.equal(windowDailyUsageTitle('30d', 'operator', makeT('zh')), '近 30 天使用 · 按人')
+  assert.equal(windowDailyUsageTitle('7d', 'skill', makeT('en')), 'Used in Last 7 days')
+  assert.equal(windowDailyUsageTitle('30d', 'operator', makeT('en')), 'Used in Last 30 days · by operator')
 })
 
 test('compactNameList truncates long skill names and avoids long slash chains', () => {

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react'
-import { resolveDetailTrendEndDay, resolveDetailTrendLayout, resolveSkillsChartLayout } from '../lib/skillsChartLayout'
+import { resolveDetailTrendEndDay, resolveDetailTrendLayout, resolveSkillsChartAxis, resolveSkillsChartLayout } from '../lib/skillsChartLayout'
 import type { SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
@@ -161,7 +161,7 @@ export function StackedSkillChart({
   const axisEnd = today || overview?.window?.end || apiToday(overview)
   const currentMarkerDay = currentDay || overview?.today || today || apiToday(overview)
   const model = useMemo(() => {
-    const axis = daySeries(axisEnd, days)
+    const axis = resolveSkillsChartAxis(overview?.window, days, axisEnd)
     const daySet = new Set(axis)
     const byDay: Record<string, Record<string, number>> = {}
     const totalBySegment: Record<string, number> = {}
@@ -183,7 +183,7 @@ export function StackedSkillChart({
     const legend = [...top]
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
-  }, [axisEnd, days, rows, segmentKey, topN])
+  }, [axisEnd, days, overview?.window, rows, segmentKey, topN])
   const layout = resolveSkillsChartLayout(model.axis.length, chartBoxWidth)
 
   useLayoutEffect(() => {

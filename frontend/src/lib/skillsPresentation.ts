@@ -75,6 +75,11 @@ export function windowUsedLabel(key: string | number | undefined, t: T) {
   return fillWindowPattern(t('usedInWindow'), windowPeriodLabel(key, t))
 }
 
+export function windowDailyUsageTitle(key: string | number | undefined, view: 'skill' | 'operator', t: T) {
+  const base = windowUsedLabel(key, t)
+  return view === 'operator' ? `${base} · ${t('byOperatorSuffix')}` : base
+}
+
 export function windowZeroUsageLabel(key: string | number | undefined, t: T) {
   return fillWindowPattern(t('zeroUsageInWindow'), windowPeriodLabel(key, t))
 }

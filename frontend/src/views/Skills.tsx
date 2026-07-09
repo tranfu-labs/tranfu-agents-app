@@ -16,7 +16,7 @@ import { useSkillQueryState } from '../lib/skillQuery'
 import { canonicalSkillsSearch } from '../lib/skillsEvidence'
 import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
-import { mobileFilterSummary, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
+import { mobileFilterSummary, windowDailyUsageTitle, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
@@ -248,8 +248,9 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const rankRows = useMemo(() => skillRowsBase.slice().sort((a, b) => Number(b.sessions_window ?? b.sessions_30d ?? 0) - Number(a.sessions_window ?? a.sessions_30d ?? 0)), [skillRowsBase])
   const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorNamePass(row, params.q)), params.sort, params.dir) as OperatorTableRow[]
   const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
-  const chartDays = data?.days || skillsWindow.days
+  const chartDays = data?.window?.days || data?.days || skillsWindow.days
   const isShortWindow = chartDays <= 14
+  const trendTitle = windowDailyUsageTitle(skillsWindow.key, view, t)
 
   const openSkill = (name: string) => {
     void setParams({ sel: name })
@@ -286,8 +287,8 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
           )}
         </section>
         <section className="frame skills-trend-panel">
-          <SectionTitle title={view === 'operator' ? t('dailyByOperator') : t('dailyUsed')} count={skillsWindow.label} />
-          <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
+          <SectionTitle title={trendTitle} count={windowPeriodLabel(skillsWindow.key, t)} />
+          <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} ariaLabel={trendTitle} />
         </section>
       </div>
       <section className="frame skills-governance-row-frame">
