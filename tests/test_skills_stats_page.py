@@ -188,7 +188,7 @@ def test_skills_overview_published_skills_include_unused_company_catalog(client,
     _set_catalog(app_mod, CATALOG + [current_own, current_meta, previous_meta, external, invalid])
 
     ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
-       current_step="profile", skills={"local": [{"name": "fresh-own"}]})
+       current_step="profile", skills={"local": [{"name": "fresh-own"}, {"name": "fresh-meta"}]})
     ev(client, operator="alice", runtime="codex", session_id="fresh-meta-use",
        skill="fresh-meta", current_step="fresh-meta-use")
     used_day = _set_skill_day(app_mod, "fresh-meta-use", "fresh-meta", 1)
@@ -211,6 +211,97 @@ def test_skills_overview_published_skills_include_unused_company_catalog(client,
     assert published["fresh-meta"]["source"] == "meta"
     assert published["fresh-meta"]["window_sessions"] == 1
     assert published["fresh-meta"]["last_day"] == used_day
+
+
+def test_skills_overview_excludes_used_uninstalled_company_skills_from_zero_install_and_published(client, app_mod):
+    targets = [
+        {
+            "name": "post-illustration-images",
+            "type": "own",
+            "description": "current own",
+            "published_at": _published_at(app_mod, 1),
+        },
+        {
+            "name": "product-title-generation",
+            "type": "meta",
+            "description": "current meta",
+            "published_at": _published_at(app_mod, 1),
+        },
+        {
+            "name": "previous-window-used-no-install",
+            "type": "meta",
+            "description": "previous meta",
+            "published_at": _published_at(app_mod, 9),
+        },
+    ]
+    _set_catalog(app_mod, CATALOG + targets)
+    for target in targets:
+        skill = target["name"]
+        ev(client, operator="alice", runtime="codex", session_id=f"{skill}-used",
+           skill=skill, current_step=skill)
+        _set_skill_day(app_mod, f"{skill}-used", skill, 9 if skill.startswith("previous-") else 1)
+
+    data = client.get("/api/skills?w=7d").json()
+
+    assert data["period_comparison"]["current_published_skill_count"] == 0
+    assert data["period_comparison"]["previous_published_skill_count"] == 0
+    assert not {
+        "post-illustration-images",
+        "product-title-generation",
+    } & {row["name"] for row in data["published_skills"]}
+    assert not {
+        "post-illustration-images",
+        "product-title-generation",
+    } & {row["name"] for row in data["governance"]["cataloged_not_installed"]["top"]}
+
+
+def test_skills_overview_filters_placeholder_skill_names_from_overview_response(client, app_mod):
+    placeholder_names = ["$NAME", "$D", "$S", "FOO", "Foo-Bar", "DBS-placeholder", "GStack-placeholder"]
+    catalog = CATALOG + [
+        {
+            "name": "release-alpha",
+            "type": "own",
+            "description": "real published",
+            "published_at": _published_at(app_mod, 1),
+        },
+        *[
+            {
+                "name": name,
+                "type": "own",
+                "description": "placeholder",
+                "published_at": _published_at(app_mod, 1),
+            }
+            for name in placeholder_names
+        ],
+    ]
+    _set_catalog(app_mod, catalog)
+    ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
+       current_step="profile", skills={"local": [
+           {"name": "release-alpha"},
+           {"name": "foo"},
+           {"name": "dbs-placeholder"},
+       ]})
+    ev(client, operator="alice", runtime="codex", session_id="release-alpha-used",
+       skill="release-alpha", current_step="release-alpha")
+    _set_skill_day(app_mod, "release-alpha-used", "release-alpha", 1)
+    for name in placeholder_names:
+        session_id = f"placeholder-{name}".replace("$", "dollar")
+        ev(client, operator="alice", runtime="codex", session_id=session_id,
+           skill=name, current_step=session_id)
+        _set_skill_day(app_mod, session_id, name, 1)
+
+    response = client.get("/api/skills?w=7d")
+    data = response.json()
+    body = response.text
+
+    for name in placeholder_names:
+        assert name not in body
+    assert [row["name"] for row in data["table"]] == ["release-alpha"]
+    assert {row["skill"] for row in data["daily"]} == {"release-alpha"}
+    assert {row["operator"] for row in data["operator_daily"]} == {"alice"}
+    assert data["governance"]["untracked_usage"]["used_sessions"] == 0
+    assert data["period_comparison"]["current_published_skill_count"] == 1
+    assert [row["name"] for row in data["published_skills"]] == ["release-alpha"]
 
 
 def test_skills_overview_operator_view_used_only_and_windowed_daily(client, app_mod):
@@ -460,6 +551,14 @@ def test_skills_evidence_total_and_untracked_records_are_windowed_used_only(clie
     assert {row["skill"] for row in total["records"]} == {"alpha", "beta", "ghost"}
     assert all(row["skill"] != "ghost" or row["source"] == "非公司库" for row in total["records"])
 
+    report_many("FOO", 1, "placeholder-exact")
+    report_many("DBS-placeholder", 1, "placeholder-prefix")
+    overview = client.get("/api/skills?w=7d").json()
+    total = client.get("/api/skills/evidence?kind=total&w=7d").json()
+    assert total["summary"]["records"] == overview["period_comparison"]["current_sessions"] == 6
+    assert {"FOO", "DBS-placeholder"}.isdisjoint({row["skill"] for row in total["records"]})
+    assert {"FOO", "DBS-placeholder"}.isdisjoint({row["name"] for row in total["top_skills"]})
+
     untracked = client.get("/api/skills/evidence?kind=untracked&w=7d").json()
     assert untracked["summary"]["records"] == 3
     assert {row["skill"] for row in untracked["records"]} == {"ghost"}
@@ -516,10 +615,13 @@ def test_skills_evidence_filters_affect_records_and_groups(client, app_mod):
 
 
 def test_skills_evidence_idle_returns_installed_unused_items(client, app_mod):
-    _set_catalog(app_mod)
+    _set_catalog(app_mod, CATALOG + [
+        {"name": "FOO", "type": "own", "description": "placeholder exact"},
+        {"name": "DBS-catalog", "type": "meta", "description": "placeholder prefix"},
+    ])
     ev(client, operator="alice", runtime="codex", session_id="alpha", skill="alpha", current_step="alpha")
     ev(client, operator="zoe", runtime="codex", agent="code", session_id="profile",
-       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}]})
+       current_step="profile", skills={"local": [{"name": "alpha"}, {"name": "idle-own"}, {"name": "FOO"}]})
     _set_skill_day(app_mod, "alpha", "alpha", 1)
 
     data = client.get("/api/skills/evidence?kind=idle&w=7d").json()

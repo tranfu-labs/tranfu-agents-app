@@ -2,6 +2,7 @@ import type { KeyboardEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Empty, SectionTitle } from '../components/Common'
 import { useSkillQueryState } from '../lib/skillQuery'
+import { canonicalSkillsSearch } from '../lib/skillsEvidence'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, PublishedSkill, SkillsOverview } from '../lib/types'
 import { encodePathParam, sourceLabel } from '../lib/utils'
@@ -48,13 +49,13 @@ export function SkillsNewView({ data, loading, error, lang, t }: { data: SkillsO
   const currentWindow = params.w || `${params.win || 7}d`
   const source = params.src === 'own' || params.src === 'meta' ? params.src : ''
   const rows = filterRows(data?.published_skills || [], params.q, source)
-  const backSearch = new URLSearchParams(location.search)
+  const backSearch = new URLSearchParams(canonicalSkillsSearch(location.search).slice(1))
   backSearch.delete('src')
   const back = `/skills${backSearch.toString() ? `?${backSearch.toString()}` : ''}`
   const update = (patch: Partial<typeof params>) => void setParams(patch)
   const openSkill = (row: PublishedSkill) => {
     if (!row.last_day) return
-    navigate(`/skill/${encodePathParam(row.name)}${location.search}`)
+    navigate(`/skill/${encodePathParam(row.name)}${canonicalSkillsSearch(location.search)}`)
   }
   return (
     <div className={`skills-page skills-dashboard skills-new-page ${loading ? 'is-refreshing' : ''}`}>

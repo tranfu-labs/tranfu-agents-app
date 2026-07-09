@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from 'react'
 import { useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { buildRankItems } from '../../lib/skillsDashboard'
 import type { SkillTableRow } from '../../lib/types'
 import { sourceLabel, skillColor } from '../../lib/utils'
@@ -10,7 +10,7 @@ function n(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(Math.round(Number(value || 0)))
 }
 
-function rowKey(event: KeyboardEvent<HTMLButtonElement>, action: () => void) {
+function rowKey(event: KeyboardEvent<HTMLDivElement>, action: () => void) {
   if (event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
   action()
@@ -19,7 +19,6 @@ function rowKey(event: KeyboardEvent<HTMLButtonElement>, action: () => void) {
 export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTableRow[]; topN: number; selected: string; onSelect: (name: string) => void; t: (key: string) => string }) {
   const [expanded, setExpanded] = useState(false)
   const location = useLocation()
-  const navigate = useNavigate()
   const items = buildRankItems(rows, topN)
   const other = items.find((item) => item.isOther)
   const tailRows = useMemo(() => {
@@ -39,7 +38,17 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
           else onSelect(item.name)
         }
         return (
-          <button type="button" key={item.name} aria-expanded={item.isOther ? expanded : undefined} aria-label={displayName} title={displayName} className={`${active ? 'selected' : ''} ${dim ? 'dimmed' : ''}`} onClick={click} onKeyDown={(event) => rowKey(event, click)}>
+          <div
+            role="button"
+            tabIndex={0}
+            key={item.name}
+            aria-expanded={item.isOther ? expanded : undefined}
+            aria-label={displayName}
+            title={displayName}
+            className={`rank-row ${active ? 'selected' : ''} ${dim ? 'dimmed' : ''}`}
+            onClick={click}
+            onKeyDown={(event) => rowKey(event, click)}
+          >
             <span className="rank-name">
               <i style={{ background: skillColor(item.name) }} />
               {displayName}
@@ -49,22 +58,20 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
             <em>
               {item.isOther ? (expanded ? t('collapse') : t('expand')) : sourceLabel(item.source, t)}
               {!item.isOther ? (
-                <span
+                <Link
                   className="rank-evidence evidence-icon-link"
-                  role="link"
-                  tabIndex={-1}
+                  to={evidencePath(location.search, 'total', { skill: item.name })}
                   aria-label={`${t('viewEvidence')}: ${item.name}`}
                   title={t('viewEvidence')}
                   onClick={(event) => {
                     event.stopPropagation()
-                    navigate(evidencePath(location.search, 'total', { skill: item.name }))
                   }}
                 >
                   ↗
-                </span>
+                </Link>
               ) : null}
             </em>
-          </button>
+          </div>
         )
       })}
       {expanded && tailRows.length ? (

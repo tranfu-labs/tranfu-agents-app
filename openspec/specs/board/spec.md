@@ -68,14 +68,19 @@
     `published_day` 后再与 `window.start..window.end` 比较。当前窗口内发布但没有任何 `mode=used`
     记录的 skill 仍必须进入 `published_skills[]`,其 `window_sessions=0`;`external`、缺失或非法
     `published_at` 均不得计入。`previous_published_skill_count` 使用上一同长窗口同口径计算。
+    当前窗口内有 `mode=used` 记录但 installers=0 的 company skill 不得进入当前窗口 `published_skills[]`
+    或 `current_published_skill_count`,避免在总览中出现"0 人安装但有使用"的并列表达。
 15. `/api/skills.governance.untracked_usage` 输出"未收录使用占比"管理口径:当前 `days/w` 窗口内
     `source=非公司库` 且 `mode=used` 的会话×skill 记录数 / 当前窗口全部 `mode=used` 记录数;空分母为 0。
     catalog 中 `external` 不算未收录;`equipped` 不得进入分母、分子或 Top 列表。`top[]` 按窗口内
     used 会话数降序(平手按最近使用日、再按名称),每项含 `name/source/sessions/share/users_30d/runtime_counts/trend_14d/trend_days/last_day`;
-    `users_30d` 固定保持近 30 天用户数语义。
+    `users_30d` 固定保持近 30 天用户数语义。`used_sessions` 与 `skill_count` 是未收录使用展示的总量事实源;
+    `top[]` 只是预览名单,前端 KPI、问题线索和待处理线索不得用 `top.length` 替代总量。
 16. `/api/skills.funnel` 只统计 catalog 中 `type ∈ {own, meta}` 的 skill,三层为 catalog 收录名单、
     已安装名单(出现在 ≥1 个 agent 的 profiles 安装态快照)、当前 `days/w` 窗口有人使用名单(按 `Asia/Shanghai` 日切;
     字段名 `used_30d` 保留兼容);并返回闲置名单 = 已安装 − 当前窗口使用。三层均返回名单而非仅数字。
+    `governance.cataloged_not_installed` 与 funnel 的零装机总览不得包含当前窗口有 `mode=used` 记录但 installers=0
+    的 company skill。
 17. `/api/skills/evidence` 的 `kind` 是强制证据口径,用户筛选是附加约束。`q/rt/skill/operator` 与 `kind`
     取交集;`src` 只有在不与 `kind` 的强制 source 口径冲突时才生效。若冲突,后端必须忽略冲突 `src`
     并在 `ignored_filters` 说明。`src=non_catalog` 等价于服务端来源 `非公司库`;catalog 中 `external` 不算未收录。
@@ -99,6 +104,9 @@
     `EXPLAIN QUERY PLAN` 不可得,不得声称已验证生产 P95,只能报告可复现环境和合成样本数据。不得优先用缓存掩盖聚合根因;
     只有 SQL/索引优化后仍无法达到性能目标时,才允许引入 `/api/skills` 短 TTL 缓存。若引入缓存,默认 TTL 为 5 秒
     (允许 3-10 秒),缓存键必须归一化 `days/w/wstart/wend/rt/src/scope`,且缓存容量必须有上限。
+    `/api/skills?w=7d` overview 展示层必须过滤 `$name`、`$d`、`$s`、`foo`、`foo-bar`、`dbs*`、`gstack*`
+    占位/测试 skill 名;过滤范围包括 table、daily、operator_table、operator_daily、governance、funnel、
+    published 与 period comparison。原始 evidence/detail 不作为该过滤规则范围。
 22. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
     skill 排行(含来源)、runtime 分布和最近 50 条记录。
 23. `/api/state` 与 `/api/state/stream` 必须共用同一份进程内快照缓存,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
@@ -131,14 +139,18 @@
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
+  未知客户端 route 必须渲染明确 404 / Not Found 状态,不得回退渲染 Pods 看板首页;已匹配但参数非法的 SKILLS 子路由
+  (例如非法 `/skills/clues/:kind`)也必须进入 Not Found,不得静默重定向到 `/skills`。
 - SKILLS 总览筛选绑定到 URL search params:`w`(`today`/`this_week`/`last_week`/`7d`/`14d`/`30d`/`90d`/`custom`)、
   `wstart`、`wend`、`cmp`、`topn`(`5|8|10|20`)、`hz`、`sel`、`rt`、`src`、`q`、`sort`、`dir`、`view`(`skill`/`operator`)、`scope`(`all|new`)。
   旧参数 `win` 保留向下兼容并在没有 `w` 时映射为 `w`;旧参数 `lens` 保留但不再驱动 UI。筛选变化使用 replace,
   不污染浏览器历史;详情跳转使用 push。`cmp` 保留为向下兼容 no-op,不得驱动可见开关。`/skills` 无 `w` 且无合法旧 `win`
-  参数时前端默认 `w=7d`;无效 custom 也回退 `7d`。
+  参数时前端默认 `w=7d`;无效 custom 也回退 `7d`。SKILLS 新生成的出站链接必须只输出 canonical 时间窗参数
+  `w`;不得同时输出 `w` 与旧参数 `win`。当输入 URL 同时包含 `w` 与 `win` 时,以 `w` 为准并在新生成链接中删除 `win`。
 - Pods 看板不再展示 Skills 排行区;`/api/state.skills` 字段保留用于协议兼容,前端看板不消费。
 - SKILLS 总览进入时加载 `/api/skills`,之后低频刷新;加载失败显示错误态。柱状图横轴按服务端返回的 `window.start..window.end`
-  逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
+  逐日铺满;有效 `window.start..window.end` 是趋势图日期轴事实源,只有响应缺失有效窗口边界时才允许回退到以右端日期和 `days` 推导日期轴。
+  旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
 - `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
@@ -155,6 +167,9 @@
   选中态使用品牌色 `--brand`;切换视角不重置时间窗。时间窗口选项与首屏核心文案必须随当前中英文语言切换,
   不得直接把 `7d` / `30d` 等 query key 作为用户可见选项文案。桌面与平板下搜索 Skill 名字段内部必须单行展示:
   label 与 input 同行、label 不换行、input 使用剩余宽度。公司库漏斗常驻且始终使用 skill/catalog 口径。
+  `/skills?w=7d` settled render 与 SKILLS API 失败后的 demo fallback 均必须显示「近 7 天」/ `Last 7 days`,
+  且排行集中度文案使用 `Top3`。demo fallback 不得泄漏 `$name`、`$d`、`$s`、`foo`、`foo-bar`、`dbs*`
+  或 `gstack*` 占位/测试名。
 - 顶部导航的 `+N 7天新发现` 必须可键盘聚焦并跳转 `/skills?w=7d&scope=new`;顶部 `N Skill 资产`
   必须使用 used-only distinct skill 口径,不得暗示安装量或已发现量。手机端可隐藏顶部新增数字,但 `/skills`
   首屏控制摘要旁必须提供一键/键盘可达的新增名单入口。
@@ -177,7 +192,9 @@
   使用信号同样只展示当前事实值和 icon 证据入口,不得显示「看操作员名单」「看 runtime 分布」等可见动作文案。
 - 主分析区按当前时间窗口长度切换布局:短窗口(`today`、`this_week`、`last_week`、`7d`、`14d`、有效 `custom<=14天`)
   在桌面 `>1080px` 下使排行 Bar/操作员排行与每日使用趋势图左右并列并占满整宽,同排两张卡片外框底边须对齐;长窗口(`30d`、`90d`、有效 `custom>14天`)
-  在桌面 `>1080px` 下使排行 Bar/操作员排行独占一行、每日使用趋势图独占下一行。按 Skill 视角排行 Bar 显示 Top N +
+  在桌面 `>1080px` 下使排行 Bar/操作员排行独占一行、每日使用趋势图独占下一行。每日使用趋势图标题必须由当前时间窗口 i18n label 派生,
+  例如「近 7 天使用」/ `Used in Last 7 days`;按人视角标题必须继续表达 operator 口径,例如「近 7 天使用 · 按人」/ `Used in Last 7 days · by operator`。
+  按 Skill 视角排行 Bar 显示 Top N +
   长尾「其他 N 个 skill」聚合,值口径为当前窗口 used sessions;排行长 skill 名在桌面默认可读,不得只依赖 hover/title,
   窄屏下不得造成根级横滚或与数值、记录动作、条形轨道重叠,必要时用换行、软断行、`title`/`aria-label` 或行详情提供完整可读路径;
   点行设置全局 `sel`,再点取消,并与每日使用趋势图和 Donut 联动。
@@ -206,6 +223,15 @@
   (`total`、`untracked`、`runtime`、`source`、`top3`、`coverage`、`operators`、`avg_per_session`)默认停在「原始记录」,
   1440x900 第一屏必须露出 records 表头和前几行;无 raw records 的 evidence kind (`idle`、`unused_ratio`、`zero_install`)默认停在「名单」,
   1440x900 第一屏必须露出名单表表头和前几行。
+  筛选 URL 变化且新 URL 没有同 URL 已校验缓存时,页面必须显示 loading/skeleton 或空载入态,不得把上一 URL 的 records/summary
+  当成新筛选口径展示;同 URL revalidate 才允许保留旧 payload 作为过渡态。
+  raw records 不得只停在 `/api/skills/evidence` 首批默认 `limit=100`;当前筛选下全部 records 必须能通过显式加载更多入口继续访问。
+  加载更多入口必须是标准可聚焦控件,支持 Tab 聚焦和 Enter / Space 触发;页面必须展示已加载数量与当前筛选下可访问总量,
+  例如 `100 / 367`。加载更多请求必须保留当前 evidence URL 的筛选语义,只追加或覆盖 `limit` 与 `offset`;不得改变
+  `kind/w/wstart/wend/q/rt/src/skill/operator` 等筛选条件。加载失败、超时或网络永久 pending 时,页面必须保留已加载记录并提供可聚焦重试入口;
+  慢响应在筛选 URL 变化后返回时必须被丢弃或取消,不得追加到新筛选列表。重试必须复用失败批次的同一筛选参数和同一 `offset`;
+  连续加载完成时必须能以唯一记录数证明全部 records 可达。服务端返回总量在加载期间变化时,页面必须用最新总量和已加载唯一数重新计算入口或完成态,
+  不得出现“已加载数小于总量但没有加载或重试入口”的状态。
   摘要不得固定渲染 `RECORDS / SKILLS / OPERATORS / SESSIONS / UNTRACKED / COMPANY` KPI cards,必须按 kind 收敛为上下文句。
   `kind=total` 的未收录数量必须作为总证据摘要里的上下文切片展示,例如 `其中 N 条来自未收录 skill`,
   并能跳转到保留当前窗口和筛选语义的 `kind=untracked`;不得单独以 `UNTRACKED N` 指标卡形式站着。
@@ -260,7 +286,7 @@
   `/skills` 在手机下必须优先首屏判断流:控制摘要 → 问题线索 → 待处理线索 → 排行/操作员排行 → 趋势图 →
   当前时间窗变化 → 归因 → 明细 → 公司库漏斗。
 - `/skills` 的控制条在手机下默认折叠为一行摘要,摘要至少包含当前窗口、视角、runtime/source 筛选摘要和筛选入口,
-  例如中文 `7 天 · 按 Skill · 全部 runtime/source · 筛选` 或英文 `7 days · By skill · all runtime/source · Filter`;
+  例如中文 `近 7 天 · 按 Skill · 全部 runtime/source · 筛选` 或英文 `Last 7 days · By skill · all runtime/source · Filter`;
   `scope=new` 时摘要须体现新增名单态,并在摘要旁显示新增名单入口;
   完整筛选控件只能在用户展开后显示。
   展开后搜索框和所有下拉控件宽度为 100%;checkbox 控件保持 16px 级别,不得被通用输入样式拉伸;平板下允许换行但不得撑出页面横向滚动。
@@ -388,6 +414,8 @@
 - 点击 `/skills` 首屏 `总触发次数` 的证据入口 → 跳到 `/skills/evidence?kind=total&w=7d...`,证据表显示当前窗口 records。
 - 点击 `/skills` 首屏 `新增发布 Skill` 的记录入口 → 跳到 `/skills/new?w=7d...`,页面展示同一窗口内按
   `published_at` 统计的新发布公司库 skill 列表;无 used 详情的行仍保留可读名单,不隐藏。
+- `/skills` 顶部 KPI 与问题线索的显式 `查看记录` 入口必须是可键盘聚焦的 `a[href]` 或 Router Link,不得只用行点击、
+  button 或 JS navigate 代替。
 - 点击 `/skills` 首屏 `有使用但未收录` 的证据 icon 或 mobile 待处理线索行 → 跳到 `kind=untracked`,证据表只展示非公司库 used records。
 - `/skills?view=skill&w=7d` 的 `待处理线索` 不得显示可见文案 `找人`;对应查看 action 的可访问名称为 `查看记录`、`查看名单` 或同义语义。
 - `/skills?view=skill&w=7d` 的 `待处理线索` 三组摘要不得显示 `8/48`;必须显示明文总数和展示数量。
@@ -396,6 +424,14 @@
 - `/skills?view=skill&lens=untracked` 中 `lens` 为 no-op 兼容参数;未收录使用通过当前时间窗变化、问题线索和待处理线索 A 组呈现。
 - 1440x900 打开 `/skills/evidence?kind=total&w=7d` → 第一屏露出 records 表头和前几行;摘要包含
   `其中 N 条来自未收录 skill` 上下文切片,且该切片可跳转到 `/skills/evidence?kind=untracked&w=7d...`。
+- `/skills/evidence?kind=total&w=7d` 当前筛选有 367 条 records 且首批返回 100 条 → 页面显示 `100 / 367`
+  或等价已加载/总量信息,并提供可 Tab 聚焦、Enter / Space 可触发的加载更多入口;连续加载完成后测试能统计到
+  367 条唯一 records,顺序与服务端各页拼接顺序一致,页面显示完成态且不再暴露无效加载入口。
+- 加载下一批失败或超时 → 已加载的 100 条仍保留,用户可通过可聚焦重试入口继续请求同一筛选、同一 offset 的后续记录。
+- `offset=100` 的慢响应返回前用户切到另一个 `/skills/evidence` 筛选 URL → 旧响应不得追加到新筛选列表。
+- 加载过程中服务端总量从 367 变为 368 或 366 → 页面必须更新总量并保持可继续操作或明确完成,不得出现“还有更多但没有入口”的状态。
+- 刷新 `/skills/evidence?kind=total&w=7d&rt=codex&src=own` → 页面回到该 URL 对应首批记录,但仍显示同一筛选下的总量,
+  并能继续加载直到全部 records。
 - 1440x900 打开 `/skills/clues/untracked?w=7d&skill=coolify-deploy` → 第一屏先露 Top Operators,operator 行显示
   `5/7 · 71%` 这类占比,且不显示 Top Skills。
 - 1440x900 打开 `/skills/clues/idle?w=7d&skill=write-spec` → 第一屏显示安装者名单,能看到安装该 skill 的 operator / agent / runtime,
@@ -406,6 +442,11 @@
   `来源:未收录` 或等价文案,不显示 `non_catalog`。
 - `/skills/evidence` 中 `Top skills / Top operators` 不得让主表列宽小到无法读清 `time / skill / operator / runtime / source`;不足时分组下置。
 - 点击 Skill 明细表任意行 → 同页打开右侧抽屉并写入 `sel=<skill>`;抽屉内点「前往详情页」才跳 `/skill/:name`。
+- 刷新、前进后退或复制 `/skills?...&sel=<skill>` 进入页面时,若 `sel` 对应当前明细表中存在的 skill,右侧抽屉必须恢复打开并选中同一 skill;
+  若 `sel` 为空、非法或当前明细表不包含该 skill,抽屉关闭。
+- 打开 `/skills/bogus-route-test` 或 `/skills/clues/not-a-kind` → 页面显示明确 404 / Not Found,不重定向到 `/skills`,不渲染 Pods 看板首页。
+- 从 `/skills?win=30` 或 `/skills?w=14d&win=30` 进入后点击 SKILLS 下钻链接 → 新 href 不得同时包含 `w` 与 `win`;
+  只有 `win` 输入时映射为 `w=30d`,两者同时存在时以 `w=14d` 为准。
 - 浏览器时区为 Asia/Shanghai,当前本地时间为 `2026-06-28 01:00:00`,记录
   `first_seen=2026-06-27T16:30:00+00:00` → 最近记录可见文本为 `30分钟前`,hover title 为
   `2026-06-28 00:30:00 Asia/Shanghai`。

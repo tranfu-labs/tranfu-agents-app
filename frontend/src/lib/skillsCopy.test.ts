@@ -60,3 +60,18 @@ test('skills clue and governance copy avoids evidence wording and x dismissal', 
   }
   assert.equal(readSource('src/components/skills/GovernanceTodo.tsx').includes('>×</button>'), false)
 })
+
+test('skills fallback and copy avoid placeholder leak and keep 7d Top3 wording', () => {
+  const api = readSource('src/lib/api.ts')
+  const demo = readSource('src/lib/demo.ts')
+  const i18n = readSource('src/lib/i18n.ts')
+  const source = [api, demo, i18n].join('\n')
+
+  assert.equal(api.includes('demoSkillsOverview(demoWindowKey(query, days), days)'), true)
+  assert.equal(i18n.includes("window_7d: '近 7 天'"), true)
+  assert.equal(i18n.includes("window_7d: 'Last 7 days'"), true)
+  assert.equal(i18n.includes('Top3'), true)
+  for (const word of ['$name', '$d', '$s', 'foo', 'foo-bar', 'dbs-placeholder', 'gstack-placeholder']) {
+    assert.equal(source.includes(word), false, `unexpected fallback placeholder: ${word}`)
+  }
+})

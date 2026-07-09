@@ -1,6 +1,6 @@
 services:
   server:
-    image: ${IMAGE_REF:-ghcr.io/tranfu-labs/tranfu-agents-app:latest}
+    image: ${IMAGE_REF:-ghcr.io/tranfu-labs/tranfu-agents-app:dev}
     pull_policy: always
     environment:
       TF_DB: /data/tf.db
@@ -13,14 +13,6 @@ services:
       TF_TRASH_DAYS: ${TF_TRASH_DAYS:-30}
       TF_ADMIN_MAX_ROWS: ${TF_ADMIN_MAX_ROWS:-200}
       TF_STATE_TTL: ${TF_STATE_TTL:-1.5}
-      TF_TOKEN_USAGE_BASE_URL: ${TF_TOKEN_USAGE_BASE_URL:-https://api.tranfu.com}
-      TF_TOKEN_USAGE_PATH: ${TF_TOKEN_USAGE_PATH:-/api/data/keys}
-      TF_TOKEN_USAGE_ACCESS_TOKEN: ${TF_TOKEN_USAGE_ACCESS_TOKEN:-}
-      TF_TOKEN_USAGE_COOKIE: ${TF_TOKEN_USAGE_COOKIE:-}
-      TF_TOKEN_USAGE_USER_ID: ${TF_TOKEN_USAGE_USER_ID:-}
-      TF_TOKEN_USAGE_TIMEOUT: ${TF_TOKEN_USAGE_TIMEOUT:-15}
-      TF_TOKEN_USAGE_CACHE_TTL: ${TF_TOKEN_USAGE_CACHE_TTL:-90}
-      TF_TOKEN_USAGE_DEMO: ${TF_TOKEN_USAGE_DEMO:-1}
     volumes:
       - tvve4z1rplm1eqe9c0dgdybw_tf-data:/data
     expose:
@@ -31,7 +23,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/healthz', timeout=8).read()"
+        - "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT', '8788'), timeout=8).read()"
       interval: 30s
       timeout: 10s
       retries: 5

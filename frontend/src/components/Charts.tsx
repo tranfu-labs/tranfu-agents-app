@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react'
-import { resolveSkillsChartLayout } from '../lib/skillsChartLayout'
+import { resolveDetailTrendEndDay, resolveDetailTrendLayout, resolveSkillsChartAxis, resolveSkillsChartLayout } from '../lib/skillsChartLayout'
 import type { SkillDetail, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
 
@@ -161,7 +161,7 @@ export function StackedSkillChart({
   const axisEnd = today || overview?.window?.end || apiToday(overview)
   const currentMarkerDay = currentDay || overview?.today || today || apiToday(overview)
   const model = useMemo(() => {
-    const axis = daySeries(axisEnd, days)
+    const axis = resolveSkillsChartAxis(overview?.window, days, axisEnd)
     const daySet = new Set(axis)
     const byDay: Record<string, Record<string, number>> = {}
     const totalBySegment: Record<string, number> = {}
@@ -183,7 +183,7 @@ export function StackedSkillChart({
     const legend = [...top]
     if (Object.keys(totalBySegment).some((name) => !top.includes(name))) legend.push('__other')
     return { axis, byDay, top, totals, legend }
-  }, [axisEnd, days, rows, segmentKey, topN])
+  }, [axisEnd, days, overview?.window, rows, segmentKey, topN])
   const layout = resolveSkillsChartLayout(model.axis.length, chartBoxWidth)
 
   useLayoutEffect(() => {
@@ -304,24 +304,38 @@ export function RuntimeBars({ counts }: { counts?: Record<string, number> }) {
 }
 
 export function DetailTrend({ detail, t, days = 30 }: { detail: SkillDetail; t: (key: string) => string; days?: number }) {
+  const chartBoxRef = useRef<HTMLDivElement | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
+  const chartBoxWidth = useContentWidth(chartBoxRef)
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
-  const axis = daySeries(detail.today || apiToday(detail), days)
+  const safeDays = Math.max(1, Math.round(Number.isFinite(days) ? days : 30))
+  const axisEnd = resolveDetailTrendEndDay(detail.today, detail.daily, apiToday(detail))
+  const axis = daySeries(axisEnd, safeDays)
   const byDay: Record<string, { used: number; equipped: number }> = {}
   ;(detail.daily || []).forEach((row) => {
     byDay[row.day] = { used: Number(row.used || 0), equipped: Number(row.equipped || 0) }
   })
   const series = axis.map((day) => ({ day, used: byDay[day]?.used || 0, equipped: byDay[day]?.equipped || 0 }))
+  const layout = resolveDetailTrendLayout(series.length, chartBoxWidth)
+
+  useLayoutEffect(() => {
+    if (!layout.scrollToEnd) return
+    const box = chartBoxRef.current
+    if (!box) return
+    box.scrollLeft = Math.max(0, box.scrollWidth - box.clientWidth)
+  }, [axisEnd, safeDays, layout.scrollToEnd, layout.trackWidth, chartBoxWidth])
+
   const max = Math.max(...series.map((row) => Math.max(row.used, row.equipped)), 1)
-  const w = Math.max(680, series.length * 28 + 50)
+  const w = layout.trackWidth
   const h = 210
   const base = 178
   const bh = 140
   const step = (w - 54) / series.length
-  const bw = Math.max(8, step - 5)
+  const bw = layout.barWidth
   const end = axis[axis.length - 1]
+  const labelStep = Math.ceil(series.length / 8 || 1)
   const points = series.map((row, index) => {
     const x = 38 + index * step
     const mid = x + bw / 2
@@ -331,7 +345,8 @@ export function DetailTrend({ detail, t, days = 30 }: { detail: SkillDetail; t: 
 
   return (
     <div
-      className="chart-box"
+      ref={chartBoxRef}
+      className="chart-box detail-trend-box"
       onMouseLeave={() => setTip(null)}
       onPointerDown={(event) => {
         const target = event.target
@@ -339,7 +354,7 @@ export function DetailTrend({ detail, t, days = 30 }: { detail: SkillDetail; t: 
       }}
       onScroll={() => setTip(null)}
     >
-      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ minWidth: w }}>
+      <svg className={`skill-chart ${tip ? 'hovering' : ''}`} viewBox={`0 0 ${w} ${h}`} style={{ width: w, minWidth: w }}>
         <defs>
           <pattern id="detailStripe" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <path d="M 0 0 L 0 6" stroke="var(--text)" strokeOpacity=".22" strokeWidth="2" />
@@ -366,7 +381,7 @@ export function DetailTrend({ detail, t, days = 30 }: { detail: SkillDetail; t: 
           )
         })}
         <polyline points={points.join(' ')} fill="none" stroke="var(--wait)" strokeWidth="2" pointerEvents="none" />
-        {series.map((row, index) => (index % Math.ceil(series.length / 8 || 1) === 0 ? <text key={row.day} x={38 + index * step} y="200" fill="var(--faint)" fontSize="10">{row.day.slice(5)}</text> : null))}
+        {series.map((row, index) => (index % labelStep === 0 || index === series.length - 1 ? <text key={row.day} x={38 + index * step} y="200" fill="var(--faint)" fontSize="10">{row.day.slice(5)}</text> : null))}
       </svg>
       <div className="legend2">
         <button>

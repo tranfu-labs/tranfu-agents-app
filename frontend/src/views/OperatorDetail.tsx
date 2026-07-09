@@ -5,9 +5,10 @@ import { Empty } from '../components/Common'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, OperatorDetail } from '../lib/types'
 import { encodePathParam, RT, sourceLabel } from '../lib/utils'
+import { canonicalSkillsSearch } from '../lib/skillsEvidence'
 
 function operatorBack(search: string) {
-  const params = new URLSearchParams(search)
+  const params = new URLSearchParams(canonicalSkillsSearch(search).slice(1))
   params.set('view', 'operator')
   const next = params.toString()
   return `/skills${next ? `?${next}` : ''}`

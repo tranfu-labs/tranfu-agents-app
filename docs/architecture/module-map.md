@@ -7,7 +7,7 @@
 ```
 agent 机器                         中心服务器(单容器)                 浏览器
 ┌───────────────┐  POST /v1/events ┌──────────────────────────┐  GET /  ┌──────────────┐
-│ shim:         │ ───────────────▶ │ server/app.py             │ ──────▶ │ React SPA    │
+│ shim:         │ ───────────────▶ │ server/ (FastAPI 域拆分)   │ ──────▶ │ React SPA    │
 │ tf_report /   │  X-TF-Key=TF_KEY │  ingest → SQLite           │ /api/state │ dist/assets │
 │ tf_hook / ... │                  │  compute → snapshot        │ ◀────── │ (轮询)       │
 │ tf_profile    │ ◀─ /install.sh,/shims/manifest,<f> ─ 分发自身 ─│            └──────────────┘
@@ -16,17 +16,27 @@ agent 机器                         中心服务器(单容器)                 
 
 ## 模块
 
-### M1 — 服务端 collector (`server/app.py`)
+### M1 — 服务端 collector (`server/`)
+- **目录结构(按 `openspec/specs/` 域拆分,详见 `server/AGENTS.md`)**:
+  - `app.py` — 组装入口(挂中间件、注册 routers、re-export 可变开关供测试 monkeypatch);
+  - `config.py` — 环境变量与全局开关(`TF_KEY` / `TF_ADMIN_*` / `STATE_TTL_SECONDS` / `TF_HEARTBEAT_BATCH_SECONDS` 等);
+  - `db.py` — SQLite 连接与建表(`events` / `profiles` / `skills_seen` / `skill_uses` / `admin_trash` / `admin_audit`);
+  - `security.py` — `_security_headers` 中间件 + CSP/HSTS + 常量时间 key 比较 + IP 限流/退避;
+  - `identity.py` — 身份合并、按身份聚合的 leverage/质量/复用计算;
+  - `profile.py` — profile 写入与读取;
+  - `catalog.py` — 公司库/Skill 目录同步与采纳统计;
+  - `shim.py` — `_build_shim_manifest` / `_SHIM_MANIFEST` 内容版本与文件清单;
+  - `routes/ingest.py` — `POST /v1/events` 写入 + 兼容 `DELETE /v1/events` + `/v1/enroll`;
+  - `routes/admin.py` — `/api/admin/inventory` / `preview` / `data` / `trash` / `restore` / `export`;
+  - `routes/board.py` — `/api/state` / `/api/state/stream` / `/api/skills` / `/api/skills/evidence` / `/api/skill/{name}` / `/api/operator/{name}` / `/api/agent/{key}` + `/healthz` + SPA 静态托管;
+  - `routes/onboarding.py` — `/install.sh` / `/shims/manifest` / `/shims/{path}` + `/llms.txt` / `/robots.txt`。
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Skill 使用与公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 与 `/api/state/stream` 快照必须经进程内 TTL 缓存和 single-flight 复用,
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL,
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
-- **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/state/stream`、`GET /api/skills`、`GET /api/skills/evidence`、`GET /api/skill/{name}`、
-  `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
-  `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
-  `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
+- **入口(路由)**:见上方目录结构 `routes/*` 一栏。子模块禁止跨层互调,边界由 `tests/test_module_boundary.py` 守门。
 - **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`/`admin_trash`/`admin_audit`);
   浏览器(只读快照与 Skills 聚合);使用者机器(取 install/shim)。
@@ -46,6 +56,8 @@ agent 机器                         中心服务器(单容器)                 
   `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
   未收录使用占比由过去 W 变化、问题线索与待处理线索呈现;
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
+  SKILLS 路由组的 route/search/view state 是当前浏览器会话内导航状态;SSE、polling、SKILLS revalidate 与详情 API hooks 只允许更新数据 payload/loading/error,
+  不得驱动 `window.history`、React Router navigation、search params 或 `sel`;不得通过 storage、BroadcastChannel、服务端状态或实时 state payload 同步公开访客业务路由状态。
   `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并并行请求 SKILLS API。
   SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
@@ -55,7 +67,7 @@ agent 机器                         中心服务器(单容器)                 
   SKILLS 接口取不到时显示错误/空态。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
-  独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
+  storage event / BroadcastChannel / 服务端状态保存或广播业务 route/search/view state;独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
 
 ### M3 — 采集 shim (`shims/`)
 - **职责**:在使用者机器上把状态/档案上报给 M1。
@@ -99,7 +111,7 @@ agent 机器                         中心服务器(单容器)                 
 | 模块 | 不得依赖 |
 |---|---|
 | M1 服务端 | 外部 DB/MQ;token 成本;主动读使用者敏感内容 |
-| M2 前端 | 浏览器持久存储(例外:主题模式 `tf-theme-mode` localStorage;`/admin` sessionStorage 暂存管理钥匙);独立前端服务/运行期 node;后端端口/绝对地址 |
+| M2 前端 | 浏览器持久存储(例外:主题模式 `tf-theme-mode` localStorage;`/admin` sessionStorage 暂存管理钥匙);storage event / BroadcastChannel / 服务端状态同步业务路由;独立前端服务/运行期 node;后端端口/绝对地址 |
 | M3 shim | 第三方库;抛错阻塞;默认上报内容/记忆 |
 | M4 安装 | 仓库必须公开 |
 | 全部 | 把密钥写进仓库/文档正文 |

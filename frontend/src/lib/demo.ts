@@ -219,42 +219,57 @@ export const DEMO_CONFIG: Record<string, AgentConfig> = {
   'chen::code': { ver: 'Claude Desktop', role: '调试执行体', location: '桌面 App(经 MCP)', terminal: '桌面 App', ims: ['Telegram'], integrations: [{ name: 'GitHub', desc: '读仓库、定位提交' }, { name: 'TRANFU reporter(MCP)', desc: '自动上报状态' }] },
 }
 
-export function demoSkillsOverview(): SkillsOverview {
+function demoWindowDays(key: string, fallbackDays: number) {
+  if (key === 'today') return 1
+  if (key === 'this_week' || key === 'last_week') return 7
+  if (key.endsWith('d')) {
+    const value = Number(key.slice(0, -1))
+    if (Number.isFinite(value) && value > 0) return Math.round(value)
+  }
+  return fallbackDays
+}
+
+export function demoSkillsOverview(windowKey = '30d', fallbackDays = 30): SkillsOverview {
   const today = apiToday()
-  const days = daySeries(today, 30)
+  const windowDays = demoWindowDays(windowKey, fallbackDays)
+  const days = daySeries(today, Math.max(30, windowDays))
+  const windowDaysList = days.slice(-windowDays)
+  const lastDay = days[days.length - 1]
+  const previousDay = days[days.length - 2]
+  const publishedDay = days[days.length - 3]
   const table: SkillTableRow[] = [
-    { name: '组件命名规范', source: 'own', sessions_7d: 8, sessions_30d: 19, sessions_total: 36, users_30d: 3, runtime_counts: { 'claude-code': 13, mulerun: 4, 'claude-desktop': 2 }, trend_14d: [0, 1, 1, 0, 2, 0, 2, 1, 2, 1, 3, 1, 2, 3], last_day: days[29] },
-    { name: 'pytest 脚手架', source: '非公司库', sessions_7d: 5, sessions_30d: 14, sessions_total: 22, users_30d: 2, runtime_counts: { codex: 11, 'claude-desktop': 3 }, trend_14d: [1, 0, 0, 2, 1, 0, 1, 1, 0, 2, 1, 1, 2, 1], last_day: days[28] },
-    { name: '品牌语气库', source: 'own', sessions_7d: 3, sessions_30d: 9, sessions_total: 31, users_30d: 1, runtime_counts: { 'open-claw': 9 }, trend_14d: [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1], last_day: days[29] },
+    { name: '组件命名规范', source: 'own', sessions_7d: 8, sessions_30d: 19, sessions_total: 36, users_30d: 3, runtime_counts: { 'claude-code': 13, mulerun: 4, 'claude-desktop': 2 }, trend_14d: [0, 1, 1, 0, 2, 0, 2, 1, 2, 1, 3, 1, 2, 3], last_day: lastDay },
+    { name: 'pytest 脚手架', source: '非公司库', sessions_7d: 5, sessions_30d: 14, sessions_total: 22, users_30d: 2, runtime_counts: { codex: 11, 'claude-desktop': 3 }, trend_14d: [1, 0, 0, 2, 1, 0, 1, 1, 0, 2, 1, 1, 2, 1], last_day: previousDay },
+    { name: '品牌语气库', source: 'own', sessions_7d: 3, sessions_30d: 9, sessions_total: 31, users_30d: 1, runtime_counts: { 'open-claw': 9 }, trend_14d: [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1], last_day: lastDay },
   ]
   const daily = table.flatMap((row, idx) =>
-    days.flatMap((day, i) => {
+    windowDaysList.flatMap((day, i) => {
       const trend = row.trend_14d || []
       const value = trend[(i + idx) % (trend.length || 1)] || 0
       return value ? [{ day, skill: row.name, runtime: Object.keys(row.runtime_counts || {})[0], sessions: value, source: row.source }] : []
     }),
   )
   const operatorTable: OperatorTableRow[] = [
-    { operator: 'nezha', sessions_7d: 9, sessions_30d: 22, sessions_total: 42, skill_count: 5, session_count: 18, runtime_counts: { 'claude-code': 15, hermes: 7 }, source_counts: { own: 16, external: 6 }, trend_14d: [1, 1, 2, 0, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3], last_day: days[29] },
-    { operator: 'bob', sessions_7d: 6, sessions_30d: 18, sessions_total: 37, skill_count: 4, session_count: 15, runtime_counts: { codex: 12, 'open-claw': 6 }, source_counts: { own: 8, '非公司库': 10 }, trend_14d: [0, 1, 0, 2, 1, 2, 1, 0, 2, 2, 1, 1, 2, 3], last_day: days[29] },
-    { operator: 'chen', sessions_7d: 4, sessions_30d: 11, sessions_total: 21, skill_count: 3, session_count: 9, runtime_counts: { 'claude-desktop': 11 }, source_counts: { '非公司库': 9, own: 2 }, trend_14d: [1, 0, 1, 1, 0, 1, 0, 2, 1, 0, 1, 1, 1, 2], last_day: days[28] },
+    { operator: 'nezha', sessions_7d: 9, sessions_30d: 22, sessions_total: 42, skill_count: 5, session_count: 18, runtime_counts: { 'claude-code': 15, hermes: 7 }, source_counts: { own: 16, external: 6 }, trend_14d: [1, 1, 2, 0, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3], last_day: lastDay },
+    { operator: 'bob', sessions_7d: 6, sessions_30d: 18, sessions_total: 37, skill_count: 4, session_count: 15, runtime_counts: { codex: 12, 'open-claw': 6 }, source_counts: { own: 8, '非公司库': 10 }, trend_14d: [0, 1, 0, 2, 1, 2, 1, 0, 2, 2, 1, 1, 2, 3], last_day: lastDay },
+    { operator: 'chen', sessions_7d: 4, sessions_30d: 11, sessions_total: 21, skill_count: 3, session_count: 9, runtime_counts: { 'claude-desktop': 11 }, source_counts: { '非公司库': 9, own: 2 }, trend_14d: [1, 0, 1, 1, 0, 1, 0, 2, 1, 0, 1, 1, 1, 2], last_day: previousDay },
   ]
   const operatorDaily = operatorTable.flatMap((row, idx) =>
-    days.flatMap((day, i) => {
+    windowDaysList.flatMap((day, i) => {
       const value = row.trend_14d?.[(i + idx) % (row.trend_14d.length || 1)] || 0
       return value ? [{ day, operator: row.operator, runtime: Object.keys(row.runtime_counts || {})[0], source: Object.keys(row.source_counts || {})[0], sessions: value }] : []
     }),
   )
   return {
-    days: 30,
+    days: windowDays,
     today,
     window: {
-      key: '30d',
-      days: 30,
-      start: days[0],
-      end: days[29],
-      previous_start: days[0],
-      previous_end: days[0],
+      key: windowKey,
+      days: windowDays,
+      start: windowDaysList[0],
+      end: lastDay,
+      previous_start: days[Math.max(0, days.length - windowDays * 2)] || windowDaysList[0],
+      previous_end: days[Math.max(0, days.length - windowDays - 1)] || windowDaysList[0],
     },
     daily,
     table,
@@ -267,8 +282,8 @@ export function demoSkillsOverview(): SkillsOverview {
         version: '0.2.0',
         author: 'griffithkk3-del',
         published_at: new Date(now.getTime() - 2 * 86400 * 1000).toISOString(),
-        published_day: days[27],
-        updated_at: days[29],
+        published_day: publishedDay,
+        updated_at: lastDay,
         path: 'own-skills/agent-architecture-decision',
         sha: 'demo',
         installers: 0,
@@ -291,12 +306,12 @@ export function demoSkillsOverview(): SkillsOverview {
           runtime_counts: { codex: 11, 'claude-desktop': 3 },
           trend_14d: [1, 0, 0, 2, 1, 0, 1, 1, 0, 2, 1, 1, 2, 1],
           trend_days: days.slice(-14),
-          last_day: days[28],
+          last_day: previousDay,
         }],
       },
     },
     period_comparison: {
-      window: '30d',
+      window: windowKey,
       current_sessions: 59,
       previous_sessions: 42,
       current_operators: 3,

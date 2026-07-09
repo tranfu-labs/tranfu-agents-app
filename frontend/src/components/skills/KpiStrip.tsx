@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import type { SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
 import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import { evidencePath, publishedSkillsPath } from '../../lib/skillsEvidence'
-import { compactNameList, kpiShortConclusion, windowChangeLabel, windowPeriodLabel } from '../../lib/skillsPresentation'
+import { compactNameList, kpiShortConclusion, untrackedUsageCounts, untrackedUsageSummary, windowChangeLabel, windowPeriodLabel } from '../../lib/skillsPresentation'
 
 type EvidenceCard = {
   label: string
@@ -102,18 +102,19 @@ export function KpiStrip({ data, view = 'skill', t }: { data: SkillsOverview | n
   const operatorNames = (data?.operator_table || []).slice(0, 2).map((row) => row.operator)
   const companyNames = (data?.funnel?.used_30d || []).slice(0, 2).map((row) => row.name)
   const publishedNames = (data?.published_skills || []).slice(0, 2).map((row) => row.name)
-  const untrackedRecords = data?.governance?.untracked_usage?.used_sessions || 0
+  const untrackedCounts = untrackedUsageCounts(data)
+  const publishedDetail = publishedNames.length ? compactNameList(publishedNames, 1) : t('publishedSkillsEmpty')
   const baseCards: EvidenceCard[] = [
     { label: t('kpiTotalTriggers'), value: n(currentSessions), current: currentSessions, previous: previousSessions, kind: 'total', names: topNames },
     { label: t('kpiCoverage'), value: `${usedCompany}/${catalogCount}`, current: coverage, previous: previousCoverage, kind: 'coverage', names: companyNames, pct: true },
     { label: t('kpiActiveOperators'), value: n(period?.current_operators), current: period?.current_operators, previous: period?.previous_operators, kind: 'operators', names: operatorNames },
-    { label: t('kpiPublishedSkills'), value: n(period?.current_published_skill_count), current: period?.current_published_skill_count, previous: period?.previous_published_skill_count, kind: 'total', to: publishedSkillsPath(location.search), names: publishedNames, detail: `${n(period?.current_published_skill_count)} ${t('skillsUnit')}` },
-    { label: t('kpiUntrackedShare'), value: pct(period?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), current: period?.current_untracked_share, previous: period?.previous_untracked_share, kind: 'untracked', names: untrackedNames, pct: true },
+    { label: t('kpiPublishedSkills'), value: n(period?.current_published_skill_count), current: period?.current_published_skill_count, previous: period?.previous_published_skill_count, kind: 'total', to: publishedSkillsPath(location.search), names: publishedNames, detail: publishedDetail },
+    { label: t('kpiUntrackedShare'), value: pct(period?.current_untracked_share ?? data?.governance?.untracked_usage?.ratio), current: period?.current_untracked_share, previous: period?.previous_untracked_share, kind: 'untracked', names: untrackedNames, detail: untrackedUsageSummary(data, t), records: untrackedCounts.records, pct: true },
     { label: t('kpiIdleSkills'), value: n(idle), current: 0, previous: 0, kind: 'idle', names: idleNames, snapshot: true },
     { label: t('kpiUnusedRatio'), value: pct(idleRatio), current: 0, previous: 0, kind: 'unused_ratio', names: idleNames, snapshot: true },
     { label: t('kpiTop3Share'), value: pct(top3Share), current: top3Share, previous: period?.previous_top3_share, kind: 'top3', names: topNames, pct: true },
   ]
-  const cards = baseCards.map((card) => ({ ...card, records: card.kind === 'untracked' ? untrackedRecords : undefined, detail: card.detail || kpiShortConclusion(card.kind, card.value, card.names, card.kind === 'untracked' ? untrackedRecords : undefined, t) }))
+  const cards = baseCards.map((card) => ({ ...card, detail: card.detail || kpiShortConclusion(card.kind, card.value, card.names, card.records, t) }))
 
   return (
     <section className="frame skills-kpi-frame">

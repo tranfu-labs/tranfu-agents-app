@@ -29,6 +29,9 @@ from server.shim import _SHIM_MANIFEST
 
 router = APIRouter()
 
+_OVERVIEW_PLACEHOLDER_SKILLS = {"$name", "$d", "$s", "foo", "foo-bar"}
+_OVERVIEW_PLACEHOLDER_PREFIXES = ("dbs", "gstack")
+
 # /api/state TTL 缓存(由 add-server-app-test-baseline 引入的 STATE_TTL_SECONDS 守护)。
 _state_cache_lock = threading.Lock()
 _state_cache_cond = threading.Condition(_state_cache_lock)
@@ -202,6 +205,20 @@ def _skill_scope_sql(skill_names, prefix="AND"):
     return f" {prefix} skill IN ({','.join('?' for _ in names)})", names
 
 
+def _is_overview_placeholder_skill(name):
+    value = str(name or "").strip()
+    folded = value.casefold()
+    return folded in _OVERVIEW_PLACEHOLDER_SKILLS or folded.startswith(_OVERVIEW_PLACEHOLDER_PREFIXES)
+
+
+def _overview_skill_filter_sql(prefix="AND"):
+    terms = ["lower(trim(COALESCE(skill,''))) NOT IN (?,?,?,?,?)"]
+    terms.extend(["lower(trim(COALESCE(skill,''))) NOT LIKE ?" for _ in _OVERVIEW_PLACEHOLDER_PREFIXES])
+    params = [*sorted(_OVERVIEW_PLACEHOLDER_SKILLS), *[f"{prefix}%" for prefix in _OVERVIEW_PLACEHOLDER_PREFIXES]]
+    lead = f" {prefix} " if prefix else ""
+    return lead + " AND ".join(terms), params
+
+
 def _used_skill_first_days(conn):
     return {r["skill"]: r["first_day"] for r in conn.execute("""
       SELECT skill, MIN(day) first_day
@@ -220,36 +237,38 @@ def _new_used_skill_names(conn, window_start, window_end):
 
 def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by, skill_names=None):
     scope_sql, scope_params = _skill_scope_sql(skill_names)
+    overview_sql, overview_params = _overview_skill_filter_sql()
     total = conn.execute(f"""
       SELECT COUNT(*) c FROM skill_uses
-      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
-    """, (window_start, window_end, *scope_params)).fetchone()["c"] or 0
+      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
+    """, (window_start, window_end, *scope_params, *overview_params)).fetchone()["c"] or 0
     window_rows = conn.execute(f"""
       SELECT skill,
         COUNT(*) sessions,
         COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
         MAX(day) last_day
       FROM skill_uses
-      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
+      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
       GROUP BY skill
-    """, (d30, window_start, window_end, *scope_params)).fetchall()
+    """, (d30, window_start, window_end, *scope_params, *overview_params)).fetchall()
     runtime_counts = {}
     for r in conn.execute(f"""
       SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
-      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
+      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
       GROUP BY skill, runtime
-    """, (window_start, window_end, *scope_params)):
+    """, (window_start, window_end, *scope_params, *overview_params)):
         runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
     trend = {}
     if trend_days:
         trend_scope_sql, trend_scope_params = _skill_scope_sql(skill_names)
+        trend_overview_sql, trend_overview_params = _overview_skill_filter_sql()
         for r in conn.execute(f"""
           SELECT skill, day, COUNT(*) sessions
           FROM skill_uses
-          WHERE mode='used' AND day >= ?{trend_scope_sql}
+          WHERE mode='used' AND day >= ?{trend_scope_sql}{trend_overview_sql}
           GROUP BY skill, day
-        """, (trend_days[0], *trend_scope_params)):
+        """, (trend_days[0], *trend_scope_params, *trend_overview_params)):
             trend.setdefault(r["skill"], {})[r["day"]] = int(r["sessions"] or 0)
 
     top = []
@@ -345,18 +364,19 @@ def _period_comparison(conn, window, catalog_by, skill_names=None):
 
     def stats(start, end):
         scope_sql, scope_params = _skill_scope_sql(skill_names)
-        params = [start, end, *scope_params]
+        overview_sql, overview_params = _overview_skill_filter_sql()
+        params = [start, end, *scope_params, *overview_params]
         row = conn.execute(f"""
           SELECT COUNT(*) sessions,
             COUNT(DISTINCT CASE WHEN trim(COALESCE(operator,'')) <> '' THEN operator END) operators,
             COUNT(DISTINCT session_id) session_count
           FROM skill_uses
-          WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
+          WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
         """, params).fetchone()
         skill_rows = conn.execute(f"""
           SELECT skill, COUNT(*) sessions
           FROM skill_uses
-          WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
+          WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
           GROUP BY skill
         """, params).fetchall()
         sessions = int(row["sessions"] or 0)
@@ -441,12 +461,13 @@ def _installed_skill_details(conn):
 def _skills_attribution(conn, window_start, window_end, catalog_by, skill_names=None):
     by_source = {}
     scope_sql, scope_params = _skill_scope_sql(skill_names)
+    overview_sql, overview_params = _overview_skill_filter_sql()
     for r in conn.execute(f"""
       SELECT skill, COUNT(*) sessions
       FROM skill_uses
-      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
+      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
       GROUP BY skill
-    """, (window_start, window_end, *scope_params)):
+    """, (window_start, window_end, *scope_params, *overview_params)):
         source = _skill_source_key(_skill_source(r["skill"], catalog_by))
         by_source[source] = by_source.get(source, 0) + int(r["sessions"] or 0)
     by_runtime = [{
@@ -455,10 +476,10 @@ def _skills_attribution(conn, window_start, window_end, catalog_by, skill_names=
     } for r in conn.execute(f"""
       SELECT COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
-      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
+      WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}{overview_sql}
       GROUP BY runtime
       ORDER BY sessions DESC, runtime ASC
-    """, (window_start, window_end, *scope_params))]
+    """, (window_start, window_end, *scope_params, *overview_params))]
     return {
         "by_source": [{"source": key, "sessions": by_source.get(key, 0)} for key in ("own", "meta", "external", "non_catalog")],
         "by_runtime": by_runtime,
@@ -485,7 +506,7 @@ def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_na
         })
     idle.sort(key=lambda item: (item.get("installed_at") or "", item["name"]), reverse=True)
     missing = []
-    for name in company_names - installed_names:
+    for name in company_names - installed_names - used_names:
         missing.append({
             "name": name,
             "source": catalog_by.get(name),
@@ -512,24 +533,34 @@ def _catalog_published_day(value):
 
 def _published_skill_summary(conn, catalog_items, catalog_by, window):
     install_counts = _installed_skill_counts(conn)
+    overview_sql, overview_params = _overview_skill_filter_sql()
     usage = {
         r["skill"]: {
             "window_sessions": int(r["window_sessions"] or 0),
+            "previous_sessions": int(r["previous_sessions"] or 0),
             "last_day": r["last_day"],
         }
-        for r in conn.execute("""
+        for r in conn.execute(f"""
           SELECT skill,
             SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) window_sessions,
+            SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) previous_sessions,
             MAX(day) last_day
           FROM skill_uses
-          WHERE mode='used'
+          WHERE mode='used'{overview_sql}
           GROUP BY skill
-        """, (window["start"], window["end"]))
+        """, (
+            window["start"], window["end"],
+            window["previous_start"], window["previous_end"],
+            *overview_params,
+        ))
     }
 
     def is_company_item(item):
         name = item.get("name")
-        return bool(name) and _skill_source(name, catalog_by) in CATALOG_COMPANY_TYPES
+        return bool(name) and not _is_overview_placeholder_skill(name) and _skill_source(name, catalog_by) in CATALOG_COMPANY_TYPES
+
+    def has_uninstalled_window_usage(name, sessions):
+        return int(sessions or 0) > 0 and int(install_counts.get(name, 0)) == 0
 
     current = []
     previous_count = 0
@@ -539,12 +570,19 @@ def _published_skill_summary(conn, catalog_items, catalog_by, window):
         published_day = _catalog_published_day(item.get("published_at"))
         if not published_day:
             continue
-        if window["previous_start"] <= published_day <= window["previous_end"]:
+        name = item["name"]
+        if (
+            window["previous_start"] <= published_day <= window["previous_end"]
+            and not has_uninstalled_window_usage(name, usage.get(name, {}).get("previous_sessions", 0))
+        ):
             previous_count += 1
         if not (window["start"] <= published_day <= window["end"]):
             continue
-        name = item["name"]
         stat = usage.get(name, {})
+        window_sessions = int(stat.get("window_sessions") or 0)
+        installers = int(install_counts.get(name, 0))
+        if has_uninstalled_window_usage(name, window_sessions):
+            continue
         current.append({
             "name": name,
             "source": _skill_source(name, catalog_by),
@@ -555,8 +593,8 @@ def _published_skill_summary(conn, catalog_items, catalog_by, window):
             "updated_at": item.get("updated_at") or "",
             "path": item.get("path") or "",
             "sha": item.get("sha") or "",
-            "installers": int(install_counts.get(name, 0)),
-            "window_sessions": int(stat.get("window_sessions") or 0),
+            "installers": installers,
+            "window_sessions": window_sessions,
             "last_day": stat.get("last_day"),
         })
     current.sort(key=lambda x: x["name"])
@@ -633,6 +671,9 @@ def _source_filter(kind, src, ignored):
 def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", operator=""):
     clauses = ["mode='used'", "day >= ?", "day <= ?"]
     params = [window_start, window_end]
+    overview_sql, overview_params = _overview_skill_filter_sql(prefix="")
+    clauses.append(overview_sql)
+    params.extend(overview_params)
     if rt:
         clauses.append("COALESCE(runtime,'') = ?")
         params.append(rt)
@@ -757,7 +798,7 @@ def _evidence_record_summary(rows, items=None, installed=0):
 
 def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q="", skill="", rt="", operator="", catalog_by=None):
     catalog_by = catalog_by or {}
-    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
+    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES and not _is_overview_placeholder_skill(n)}
     installed_names = _installed_skill_names(conn) & company_names
     used_rows = _evidence_fetch_rows(conn, window_start, window_end, q="", rt=rt, skill="", operator=operator)
     used_rows = _annotate_evidence_rows(used_rows, catalog_by)
@@ -907,9 +948,13 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     if scope not in ("", "all", "new"):
         raise HTTPException(400, "scope must be all or new")
     scope = "new" if scope == "new" else "all"
-    new_skill_names = _new_used_skill_names(conn, window_start, window_end)
+    new_skill_names = {
+        name for name in _new_used_skill_names(conn, window_start, window_end)
+        if not _is_overview_placeholder_skill(name)
+    }
     scoped_skill_names = new_skill_names if scope == "new" else None
     scope_sql, scope_params = _skill_scope_sql(scoped_skill_names)
+    overview_sql, overview_params = _overview_skill_filter_sql()
 
     daily_where, daily_params = ["mode='used'", "day IS NOT NULL"], []
     daily_where.append("day >= ?")
@@ -918,6 +963,9 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     if scoped_skill_names is not None:
         daily_where.append(scope_sql.replace(" AND ", "", 1).strip())
         daily_params.extend(scope_params)
+    daily_filter_sql, daily_filter_params = _overview_skill_filter_sql(prefix="")
+    daily_where.append(daily_filter_sql)
+    daily_params.extend(daily_filter_params)
     daily_rows = conn.execute(f"""
       SELECT day, skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
@@ -943,7 +991,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         COUNT(DISTINCT CASE WHEN day >= ? THEN operator END) users_30d,
         MAX(day) last_day
       FROM skill_uses
-      WHERE mode='used'{scope_sql}
+      WHERE mode='used'{scope_sql}{overview_sql}
       GROUP BY skill
     """, (
         d7,
@@ -954,23 +1002,24 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         previous_end,
         d30,
         *scope_params,
+        *overview_params,
     )).fetchall()
     runtime_counts = {}
     for r in conn.execute(f"""
       SELECT skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
-      WHERE mode='used'{scope_sql}
+      WHERE mode='used'{scope_sql}{overview_sql}
       GROUP BY skill, runtime
-    """, scope_params):
+    """, (*scope_params, *overview_params)):
         runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
     trend_days = [(today - timedelta(days=i)).isoformat() for i in range(13, -1, -1)]
     trend = {}
     for r in conn.execute(f"""
       SELECT skill, day, COUNT(*) sessions
       FROM skill_uses
-      WHERE mode='used' AND day >= ?{scope_sql}
+      WHERE mode='used' AND day >= ?{scope_sql}{overview_sql}
       GROUP BY skill, day
-    """, (d14, *scope_params)):
+    """, (d14, *scope_params, *overview_params)):
         trend.setdefault(r["skill"], {})[r["day"]] = int(r["sessions"] or 0)
     table = []
     for r in base_rows:
@@ -1022,10 +1071,10 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         SUM(CASE WHEN day >= ? AND day <= ? THEN 1 ELSE 0 END) previous_sessions,
         MAX(day) last_day
       FROM skill_uses
-      WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+      WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}{overview_sql}
       GROUP BY operator, skill, runtime
       ORDER BY operator ASC, skill ASC, runtime ASC
-    """, (d7, d30, window_start, window_end, previous_start, previous_end, *scope_params)):
+    """, (d7, d30, window_start, window_end, previous_start, previous_end, *scope_params, *overview_params)):
         runtime = r["runtime"] or "unknown"
         skill = r["skill"]
         if not _matches_operator_scope(runtime, skill, catalog_by, rt, src):
@@ -1053,9 +1102,9 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         for r in conn.execute(f"""
           SELECT operator, COUNT(DISTINCT session_id) session_count
           FROM skill_uses
-          WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+          WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}{overview_sql}
           GROUP BY operator
-        """, scope_params):
+        """, (*scope_params, *overview_params)):
             stat = operator_stats.get(r["operator"])
             if stat is not None:
                 stat["session_count"] = int(r["session_count"] or 0)
@@ -1064,10 +1113,10 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         for r in conn.execute(f"""
           SELECT operator, session_id, skill, COALESCE(runtime,'') runtime
           FROM skill_uses
-          WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+          WHERE mode='used' AND day IS NOT NULL AND trim(COALESCE(operator,'')) <> ''{scope_sql}{overview_sql}
           GROUP BY operator, session_id, skill, runtime
           ORDER BY operator ASC
-        """, scope_params):
+        """, (*scope_params, *overview_params)):
             runtime = r["runtime"] or "unknown"
             if not _matches_operator_scope(runtime, r["skill"], catalog_by, rt, src):
                 continue
@@ -1082,10 +1131,10 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
       SELECT day, operator, skill, COALESCE(runtime,'') runtime, COUNT(*) sessions
       FROM skill_uses
       WHERE mode='used' AND day IS NOT NULL AND day >= ?
-        AND trim(COALESCE(operator,'')) <> ''{scope_sql}
+        AND trim(COALESCE(operator,'')) <> ''{scope_sql}{overview_sql}
       GROUP BY day, operator, skill, runtime
       ORDER BY day ASC, operator ASC, runtime ASC, skill ASC
-    """, (operator_day_start, *scope_params)):
+    """, (operator_day_start, *scope_params, *overview_params)):
         runtime = r["runtime"] or "unknown"
         skill = r["skill"]
         if not _matches_operator_scope(runtime, skill, catalog_by, rt, src):
@@ -1133,12 +1182,12 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         })
     operator_table.sort(key=lambda x: (-x["sessions_window"], -x["sessions_total"], x["operator"]))
 
-    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
+    company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES and not _is_overview_placeholder_skill(n)}
     installed_names = _installed_skill_names(conn) & company_names
-    used_window_names = {r["skill"] for r in conn.execute("""
+    used_window_names = {r["skill"] for r in conn.execute(f"""
       SELECT DISTINCT skill FROM skill_uses
-      WHERE mode='used' AND day >= ? AND day <= ?
-    """, (window_start, window_end)) if r["skill"] in company_names}
+      WHERE mode='used' AND day >= ? AND day <= ?{overview_sql}
+    """, (window_start, window_end, *overview_params)) if r["skill"] in company_names}
     funnel = {
         "available": bool(company_names),
         "catalog": _catalog_list(company_names, catalog_by),
