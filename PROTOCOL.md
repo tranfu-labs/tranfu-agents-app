@@ -189,8 +189,9 @@ X-TF-Key: <团队写入密钥>
 `/<skill-name>` 斜杠命令在 `Stop` / `SessionEnd` 时读取本机 transcript,仅接受 `type=user` 且
 `message.content` 起头斜杠命令三件套中的 `<command-name>` 标记,并过滤 `/clear`、`/usage` 等 Claude Code
 内置 UI 命令。Hermes 从 `skill_view` 工具调用参数取 skill 名。Codex 不把 skill 触发暴露为 `Skill` 工具调用，因此在 Codex 下
-shim 会在轮次/会话结束时**本地读取该会话的 rollout 文件**，仅提取"读取了某个已装 `SKILL.md`"
-这一信号并上报 skill 名；会话内容不离开本机。OpenClaw 没有 skill 工具边界,只在原生插件的
+shim 会在轮次/会话结束时**本地读取该会话的 rollout 文件**，兼容旧 `function_call` 与 Desktop
+`custom_tool_call exec` 命令容器,但只从静态 shell `cmd` 提取"读取了某个已装 `SKILL.md`"
+这一信号并上报 skill 名；会话内容不离开本机,也不提供批量历史回填。OpenClaw 没有 skill 工具边界,只在原生插件的
 `llm_input` 里从 system prompt 注入的 `<skill>` 块提取 skill 名,并以 `skill_mode=equipped` 上报
 「装备态」,不与 `used` 使用态相加。`TF_REPORT_SKILLS=0` 同样关闭这些路径
 （见 ADR-0016 / ADR-0017 / ADR-0018）。

@@ -6,10 +6,11 @@ Codex does NOT surface skill invocations as a `Skill` tool call the way Claude
 Code does, so the PreToolUse path in tf_hook.py never sees them. Instead, Codex
 writes a per-session rollout transcript on disk; when an agent actually uses a
 skill it reads the installed `.codex/skills/<name>/SKILL.md` (or `.claude/...`)
-via a shell `function_call`. That read is the strong, low-false-positive signal
-we trust: prompt name-drops, discussion of a skill, or a random SKILL.md file in
-some repo do NOT count — only a function_call whose command reads an installed
-skill's SKILL.md.
+through a shell command. Older rollouts store that command as a `function_call`;
+Codex Desktop stores a JavaScript `custom_tool_call` wrapper around
+`tools.exec_command(...)`. That read is the strong, low-false-positive signal we
+trust: prompt name-drops, discussion of a skill, edits, or a random SKILL.md file
+in some repo do NOT count.
 
 tf_hook.py calls scan_session() on Codex turn/session end and reports each name
 through tf_report.py --skill. Per-session×skill dedup is enforced server-side, so
@@ -34,6 +35,7 @@ MAX_BYTES = 80 * 1024 * 1024  # stop reading a single transcript past this (time
 # from a stray SKILL.md living in some skills-authoring repo (docs/skills/x.md,
 # skillsbench/tasks/.../SKILL.md, a repo-root SKILL.md — all excluded).
 SKILL_RE = re.compile(r"[/\\]\.(?:codex|claude)[/\\]skills[/\\]([^/\\]+)[/\\]SKILL\.md")
+EXEC_CALLEE = "tools.exec_command"
 
 
 def codex_home():
@@ -52,14 +54,237 @@ def find_rollouts(session_id, home=None):
         return []
 
 
-def skills_in_file(path):
-    """Skill names read via a shell function_call in one rollout file.
+def _skip_js_string(source, start):
+    """Index after a JS string/template literal, or len(source) if unclosed."""
+    quote = source[start]
+    i = start + 1
+    while i < len(source):
+        ch = source[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if quote == "`" and ch == "$" and i + 1 < len(source) and source[i + 1] == "{":
+            i = _skip_js_template_expression(source, i + 2)
+            continue
+        if ch == quote:
+            return i + 1
+        i += 1
+    return len(source)
 
-    Only `payload.type == "function_call"` records count — that excludes the
-    developer skill catalog (a message listing every skill's path), tool *output*
-    that echoes SKILL.md content, user/assistant text that name-drops a skill, and
-    apply_patch edits (which are custom_tool_call, not function_call). The cheap
-    `SKILL.md` substring pre-filter keeps us from JSON-parsing 99% of lines.
+
+def _skip_js_template_expression(source, start):
+    """Skip a ${...} expression, including nested strings/templates/comments."""
+    depth = 1
+    i = start
+    while i < len(source):
+        if source[i] in "'\"`":
+            i = _skip_js_string(source, i)
+            continue
+        if source.startswith("//", i) or source.startswith("/*", i):
+            i = _skip_js_trivia(source, i)
+            continue
+        if source[i] == "{":
+            depth += 1
+        elif source[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(source)
+
+
+def _skip_js_trivia(source, start):
+    """Skip whitespace and JS comments without evaluating the source."""
+    i = start
+    while i < len(source):
+        if source[i].isspace():
+            i += 1
+            continue
+        if source.startswith("//", i):
+            end = source.find("\n", i + 2)
+            i = len(source) if end < 0 else end + 1
+            continue
+        if source.startswith("/*", i):
+            end = source.find("*/", i + 2)
+            i = len(source) if end < 0 else end + 2
+            continue
+        break
+    return i
+
+
+def _js_call_arguments(source, callee=EXEC_CALLEE):
+    """Yield argument source for real callee(...) calls outside strings/comments."""
+    i = 0
+    while i < len(source):
+        ch = source[i]
+        if ch in "'\"`":
+            i = _skip_js_string(source, i)
+            continue
+        if source.startswith("//", i) or source.startswith("/*", i):
+            i = _skip_js_trivia(source, i)
+            continue
+        if not source.startswith(callee, i):
+            i += 1
+            continue
+        before = source[i - 1] if i else ""
+        after_at = i + len(callee)
+        after = source[after_at] if after_at < len(source) else ""
+        if ((before and (before.isalnum() or before in "_$"))
+                or (after and (after.isalnum() or after in "_$"))):
+            i += 1
+            continue
+        open_at = _skip_js_trivia(source, after_at)
+        if open_at >= len(source) or source[open_at] != "(":
+            i = after_at
+            continue
+        depth = 1
+        j = open_at + 1
+        while j < len(source) and depth:
+            if source[j] in "'\"`":
+                j = _skip_js_string(source, j)
+                continue
+            if source.startswith("//", j) or source.startswith("/*", j):
+                j = _skip_js_trivia(source, j)
+                continue
+            if source[j] == "(":
+                depth += 1
+            elif source[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    yield source[open_at + 1:j]
+                    j += 1
+                    break
+            j += 1
+        if depth:
+            return
+        i = j
+
+
+def _read_static_js_string(source, start):
+    """Return (value, end) for a static JS string literal; reject interpolation."""
+    quote = source[start]
+    out = []
+    i = start + 1
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", "v": "\v"}
+    while i < len(source):
+        ch = source[i]
+        if ch == quote:
+            return "".join(out), i + 1
+        if quote == "`" and ch == "$" and i + 1 < len(source) and source[i + 1] == "{":
+            return None
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+        i += 1
+        if i >= len(source):
+            return None
+        esc = source[i]
+        if esc in "\n\r":
+            if esc == "\r" and i + 1 < len(source) and source[i + 1] == "\n":
+                i += 1
+        elif esc == "x" and i + 2 < len(source):
+            try:
+                out.append(chr(int(source[i + 1:i + 3], 16)))
+                i += 2
+            except ValueError:
+                out.append(esc)
+        elif esc == "u" and i + 4 < len(source):
+            try:
+                out.append(chr(int(source[i + 1:i + 5], 16)))
+                i += 4
+            except ValueError:
+                out.append(esc)
+        else:
+            out.append(escapes.get(esc, esc))
+        i += 1
+    return None
+
+
+def _static_cmd(call_args):
+    """Extract the top-level inline object's static string `cmd` property."""
+    i = _skip_js_trivia(call_args, 0)
+    if i >= len(call_args) or call_args[i] != "{":
+        return None
+    depth = 1
+    i += 1
+    while i < len(call_args) and depth:
+        i = _skip_js_trivia(call_args, i)
+        if i >= len(call_args):
+            break
+        ch = call_args[i]
+        if ch == "{":
+            depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            depth -= 1
+            i += 1
+            continue
+        key = None
+        key_end = i
+        if depth == 1 and ch in "'\"`":
+            parsed = _read_static_js_string(call_args, i)
+            if parsed is None:
+                i = _skip_js_string(call_args, i)
+                continue
+            key, key_end = parsed
+        elif depth == 1 and call_args.startswith("cmd", i):
+            before = call_args[i - 1] if i else ""
+            after = call_args[i + 3] if i + 3 < len(call_args) else ""
+            if (not (before and (before.isalnum() or before in "_$"))
+                    and not (after and (after.isalnum() or after in "_$"))):
+                key, key_end = "cmd", i + 3
+        if key is not None:
+            colon = _skip_js_trivia(call_args, key_end)
+            if key == "cmd" and colon < len(call_args) and call_args[colon] == ":":
+                value_at = _skip_js_trivia(call_args, colon + 1)
+                if value_at < len(call_args) and call_args[value_at] in "'\"`":
+                    parsed = _read_static_js_string(call_args, value_at)
+                    return parsed[0] if parsed is not None else None
+                return None
+            i = key_end
+            continue
+        if ch in "'\"`":
+            i = _skip_js_string(call_args, i)
+            continue
+        i += 1
+    return None
+
+
+def _commands_in_payload(payload):
+    """Known rollout formats -> statically confirmed shell command strings."""
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("type") == "function_call" and payload.get("name") == "exec_command":
+        args = payload.get("arguments")
+        if not isinstance(args, str):
+            return []
+        try:
+            obj = json.loads(args)
+        except Exception:
+            return []
+        cmd = obj.get("cmd") if isinstance(obj, dict) else None
+        return [cmd] if isinstance(cmd, str) else []
+    if payload.get("type") == "custom_tool_call" and payload.get("name") == "exec":
+        source = payload.get("input")
+        if not isinstance(source, str):
+            return []
+        commands = []
+        for call_args in _js_call_arguments(source):
+            cmd = _static_cmd(call_args)
+            if cmd is not None:
+                commands.append(cmd)
+        return commands
+    return []
+
+
+def skills_in_file(path):
+    """Skill names read via a statically confirmed shell command in a rollout.
+
+    Known old/new command containers count; messages, outputs, edits and dynamic
+    JavaScript do not. The cheap `SKILL.md` substring pre-filter keeps us from
+    JSON-parsing 99% of lines.
     """
     found = set()
     try:
@@ -76,15 +301,11 @@ def skills_in_file(path):
                 except Exception:
                     continue
                 payload = d.get("payload") if isinstance(d, dict) else None
-                if not isinstance(payload, dict) or payload.get("type") != "function_call":
-                    continue
-                args = payload.get("arguments")
-                if not isinstance(args, str):
-                    continue
-                for m in SKILL_RE.finditer(args):
-                    name = m.group(1).strip()
-                    if name:
-                        found.add(name[:MAX_SKILL_NAME])
+                for command in _commands_in_payload(payload):
+                    for m in SKILL_RE.finditer(command):
+                        name = m.group(1).strip()
+                        if name:
+                            found.add(name[:MAX_SKILL_NAME])
     except Exception:
         pass
     return found

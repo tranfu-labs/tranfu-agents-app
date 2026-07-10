@@ -46,6 +46,18 @@
     扫描时必须做**位置校验**:行级 JSON 解码 transcript jsonl,仅当某行满足 `type == "user"` 且 `message.content`(支持 string 与 list-of-blocks 两种形态,list 形态取首个 `type=text` 块的 `text`)`lstrip()` 后**以 `<command-name>` 起头,或以 `<command-message>` 起头且紧跟 `<command-name>`**时,才取首个 `<command-name>` 标记作为候选 skill 名。位置不在 user-message 起头斜杠命令三件套中的标记(含 assistant 文本、tool_result content、subagent prompt、文档/代码 fixture 引用等)一律忽略,不得上报。
     扫描时还必须做**命名空间校验**:候选 skill 名归一化(去前导 `/`,按 `:` 切首段以折叠子命令)后,若落入 Claude Code 内置斜杠命令集合(含但不限于 `clear / compact / context / cost / config / agents / doctor / exit / quit / help / login / logout / memory / model / permissions / hooks / status / usage / mcp / vim / bug / release-notes / pr-comments / terminal-setup / add-dir / resume / migrate-installer / ide / bashes / output-style / microphone / fast`),不得上报。该集合由 shim 侧维护,Anthropic 未来扩展内置命令时同步追加。
     约束与既有 `PreToolUse + Skill` 工具调用同口径:会话×skill 去重(服务端 `(session_id, skill, mode)` 唯一约束兜底,客户端不持状态)、`TF_REPORT_SKILLS=0` 可关、`TF_RUNTIME != claude-code` 不触发、skill 名提取失败或 jsonl 缺失/不可读/`transcript_path` 缺失时静默退出且不阻塞主线程、同会话内 Stop 多次触发产生的重复上报由服务端去重吞掉。
+13. **Codex rollout Skill 补采必须兼容旧/新命令容器。** Codex shim 在 `Stop` / `SessionEnd` 时按
+    `session_id` 定位本机会话 rollout,并从真实 shell 读取已安装 `SKILL.md` 的强信号中提取 Skill 名。
+    旧格式只接受 `payload.type=="function_call" && name=="exec_command"`,并只检查可解码
+    `arguments` object 的字符串 `cmd`;Desktop 新格式只接受
+    `payload.type=="custom_tool_call" && name=="exec"`,并只检查 `input` 中代码态、边界完整的
+    `tools.exec_command(...)` 调用内可静态确认的字符串 `cmd`。两种格式复用直接位于
+    `.codex/skills/<name>/SKILL.md` 或 `.claude/skills/<name>/SKILL.md` 的路径口径。
+    developer/user message、工具输出、字符串/注释伪调用、动态 `cmd`、非命令字段、`apply_patch`、
+    非 shell function call、作者仓库散落的 `SKILL.md` 与未知格式不得计入。提取失败、rollout 缺失、
+    JSON/调用边界破损或超过读取上限时必须静默跳过;现有开关、长度、去重与失败静默规则保持不变。
+    该链路不得提供或执行批量历史回填,也不得主动遍历未被当前 hook 指向的历史 session;旧会话被续聊后
+    因正常结束事件重扫完整 rollout 而自然补记属于允许行为,无需引入持久化游标或升级截止点。
 
 ## 签发端点防爆破(SHOULD)
 - `POST /v1/enroll`(凭 `TF_KEY` 签发持久 per-operator token)应纳入与管理接口同类的按 IP 速率限制
@@ -97,3 +109,9 @@
 - `Stop` 事件 + transcript 内某 `type=assistant` / `tool_result` content 含 `<command-name>verify</command-name>` 子串、但全文件无任何 `type=user` content 起头斜杠命令三件套记录 → 位置守门拒收,不附加 `skill` 字段,`skill_uses` 表无新增。
 - `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` `lstrip()` 起头 `<command-name>/output-style:new</command-name>` 或等价 `<command-message>` 三件套 → 归一化为 `output-style` 命中黑名单,不附加 `skill` 字段。
 - `Stop` 事件 + transcript 内某行 `type=user` 且 `message.content` 是 list-of-blocks `[{"type":"text","text":"<command-name>/foo-bar</command-name>..."}]` → 抓 `foo-bar` 上报一次。
+- Codex 旧 `function_call + exec_command` 与 Desktop 新 `custom_tool_call + exec + tools.exec_command(...)`
+  分别以静态 `cmd` 读取 `.codex/skills/alpha/SKILL.md` → 均提取 `alpha`;同一 rollout 两种格式并存仍只返回一个名字。
+- Desktop `exec` 同时包含读取 `alpha` 的 `tools.exec_command(...)` 与改写 `edited` 的
+  `tools.apply_patch(...)` → 只提取 `alpha`;字符串/注释伪调用、动态 `cmd` 或仅非 `cmd` 字段含路径 → 不提取。
+- 部署后不运行批量历史扫描;没有再次活动的旧 session 不产生新记录,续聊旧 session 可在下一次正常
+  `Stop` / `SessionEnd` 中自然补记。

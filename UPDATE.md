@@ -119,7 +119,8 @@ sticky 保存,后续不带这字段的心跳不会清掉它。
 本版本新增 SKILLS 顶级页与 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,
 Skill 调用才会开始上报 `skill` 字段,所以 SKILLS 页数据会按人逐步出现。Claude Code 走 `Skill` 工具调用;
 Hermes 走 `skill_view` 工具调用;Codex 不暴露该工具调用,改由 shim 在轮次/会话结束时解析本机
-rollout 文件提取(见 ADR-0016/0017)。OpenClaw 没有使用边界,新版本通过原生插件从 prompt 注入块提取
+rollout 文件提取,并兼容旧 `function_call` 与 Desktop `custom_tool_call exec` 命令容器(见 ADR-0016/0017)。
+该升级不提供或执行批量历史回填;续聊旧会话时可随正常完整重扫自然补记。OpenClaw 没有使用边界,新版本通过原生插件从 prompt 注入块提取
 并以 `mode=equipped` 记录装备态(见 ADR-0018),不与 `used` 使用态相加;SKILLS 总览只统计 `used`,
 装备态只在单个 skill 详情里展示。OpenClaw 插件在 `session_end`
 只排队后台 POST,不会等待网络而阻塞 agent。这几条路都需要新版本地 shim/plugin
@@ -149,7 +150,9 @@ SKILLS 页会低频读取三个只读接口:
    OpenClaw 要让该 skill 进入本会话 prompt 注入块(单 skill 详情里显示 `equipped`)。
 5. (Hermes)确认 `~/.hermes/config.yaml` 的 `pre_tool_call` 已指向 `~/.tranfu/tf-hermes-hook.sh`,
    且启动 Hermes 的环境能读到 `TF_SERVER/TF_KEY/TF_OPERATOR/TF_RUNTIME`。
-6. (Codex)直接验解析:`python3 ~/.tranfu/tf_rollout_scan.py --session <会话id> --print`,看是否列出 skill 名。
+6. (Codex)直接验解析:`python3 ~/.tranfu/tf_rollout_scan.py --session <会话id> --print`,看是否列出 skill 名;
+   `--print` 只读不 POST。若 `codex_exec` 有结果但 Desktop 主会话为空,检查本地 shim 是否已支持
+   `custom_tool_call + exec + tools.exec_command(...)` 格式。
 7. (OpenClaw)看本地日志:`tail -n 50 ~/.tranfu/logs/openclaw-skill.log`,确认有 `session_end` 汇总、`skillCount`、
    `postOk/postFail`;若有 `format_drift` WARN,说明注入块格式需要重新锚定。
 8. 服务端 SQLite 是否已有记录:`sqlite3 tf.db 'select session_id,skill,mode,operator,day from skill_uses limit 5;'`。
