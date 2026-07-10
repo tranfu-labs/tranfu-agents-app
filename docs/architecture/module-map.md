@@ -71,7 +71,8 @@ agent 机器                         中心服务器(单容器)                 
     Codex 在轮次/会话结束时拉起 `tf_rollout_scan.py`;
     Hermes 链路另落 `~/.tranfu/logs/hermes-hook.ndjson` 常态结构化诊断日志,双文件 5MB rotate,
     `TF_HOOK_DEBUG=0` 关闭,见 ADR-0022);
-  - `tf_rollout_scan.py` Codex 专属:解析本机 rollout 会话文件,提取"读了已装 SKILL.md"的 Skill 名上报(ADR-0016);
+  - `tf_rollout_scan.py` Codex 专属:解析本机 rollout 会话文件,兼容旧 `function_call` 与 Desktop
+    `custom_tool_call exec` 两种命令容器,仅从静态 shell `cmd` 提取"读了已装 SKILL.md"的 Skill 名上报(ADR-0016);
   - `openclaw/` OpenClaw 原生 JS 插件:在进程内 `llm_input` 只解析 prompt 注入块里的 Skill 名,
     `session_end` 以 `skill_mode=equipped` 排队后台上报装备态,hook 不等待网络;只出站到 M1,不依赖 Python shim,
     不得记录 prompt 正文;
