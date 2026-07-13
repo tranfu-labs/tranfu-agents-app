@@ -27,10 +27,14 @@ function agent(overrides: Partial<AgentSession> = {}): AgentSession {
 
 test('agent filters normalize unknown URL values and preserve meaningful params', () => {
   const filters = parseAgentFilters('?q=code&status=attention&signal=quality&rt=codex&op=alice&sort=success')
-  assert.deepEqual(filters, { q: 'code', status: 'attention', signal: 'quality', w: 'today', wstart: '', wend: '', rt: 'codex', op: 'alice', sort: 'success' })
+  assert.deepEqual(filters, { q: 'code', status: 'attention', signal: 'quality', rank: 'runtime', w: 'today', wstart: '', wend: '', rt: 'codex', op: 'alice', sort: 'success' })
   assert.equal(agentFiltersQuery(filters), '?q=code&status=attention&signal=quality&rt=codex&op=alice&sort=success')
   assert.equal(agentFiltersQuery({ ...filters, w: '14d' }), '?q=code&status=attention&signal=quality&w=14d&rt=codex&op=alice&sort=success')
-  assert.deepEqual(parseAgentFilters('?status=nope&sort=nope'), { q: '', status: 'all', signal: '', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' })
+  assert.equal(agentFiltersQuery({ ...filters, rank: 'operator' }), '?q=code&status=attention&signal=quality&rank=operator&rt=codex&op=alice&sort=success')
+  assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&rt=codex&op=alice&sort=success')
+  assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '1783987200' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&wend=1783987200&rt=codex&op=alice&sort=success')
+  assert.deepEqual(parseAgentFilters('?status=nope&sort=nope'), { q: '', status: 'all', signal: '', rank: 'runtime', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' })
+  assert.equal(parseAgentFilters('?rank=operator').rank, 'operator')
 })
 
 test('agent issue signals respect quality and quiet boundaries', () => {
@@ -50,7 +54,7 @@ test('agent issue signals respect quality and quiet boundaries', () => {
 test('agent filtering searches task and signal-specific attention', () => {
   const a = agent({ agent: 'builder', task: 'release dashboard', quality: { runs: 4, success: 2 } })
   const b = agent({ operator: 'bob', runtime: 'claude-code', agent: 'reviewer', active_days: [...Array(89).fill(0), 4] })
-  const base: AgentFilters = { q: '', status: 'all', signal: '', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' }
+  const base: AgentFilters = { q: '', status: 'all', signal: '', rank: 'runtime', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' }
   assert.deepEqual(filterAgents([a, b], { ...base, q: 'dashboard' }), [a])
   assert.deepEqual(filterAgents([a, b], { ...base, status: 'attention', signal: 'quality' }), [a])
   assert.deepEqual(filterAgents([a, b], { ...base, rt: 'claude-code' }), [b])
@@ -76,6 +80,13 @@ test('agent windows use the service day and compare adjacent equal ranges', () =
   assert.equal(formatAgentDelta(0, 0), '—')
   assert.equal(formatAgentDelta(3, 0), '+∞%')
   assert.equal(formatAgentDelta(3, 0, false), '—')
+})
+
+test('agent custom windows keep service-day boundaries and window aggregation', () => {
+  const overview = buildAgentOverview([agent({ active_days: [...Array(89).fill(0), 4] })], undefined, '2026-07-13')
+  const window = resolveAgentWindow({ w: 'custom', wstart: '1783872000', wend: '1784044800' }, overview.today)
+  assert.deepEqual(window.days, ['2026-07-13', '2026-07-14', '2026-07-15'])
+  assert.equal(window.previousDays.length, 3)
 })
 
 test('agent overview fallback produces a 90-day series and de-duplicated group counts', () => {

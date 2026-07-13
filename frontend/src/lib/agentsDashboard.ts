@@ -8,12 +8,14 @@ export const AGENT_QUIET_DAYS = 14
 export type AgentSignal = 'error' | 'shim' | 'quiet' | 'quality'
 export type AgentStatusFilter = 'all' | 'live' | 'attention' | 'idle' | 'done'
 export type AgentSort = 'recent' | 'today' | 'week' | 'success' | 'errors' | 'name'
+export type AgentRankView = 'runtime' | 'operator'
 export type AgentWindowKey = 'today' | 'this_week' | 'last_week' | '7d' | '14d' | '30d' | '90d' | 'custom'
 
 export type AgentFilters = {
   q: string
   status: AgentStatusFilter
   signal: AgentSignal | ''
+  rank: AgentRankView
   w: AgentWindowKey
   wstart: string
   wend: string
@@ -43,18 +45,21 @@ export type AgentWindowComparison = {
 const STATUSES = new Set<AgentStatusFilter>(['all', 'live', 'attention', 'idle', 'done'])
 const SORTS = new Set<AgentSort>(['recent', 'today', 'week', 'success', 'errors', 'name'])
 const SIGNALS = new Set<AgentSignal>(['error', 'shim', 'quiet', 'quality'])
+const RANK_VIEWS = new Set<AgentRankView>(['runtime', 'operator'])
 const WINDOWS = new Set<AgentWindowKey>(['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'])
 
 export function parseAgentFilters(search: string): AgentFilters {
   const params = new URLSearchParams(search)
   const status = params.get('status') || 'all'
   const signal = params.get('signal') || ''
+  const rank = params.get('rank') || 'runtime'
   const window = params.get('w') || 'today'
   const sort = params.get('sort') || 'recent'
   return {
     q: params.get('q') || '',
     status: STATUSES.has(status as AgentStatusFilter) ? status as AgentStatusFilter : 'all',
     signal: SIGNALS.has(signal as AgentSignal) ? signal as AgentSignal : '',
+    rank: RANK_VIEWS.has(rank as AgentRankView) ? rank as AgentRankView : 'runtime',
     w: WINDOWS.has(window as AgentWindowKey) ? window as AgentWindowKey : 'today',
     wstart: params.get('wstart') || '',
     wend: params.get('wend') || '',
@@ -69,10 +74,11 @@ export function agentFiltersQuery(filters: AgentFilters) {
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.status !== 'all') params.set('status', filters.status)
   if (filters.signal) params.set('signal', filters.signal)
+  if (filters.rank !== 'runtime') params.set('rank', filters.rank)
   if (filters.w !== 'today') params.set('w', filters.w)
-  if (filters.w === 'custom' && filters.wstart && filters.wend) {
-    params.set('wstart', filters.wstart)
-    params.set('wend', filters.wend)
+  if (filters.w === 'custom') {
+    if (filters.wstart) params.set('wstart', filters.wstart)
+    if (filters.wend) params.set('wend', filters.wend)
   }
   if (filters.rt) params.set('rt', filters.rt)
   if (filters.op) params.set('op', filters.op)
@@ -99,7 +105,7 @@ function daysBetween(start: string, end: string) {
 function parseUnixDay(value: string) {
   const timestamp = Number(value)
   if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
-  const date = new Date(timestamp * 1000)
+  const date = new Date(timestamp * 1000 + 8 * 60 * 60 * 1000)
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
 }
 
