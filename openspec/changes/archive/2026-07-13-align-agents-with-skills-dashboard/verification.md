@@ -42,7 +42,7 @@
 - `TZ=America/New_York npm --prefix frontend run test:unit`：通过，61/61。
 - CI 等价 build + Python compile：通过。
 - `python -m pytest tests/ -q`：通过，345/345。
-- PR #113 远端 CI：等待本次返修提交触发后补记。
+- PR #113 远端 CI：通过，run `29238070509`，1/1 check successful（36s）。
 
 ## 结论
 

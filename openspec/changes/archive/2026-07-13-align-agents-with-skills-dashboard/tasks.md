@@ -41,4 +41,4 @@
 ## CI 返修
 
 - [x] 固定 browser-local 时间格式测试的夹具时区，消除 GitHub Runner UTC 与开发机 Asia/Shanghai 的环境差异。
-- [ ] 在 UTC 外部环境重跑前端单测，并确认 PR #113 远端 CI 通过。
+- [x] 在 UTC 外部环境重跑前端单测，并确认 PR #113 远端 CI 通过。
