@@ -1,18 +1,20 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { AgentActivityChart } from '../components/agents/AgentActivityChart'
+import { AgentDirectoryTable } from '../components/agents/AgentDirectoryTable'
 import { AgentKpiGrid } from '../components/agents/AgentKpiGrid'
 import { AgentRankPanel } from '../components/agents/AgentRankPanel'
-import { Empty, QBar, ShimPill, SparkMini } from '../components/Common'
+import { Empty } from '../components/Common'
 import {
+  buildAgentDailyBreakdown,
+  buildAgentDirectoryRows,
   agentKpiActionPatch,
   agentFiltersQuery,
   agentSectionOrder,
   agentWindowComparison,
   agentOverviewOf,
   agentSignals,
-  agentSuccessRate,
   attentionCount,
   buildAgentOverview,
   buildAgentWindowOverview,
@@ -24,10 +26,9 @@ import {
   type AgentSectionKey,
   type AgentSignal,
 } from '../lib/agentsDashboard'
-import { ago, dur, encodePathParam, keyOf, LIVE, RT } from '../lib/utils'
-import { statusName } from '../lib/i18n'
+import { RT } from '../lib/utils'
 import { windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
-import type { AgentSession, Lang, StatePayload } from '../lib/types'
+import type { Lang, StatePayload } from '../lib/types'
 
 const WINDOW_OPTIONS = ['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'] as const
 
@@ -37,57 +38,6 @@ const SIGNALS: Array<{ key: AgentSignal; tone: string; label: string; hint: stri
   { key: 'quiet', tone: 'quiet', label: 'agentSignalQuiet', hint: 'agentSignalQuietHint' },
   { key: 'quality', tone: 'bad', label: 'agentSignalQuality', hint: 'agentSignalQualityHint' },
 ]
-
-function statusColor(status: string) {
-  return LIVE.includes(status) ? 'var(--run)' : ['error', 'blocked'].includes(status) ? 'var(--err)' : 'var(--done)'
-}
-
-function skillsCount(agent: AgentSession) {
-  return (agent.skills?.local || []).length + (agent.skills?.cross || []).length
-}
-
-function AgentCard({ agent, latestShim, lang, t }: { agent: AgentSession; latestShim?: string; lang: Lang; t: (key: string) => string }) {
-  const signals = agentSignals(agent, latestShim)
-  const rate = agentSuccessRate(agent)
-  const quality = agent.quality || {}
-  return (
-    <Link className="agent-card" to={`/agent/${encodePathParam(keyOf(agent))}`}>
-      <div className="agent-card-head">
-        <span className="avatar agent-avatar" style={{ ['--c' as string]: `hsl(${(agent.operator || agent.agent || '').length * 47 % 360} 30% 42%)`, borderColor: statusColor(agent.status) }}>
-          {(agent.operator || agent.agent || '?').slice(0, 1).toUpperCase()}
-        </span>
-        <span className="agent-card-identity">
-          <b title={agent.agent || agent.runtime}>{agent.agent || agent.runtime}</b>
-          <span>{agent.operator} · {RT[agent.runtime] || agent.runtime}</span>
-        </span>
-        <span className="agent-status"><i className="dot" style={{ background: statusColor(agent.status) }} />{statusName(lang, agent.status)}</span>
-      </div>
-      <div className="agent-card-task">
-        <b>{agent.task || t('agentNoTask')}</b>
-        <span>{agent.current_step ? `▸ ${agent.current_step}` : t('agentNoStep')}</span>
-      </div>
-      <div className="agent-card-stats">
-        <span><small>{t('agentToday')}</small><b>{dur(agent.today_active)}</b></span>
-        <span><small>{t('agentWeek')}</small><b>{dur(agent.week_active)}</b></span>
-        <span><small>{t('agentSkillsCount')}</small><b>{skillsCount(agent)}</b></span>
-        <span><small>{t('agentMcpCount')}</small><b>{agent.mcp?.length || 0}</b></span>
-      </div>
-      <div className="agent-card-foot">
-        <SparkMini series={agent.active_series} />
-        <span className="agent-quality">
-          <small>{t('agentQuality')}</small>
-          {rate === null ? <b>—</b> : <QBar value={Math.round(rate * 100)} />}
-        </span>
-        <span className="agent-shim"><ShimPill agent={agent} latest={latestShim} t={t} /></span>
-      </div>
-      <div className="agent-card-meta">
-        <span>{t('agentLastSeen')} {ago(agent.last_seen || agent.ts)}</span>
-        {signals.length ? <span className="agent-signal-count">{signals.length} {t('agentSignals')}</span> : null}
-        <span>{t('agentRuns')} {quality.runs || 0}</span>
-      </div>
-    </Link>
-  )
-}
 
 function unixToInput(value: string) {
   const ts = Number(value)
@@ -136,6 +86,8 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   const overview = hasFilters ? buildAgentOverview(visibleAgents, latestShim, allOverview.today) : allOverview
   const window = useMemo(() => resolveAgentWindow(filters, allOverview.today), [filters, allOverview.today])
   const windowOverview = useMemo(() => buildAgentWindowOverview(visibleAgents, overview, window), [visibleAgents, overview, window])
+  const trendBreakdown = useMemo(() => buildAgentDailyBreakdown(visibleAgents, overview.days, window.days, filters.rank), [visibleAgents, overview.days, window.days, filters.rank])
+  const directoryRows = useMemo(() => buildAgentDirectoryRows(visibleAgents, overview.days, window.days, filters.sort), [visibleAgents, overview.days, window.days, filters.sort])
   const comparison = useMemo(() => agentWindowComparison(visibleAgents, overview.days, window), [visibleAgents, overview.days, window])
   const windowLabel = windowPeriodLabel(window.key, t)
   const rankView = filters.rank
@@ -190,13 +142,13 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     analysis: (
       <div className="agents-analysis">
         <AgentRankPanel overview={windowOverview} view={rankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} windowLabel={windowLabel} t={t} />
-        <AgentActivityChart key={`${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
+        <AgentActivityChart key={`${filters.rank}:${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} breakdown={trendBreakdown} view={filters.rank} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
       </div>
     ),
     directory: (
       <section id="agents-directory" tabIndex={-1} className="frame agents-list-frame">
-        <h2><span><span className="sl">//</span>{t('agentDirectory')}</span><span className="cnt">{visibleAgents.length} {t('agentCards')}</span></h2>
-        {visibleAgents.length ? <div className="agent-card-grid">{visibleAgents.map((agent) => <AgentCard key={keyOf(agent)} agent={agent} latestShim={latestShim} lang={lang} t={t} />)}</div> : <Empty title={t('agentNoAgents')} hint={t('agentNoAgentsHint')} />}
+        <h2><span><span className="sl">//</span>{t('agentDirectory')}</span><span className="cnt">{directoryRows.length} {t('agentRows')}</span></h2>
+        {directoryRows.length ? <AgentDirectoryTable rows={directoryRows} latestShim={latestShim} lang={lang} windowLabel={windowLabel} t={t} /> : <Empty title={t('agentNoAgents')} hint={t('agentNoAgentsHint')} />}
       </section>
     ),
   }
@@ -238,7 +190,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
             {[...new Set(data.sessions.map((agent) => agent.operator).filter(Boolean))].sort().map((operator) => <option value={operator} key={operator}>{operator}</option>)}
           </select></label>
           <label className="field"><span>{t('agentSort')}</span><select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as AgentFilters['sort'] })}>
-            <option value="recent">{t('agentSortRecent')}</option><option value="today">{t('agentSortToday')}</option><option value="week">{t('agentSortWeek')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>
+            <option value="recent">{t('agentSortRecent')}</option><option value="window_time">{t('agentSortWindowTime')}</option><option value="window_days">{t('agentSortWindowDays')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>
           </select></label>
           {hasFilters ? <button className="agent-clear-filters" type="button" onClick={clearFilters}>{t('agentFiltersClear')}</button> : null}
         </div>

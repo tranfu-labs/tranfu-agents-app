@@ -7,7 +7,7 @@ export const AGENT_QUIET_DAYS = 14
 
 export type AgentSignal = 'error' | 'shim' | 'quiet' | 'quality'
 export type AgentStatusFilter = 'all' | 'live' | 'attention' | 'idle' | 'done'
-export type AgentSort = 'recent' | 'today' | 'week' | 'success' | 'errors' | 'name'
+export type AgentSort = 'recent' | 'window_time' | 'window_days' | 'success' | 'errors' | 'name'
 export type AgentRankView = 'runtime' | 'operator'
 export type AgentWindowKey = 'today' | 'this_week' | 'last_week' | '7d' | '14d' | '30d' | '90d' | 'custom'
 
@@ -48,6 +48,37 @@ export type AgentSectionKey = 'kpis' | 'signals' | 'analysis' | 'directory'
 export type AgentChartMetric = 'agents' | 'seconds'
 export type AgentChartMode = 'empty' | 'today' | 'series'
 
+export type AgentDailyBreakdownRow = {
+  day: string
+  segment: string
+  active_agents: number
+  active_seconds: number
+}
+
+export type AgentTrendSegment = {
+  name: string
+  active_agents: number
+  active_seconds: number
+}
+
+export type AgentTrendDay = {
+  day: string
+  active_agents: number
+  active_seconds: number
+  segments: AgentTrendSegment[]
+}
+
+export type AgentTrendModel = {
+  days: AgentTrendDay[]
+  legend: string[]
+}
+
+export type AgentDirectoryRow = {
+  agent: AgentSession
+  active_seconds: number
+  active_days: number
+}
+
 export type AgentKpiCardModel = {
   key: AgentKpiKey
   label: string
@@ -59,7 +90,7 @@ export type AgentKpiCardModel = {
 }
 
 const STATUSES = new Set<AgentStatusFilter>(['all', 'live', 'attention', 'idle', 'done'])
-const SORTS = new Set<AgentSort>(['recent', 'today', 'week', 'success', 'errors', 'name'])
+const SORTS = new Set<AgentSort>(['recent', 'window_time', 'window_days', 'success', 'errors', 'name'])
 const SIGNALS = new Set<AgentSignal>(['error', 'shim', 'quiet', 'quality'])
 const RANK_VIEWS = new Set<AgentRankView>(['runtime', 'operator'])
 const WINDOWS = new Set<AgentWindowKey>(['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'])
@@ -70,7 +101,8 @@ export function parseAgentFilters(search: string): AgentFilters {
   const signal = params.get('signal') || ''
   const rank = params.get('rank') || 'runtime'
   const window = params.get('w') || 'today'
-  const sort = params.get('sort') || 'recent'
+  const rawSort = params.get('sort') || 'recent'
+  const sort = rawSort === 'today' ? 'window_time' : rawSort === 'week' ? 'window_days' : rawSort
   return {
     q: params.get('q') || '',
     status: STATUSES.has(status as AgentStatusFilter) ? status as AgentStatusFilter : 'all',
@@ -268,7 +300,7 @@ export function buildAgentKpiCards({ comparison, summary, totalAgents, attention
 export function agentKpiActionPatch(action: AgentKpiAction): Partial<AgentFilters> | null {
   if (action === 'operator-rank') return { rank: 'operator' }
   if (action === 'live') return { status: 'live', signal: '' }
-  if (action === 'week') return { sort: 'week' }
+  if (action === 'week') return { sort: 'window_time' }
   if (action === 'quality') return { sort: 'success' }
   if (action === 'attention') return { status: 'attention', signal: '' }
   return null
@@ -355,8 +387,6 @@ function compareRate(a: AgentSession, b: AgentSession) {
 export function sortAgents(agents: AgentSession[], sort: AgentSort) {
   return agents.slice().sort((a, b) => {
     let result = 0
-    if (sort === 'today') result = Number(b.today_active || 0) - Number(a.today_active || 0)
-    if (sort === 'week') result = Number(b.week_active || 0) - Number(a.week_active || 0)
     if (sort === 'success') result = compareRate(a, b)
     if (sort === 'errors') result = (Number(b.quality?.error || 0) + Number(b.quality?.blocked || 0)) - (Number(a.quality?.error || 0) + Number(a.quality?.blocked || 0))
     if (sort === 'name') result = `${a.agent || a.runtime} ${a.operator}`.localeCompare(`${b.agent || b.runtime} ${b.operator}`)
@@ -380,6 +410,101 @@ export function filterAgents(agents: AgentSession[], filters: AgentFilters, late
     return true
   })
   return sortAgents(filtered, filters.sort)
+}
+
+export function buildAgentDirectoryRows(agents: AgentSession[], overviewDays: string[], days: string[], sort: AgentSort): AgentDirectoryRow[] {
+  const selected = new Set(days)
+  const rows = agents.map((item) => {
+    const series = agentSeriesByDay(item, overviewDays)
+    let activeSeconds = 0
+    let activeDays = 0
+    selected.forEach((day) => {
+      const seconds = Number(series.get(day) || 0)
+      activeSeconds += seconds
+      if (seconds > 0) activeDays += 1
+    })
+    return { agent: item, active_seconds: activeSeconds, active_days: activeDays }
+  })
+  return rows.sort((a, b) => {
+    let result = 0
+    if (sort === 'window_time') result = b.active_seconds - a.active_seconds
+    if (sort === 'window_days') result = b.active_days - a.active_days || b.active_seconds - a.active_seconds
+    if (sort === 'success') result = compareRate(a.agent, b.agent)
+    if (sort === 'errors') result = (Number(b.agent.quality?.error || 0) + Number(b.agent.quality?.blocked || 0)) - (Number(a.agent.quality?.error || 0) + Number(a.agent.quality?.blocked || 0))
+    if (sort === 'name') result = `${a.agent.agent || a.agent.runtime} ${a.agent.operator}`.localeCompare(`${b.agent.agent || b.agent.runtime} ${b.agent.operator}`)
+    if (!result) result = compareRecent(a.agent, b.agent)
+    return result
+  })
+}
+
+export function buildAgentDailyBreakdown(
+  agents: AgentSession[],
+  overviewDays: string[],
+  days: string[],
+  view: AgentRankView,
+): AgentDailyBreakdownRow[] {
+  const byDay = new Map(days.map((day) => [day, new Map<string, { active_agents: number; active_seconds: number }>()]))
+  agents.forEach((item) => {
+    const segment = view === 'runtime' ? String(item.runtime || '__unassigned') : String(item.operator || '__unassigned')
+    const series = agentSeriesByDay(item, overviewDays)
+    days.forEach((day) => {
+      const seconds = Number(series.get(day) || 0)
+      if (seconds <= 0) return
+      const groups = byDay.get(day)
+      if (!groups) return
+      const value = groups.get(segment) || { active_agents: 0, active_seconds: 0 }
+      value.active_agents += 1
+      value.active_seconds += seconds
+      groups.set(segment, value)
+    })
+  })
+  return days.flatMap((day) => [...(byDay.get(day) || new Map()).entries()].map(([segment, value]) => ({ day, segment, ...value })))
+}
+
+export function buildAgentTrendModel(
+  rows: AgentDailyBreakdownRow[],
+  days: string[],
+  metric: AgentChartMetric,
+  topN = 8,
+): AgentTrendModel {
+  const metricKey = metric === 'agents' ? 'active_agents' : 'active_seconds'
+  const totals = new Map<string, number>()
+  rows.forEach((row) => totals.set(row.segment, (totals.get(row.segment) || 0) + Number(row[metricKey] || 0)))
+  const top = [...totals.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, topN)
+    .map(([name]) => name)
+  const topSet = new Set(top)
+  const hasOther = [...totals.keys()].some((name) => !topSet.has(name))
+  const dayRows = new Map<string, AgentTrendSegment[]>()
+  rows.forEach((row) => {
+    const name = topSet.has(row.segment) ? row.segment : '__other'
+    const target = dayRows.get(row.day) || []
+    const item = target.find((entry) => entry.name === name)
+    if (item) {
+      item.active_agents += row.active_agents
+      item.active_seconds += row.active_seconds
+    } else {
+      target.push({ name, active_agents: row.active_agents, active_seconds: row.active_seconds })
+    }
+    dayRows.set(row.day, target)
+  })
+  const legend = hasOther ? [...top, '__other'] : top
+  return {
+    legend,
+    days: days.map((day) => {
+      const segments = (dayRows.get(day) || []).sort((a, b) => {
+        const order = legend.indexOf(a.name) - legend.indexOf(b.name)
+        return order || a.name.localeCompare(b.name)
+      })
+      return {
+        day,
+        active_agents: segments.reduce((sum, item) => sum + item.active_agents, 0),
+        active_seconds: segments.reduce((sum, item) => sum + item.active_seconds, 0),
+        segments,
+      }
+    }),
+  }
 }
 
 export function attentionCount(agents: AgentSession[], latestShim?: string) {
