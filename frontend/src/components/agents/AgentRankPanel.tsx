@@ -3,11 +3,11 @@ import { dur, RT } from '../../lib/utils'
 
 type RankView = 'runtime' | 'operator'
 
-export function AgentRankPanel({ overview, view, setView, onFilter, t }: {
+export function AgentRankPanel({ overview, view, onFilter, windowLabel, t }: {
   overview: AgentOverview
   view: RankView
-  setView: (view: RankView) => void
   onFilter: (key: 'rt' | 'op', value: string) => void
+  windowLabel: string
   t: (key: string) => string
 }) {
   const rows = view === 'runtime' ? overview.runtime : overview.operator
@@ -17,10 +17,6 @@ export function AgentRankPanel({ overview, view, setView, onFilter, t }: {
     <section className="frame agents-rank-panel">
       <div className="agents-panel-title">
         <b>{t('agentRank')}</b>
-        <div className="seg compact" role="group" aria-label={t('agentRank')}>
-          <button type="button" className={view === 'runtime' ? 'on' : ''} aria-pressed={view === 'runtime'} onClick={() => setView('runtime')}>{t('agentRankRuntime')}</button>
-          <button type="button" className={view === 'operator' ? 'on' : ''} aria-pressed={view === 'operator'} onClick={() => setView('operator')}>{t('agentRankOperator')}</button>
-        </div>
       </div>
       <div className="agent-rank-list">
         {rows.length ? rows.map((row) => {
@@ -31,7 +27,7 @@ export function AgentRankPanel({ overview, view, setView, onFilter, t }: {
               <span className="agent-rank-name" title={name}>{view === 'runtime' ? (RT[name] || name) : name}</span>
               <span className="agent-rank-track"><i style={{ width: `${Math.max(3, Math.round((row.agents / maxAgents) * 100))}%` }} /></span>
               <span className="agent-rank-count">{row.agents} · {row.live} {t('agentLiveShort')}</span>
-              <span className="agent-rank-meta">{dur(row.today_active)} · {rate}</span>
+              <span className="agent-rank-meta">{dur(row.today_active)} · {windowLabel} · {rate}</span>
             </button>
           )
         }) : <div className="hint">{t('agentNoRank')}</div>}
