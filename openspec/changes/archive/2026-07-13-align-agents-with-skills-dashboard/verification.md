@@ -34,6 +34,16 @@
 
 内置浏览器的 viewport override 在切换到 `768×900` 时未能重新挂载 webview，因此本轮没有把平板/手机截图或浏览器尺寸实测写成已完成事实。`>1080px / 601–1080px / ≤600px` 的 8/4/2 KPI 列数、分析区单列和手机真实 DOM 顺序由 CSS 媒体查询审查与已通过的纯函数单测覆盖；后续人工视觉回归仍可按 `docs/wireframes/pages/agents.md` 补做。
 
+## CI 返修记录
+
+首次把 `test:unit` 接入 GitHub Actions 后，PR #113 的 Ubuntu Runner（UTC）暴露出 8 个既有 `timeFormat.test.ts` 用例依赖开发机 `Asia/Shanghai` 默认时区：53 个用例通过、8 个时间展示断言偏移 8 小时。返修只在测试进程中把夹具时区固定为 `Asia/Shanghai`，不修改产品代码按浏览器本地时区展示的行为。
+
+- `TZ=UTC npm --prefix frontend run test:unit`：通过，61/61。
+- `TZ=America/New_York npm --prefix frontend run test:unit`：通过，61/61。
+- CI 等价 build + Python compile：通过。
+- `python -m pytest tests/ -q`：通过，345/345。
+- PR #113 远端 CI：等待本次返修提交触发后补记。
+
 ## 结论
 
 本轮确认并修复了复核中发现的动态标题、样式域隔离、长窗口空白尾部、指标/窗口状态重置、窗口完整性和 CI 缺失。未修改 SKILLS 页面组件或业务行为；仅增加了窗口标题共享函数的回归断言。

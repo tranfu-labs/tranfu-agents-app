@@ -37,3 +37,8 @@
 - [x] custom/current/previous 窗口仅在日序列完整覆盖时标记可用。
 - [x] 补窗口标题、完整覆盖、初始焦点和滚动位置纯函数测试；把前端单测加入 CI。
 - [x] 重新运行前端单测、build、后端测试和浏览器验证，并把可复核结果写入 `verification.md`。
+
+## CI 返修
+
+- [x] 固定 browser-local 时间格式测试的夹具时区，消除 GitHub Runner UTC 与开发机 Asia/Shanghai 的环境差异。
+- [ ] 在 UTC 外部环境重跑前端单测，并确认 PR #113 远端 CI 通过。
