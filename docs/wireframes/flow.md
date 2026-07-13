@@ -48,7 +48,7 @@
 ## Agents 列表 → Agent 详情
 
 ```
-┌─ Agents 列表 /agents ─┐  ① 点 Agent 名   ┌─ Agent 详情 /agent/:key ─┐
+┌─ Agents 列表 /agents ─┐  ① 点 Agent 整卡 ┌─ Agent 详情 /agent/:key ─┐
 │ → pages/agents.md     │ ───────────────▶ │ → pages/agent-detail.md  │
 │                       │ ◀── ② ←返回列表  │                          │
 └───────────────────────┘                  └──────────────────────────┘
@@ -56,7 +56,7 @@
 
 | 步 | 从 | 到 | 触发 |
 |---|---|---|---|
-| ① | Agents `/agents` | Agent 详情 `/agent/:key` | 点表格首列 Agent 名（Link） |
+| ① | Agents `/agents` | Agent 详情 `/agent/:key` | 点 Agent 明细整卡（Link，键盘可达） |
 | ② | Agent 详情 | Agents `/agents` | 点「← 返回列表」 |
 
 ## SKILLS 统计下钻

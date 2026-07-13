@@ -1,10 +1,10 @@
 # Agents 对齐 SKILLS 仪表盘 · 字符线框
 
-> 路由：`/agents`（`frontend/src/views/Agents.tsx`）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)。
-> 只读参照：`docs/wireframes/pages/skills.md`；Agents 复用其视觉语法，不修改 Skills 页面。
+> 唯一变更页面基线：`docs/wireframes/pages/agents.md`。
+> 只读参照：`docs/wireframes/pages/skills.md`，本 change 不修改该页面。
 > 比例尺：横向 1 显示列 = 12px，纵向 1 行 = 24px。覆盖桌面 1440×900、平板 768×1024、手机 375×812。
 
-## 字符图
+## pages/agents.md
 
 ### 桌面 1440×900（120 列 × 38 行）
 
@@ -78,7 +78,7 @@
 | 编号 | 元素 | 状态 / 交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
 | ① | 控制条 / 手机摘要 | 桌面平板标题为“控制条”并显示当前视角说明；手机默认折叠；现有 URL 参数与 replace 行为不变 | `/agents` URL | 当前 Agents toolbar，视觉参照 Skills toolbar |
-| ② | 今天变化 KPI 网格 | 八张同构卡；数值与真实入口同行；前两张显示当前/上期与 delta，其余六张显示快照和 detail；桌面 8×1、平板 4×2、手机 2×4 | `agent_overview` + window helper | Skills KPI grid 视觉语法 + AgentKpiGrid 数据 |
+| ② | 今天变化 KPI 网格 | 八张同构卡；数值与真实入口同行；前两张显示当前/上期与 delta，其余六张显示快照和 detail；桌面 8×1、平板 4×2、手机 2×4 | `agent_overview` + window helper | Skills KPI grid 视觉语法 + AgentWindowBar 数据 |
 | ③ | 问题线索 | 点击回填 `status=attention&signal=...`；手机优先显示 | sessions + shim + quality | 当前 agents health |
 | ④ | 排行 | Runtime/操作员视角在控制条；点击回填 `rt/op` | window overview groups | AgentRankPanel |
 | ⑤ | 趋势 | 复用 Skills chart 几何与 Empty；today 使用紧凑单日 plot；支持 hover/click/focus 浮层、长窗内滚和今日斜纹；不改 Skills | window overview daily | AgentActivityChart + `resolveSkillsChartLayout` |
@@ -86,4 +86,4 @@
 
 ## Skills 不变声明
 
-`docs/wireframes/pages/skills.md` 是本次视觉参照，不在本次变更范围内；实现和归档均不修改它。
+`docs/wireframes/pages/skills.md` 是本次视觉参照，不在本 change 的回流清单内；实现和归档阶段均不得修改它。

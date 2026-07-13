@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { AgentActivityChart } from '../components/agents/AgentActivityChart'
+import { AgentKpiGrid } from '../components/agents/AgentKpiGrid'
 import { AgentRankPanel } from '../components/agents/AgentRankPanel'
 import { Empty, QBar, ShimPill, SparkMini } from '../components/Common'
 import {
+  agentKpiActionPatch,
   agentFiltersQuery,
+  agentSectionOrder,
   agentWindowComparison,
   agentOverviewOf,
   agentSignals,
@@ -12,11 +16,12 @@ import {
   attentionCount,
   buildAgentOverview,
   buildAgentWindowOverview,
-  formatAgentDelta,
   filterAgents,
   parseAgentFilters,
   resolveAgentWindow,
   type AgentFilters,
+  type AgentKpiAction,
+  type AgentSectionKey,
   type AgentSignal,
 } from '../lib/agentsDashboard'
 import { ago, dur, encodePathParam, keyOf, LIVE, RT } from '../lib/utils'
@@ -35,10 +40,6 @@ const SIGNALS: Array<{ key: AgentSignal; tone: string; label: string; hint: stri
 
 function statusColor(status: string) {
   return LIVE.includes(status) ? 'var(--run)' : ['error', 'blocked'].includes(status) ? 'var(--err)' : 'var(--done)'
-}
-
-function percent(value: number | null | undefined) {
-  return value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`
 }
 
 function skillsCount(agent: AgentSession) {
@@ -101,47 +102,25 @@ function inputToUnix(value: string) {
   return Number.isFinite(ts) ? String(Math.floor(ts / 1000)) : ''
 }
 
-function deltaTone(value: string) {
-  if (value === '—') return 'snapshot'
-  return value.startsWith('-') ? 'down' : 'up'
+function useMobileAgentsLayout() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 600px)').matches)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined
+    const query = window.matchMedia('(max-width: 600px)')
+    const update = () => setMobile(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+  return mobile
 }
 
-function Kpi({ label, value, hint, tone = '' }: { label: string; value: string | number; hint?: string; tone?: string }) {
-  return (
-    <div className={`agent-kpi ${tone}`}>
-      <span>{label}</span>
-      <b>{value}</b>
-      {hint ? <small>{hint}</small> : null}
-    </div>
-  )
-}
-
-function AgentWindowBar({ comparison, summary, windowLabel, t }: { comparison: ReturnType<typeof agentWindowComparison>; summary: { live: number; success_rate: number | null }; windowLabel: string; t: (key: string) => string }) {
-  const activeAgentsDelta = formatAgentDelta(comparison.current.activeAgents, comparison.previous.activeAgents, comparison.currentAvailable && comparison.previousAvailable)
-  const activeSecondsDelta = formatAgentDelta(comparison.current.activeSeconds, comparison.previous.activeSeconds, comparison.currentAvailable && comparison.previousAvailable)
-  const activeAgents = comparison.currentAvailable ? String(comparison.current.activeAgents) : '—'
-  const activeSeconds = comparison.currentAvailable ? dur(comparison.current.activeSeconds) : '—'
-  const values = [
-    { label: t('agentWindowActiveAgents'), value: activeAgents, detail: `${t('agentWindowPrevious')} ${comparison.previousAvailable ? comparison.previous.activeAgents : '—'}`, delta: activeAgentsDelta, snapshot: false },
-    { label: t('agentWindowActiveTime'), value: activeSeconds, detail: `${t('agentWindowPrevious')} ${comparison.previousAvailable ? dur(comparison.previous.activeSeconds) : '—'}`, delta: activeSecondsDelta, snapshot: false },
-    { label: t('agentWindowLiveSnapshot'), value: String(summary.live), detail: t('agentWindowSnapshot'), delta: t('snapshot'), snapshot: true },
-    { label: t('agentWindowQualitySnapshot'), value: percent(summary.success_rate), detail: t('agentWindowSnapshot'), delta: t('snapshot'), snapshot: true },
-  ]
-  return (
-    <section className="frame skills-kpi-frame agents-window-frame">
-      <h2><span><span className="sl">//</span>{t('agentWindowChange')}</span><span className="cnt">{windowLabel}</span></h2>
-      <div className="skills-kpi agents-window-kpi">
-        {values.map((item) => (
-          <div className="stat skills-kpi-card" key={item.label}>
-            <div className="skills-kpi-top"><div className="v">{item.value}</div></div>
-            <div className="l">{item.label}</div>
-            <span className="evidence-names">{item.detail}</span>
-            <span className={`delta ${item.snapshot ? 'snapshot' : deltaTone(item.delta)}`}>{item.delta}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
+function focusAgentSection(id: string) {
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    const target = document.getElementById(id)
+    target?.focus({ preventScroll: true })
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }))
 }
 
 export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (key: string) => string }) {
@@ -149,6 +128,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   const navigate = useNavigate()
   const filters = useMemo(() => parseAgentFilters(location.search), [location.search])
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const mobileLayout = useMobileAgentsLayout()
   const latestShim = data.shim?.version
   const allOverview = agentOverviewOf(data, latestShim)
   const visibleAgents = useMemo(() => filterAgents(data.sessions, filters, latestShim), [data.sessions, filters, latestShim])
@@ -160,20 +140,72 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   const windowLabel = windowPeriodLabel(window.key, t)
   const rankView = filters.rank
   const summary = overview.summary
-  const qualityHint = summary.runs ? `${summary.success}/${summary.runs}` : t('agentNoRuns')
+  const attention = attentionCount(visibleAgents, latestShim)
   const updateFilters = (patch: Partial<AgentFilters>) => {
     const next = { ...filters, ...patch }
     navigate(`/agents${agentFiltersQuery(next)}`, { replace: true })
   }
   const clearFilters = () => navigate('/agents', { replace: true })
   const signalCount = (signal: AgentSignal) => visibleAgents.filter((agent) => agentSignals(agent, latestShim).includes(signal)).length
+  const handleKpiAction = (action: AgentKpiAction) => {
+    const patch = agentKpiActionPatch(action)
+    if (patch) updateFilters(patch)
+    const target = action === 'trend' ? 'agents-trend'
+      : action === 'operator-rank' ? 'agents-rank'
+        : 'agents-directory'
+    focusAgentSection(target)
+  }
+
+  const sections: Record<AgentSectionKey, ReactNode> = {
+    kpis: (
+      <AgentKpiGrid
+        comparison={comparison}
+        summary={summary}
+        totalAgents={data.sessions.length}
+        attention={attention}
+        windowLabel={windowLabel}
+        onAction={handleKpiAction}
+        t={t}
+      />
+    ),
+    signals: (
+      <section className="frame agents-signals-frame">
+        <div className="skills-health agents-health">
+          <b>{t('agentSignalsTitle')}</b>
+          {SIGNALS.map((signal) => {
+            const count = signalCount(signal.key)
+            const selected = filters.signal === signal.key
+            return (
+              <button type="button" className={`signal ${signal.tone} ${selected ? 'selected' : ''}`} key={signal.key} onClick={() => updateFilters({ status: count && !selected ? 'attention' : 'all', signal: selected ? '' : signal.key })}>
+                <i />
+                <span>{t(signal.label)}</span>
+                <strong>{count}</strong>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+    ),
+    analysis: (
+      <div className="agents-analysis">
+        <AgentRankPanel overview={windowOverview} view={rankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} windowLabel={windowLabel} t={t} />
+        <AgentActivityChart overview={windowOverview} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
+      </div>
+    ),
+    directory: (
+      <section id="agents-directory" tabIndex={-1} className="frame agents-list-frame">
+        <h2><span><span className="sl">//</span>{t('agentDirectory')}</span><span className="cnt">{visibleAgents.length} {t('agentCards')}</span></h2>
+        {visibleAgents.length ? <div className="agent-card-grid">{visibleAgents.map((agent) => <AgentCard key={keyOf(agent)} agent={agent} latestShim={latestShim} lang={lang} t={t} />)}</div> : <Empty title={t('agentNoAgents')} hint={t('agentNoAgentsHint')} />}
+      </section>
+    ),
+  }
 
   return (
     <div className="agents-page">
       <section className="frame agents-toolbar-frame">
         <h2>
-          <span><span className="sl">//</span>{t('agentsDashboardTitle')}</span>
-          <span className="cnt">{visibleAgents.length} / {data.sessions.length} · {summary.live} {t('agentLiveShort')}</span>
+          <span><span className="sl">//</span>{t('skillsControls')}</span>
+          <span className="cnt">{t(rankView === 'runtime' ? 'agentRankRuntimeHint' : 'agentRankOperatorHint')}</span>
         </h2>
         <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
           <span>{filters.q || `${windowLabel} · ${visibleAgents.length} · ${summary.live} ${t('agentLiveShort')} · ${filters.rt ? (RT[filters.rt] || filters.rt) : t('all')}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
@@ -210,45 +242,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
           {hasFilters ? <button className="agent-clear-filters" type="button" onClick={clearFilters}>{t('agentFiltersClear')}</button> : null}
         </div>
       </section>
-
-      <AgentWindowBar comparison={comparison} summary={summary} windowLabel={windowLabel} t={t} />
-
-      <section className="frame agents-kpi-frame">
-        <div className="agent-kpis">
-          <Kpi label={t('agentTotal')} value={summary.agents} hint={`${summary.operators} ${t('agentOperators')}`} />
-          <Kpi label={t('agentLive')} value={summary.live} hint={t('agentLiveHint')} tone="live" />
-          <Kpi label={t('agentTodayActive')} value={dur(summary.today_active)} hint={`${t('agentWeekActive')} ${dur(summary.week_active)}`} />
-          <Kpi label={t('agentQuality')} value={percent(summary.success_rate)} hint={`${t('agentRuns')} ${qualityHint}`} tone={summary.errors || summary.blocked ? 'bad' : ''} />
-          <Kpi label={t('agentAttention')} value={attentionCount(visibleAgents, latestShim)} hint={`${summary.errors} ${t('agentErrors')} · ${summary.blocked} ${t('agentBlocked')}`} tone={attentionCount(visibleAgents, latestShim) ? 'warn' : ''} />
-        </div>
-      </section>
-
-      <section className="frame agents-signals-frame">
-        <div className="skills-health agents-health">
-          <b>{t('agentSignalsTitle')}</b>
-          {SIGNALS.map((signal) => {
-            const count = signalCount(signal.key)
-            const selected = filters.signal === signal.key
-            return (
-              <button type="button" className={`signal ${signal.tone} ${selected ? 'selected' : ''}`} key={signal.key} onClick={() => updateFilters({ status: count && !selected ? 'attention' : 'all', signal: selected ? '' : signal.key })}>
-                <i />
-                <span>{t(signal.label)}</span>
-                <strong>{count}</strong>
-              </button>
-            )
-          })}
-        </div>
-      </section>
-
-      <div className="agents-analysis">
-        <AgentRankPanel overview={windowOverview} view={rankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} windowLabel={windowLabel} t={t} />
-        <AgentActivityChart overview={windowOverview} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
-      </div>
-
-      <section className="frame agents-list-frame">
-        <h2><span><span className="sl">//</span>{t('agentDirectory')}</span><span className="cnt">{visibleAgents.length} {t('agentCards')}</span></h2>
-        {visibleAgents.length ? <div className="agent-card-grid">{visibleAgents.map((agent) => <AgentCard key={keyOf(agent)} agent={agent} latestShim={latestShim} lang={lang} t={t} />)}</div> : <Empty title={t('agentNoAgents')} hint={t('agentNoAgentsHint')} />}
-      </section>
+      {agentSectionOrder(mobileLayout).map((key) => <Fragment key={key}>{sections[key]}</Fragment>)}
     </div>
   )
 }

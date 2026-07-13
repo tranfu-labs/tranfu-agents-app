@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  agentKpiActionPatch,
   agentFiltersQuery,
+  agentSectionOrder,
   agentWindowComparison,
   agentSignals,
+  buildAgentKpiCards,
   buildAgentOverview,
   filterAgents,
   formatAgentDelta,
+  moveAgentChartIndex,
   parseAgentFilters,
+  resolveAgentChartMode,
   resolveAgentWindow,
   type AgentFilters,
 } from './agentsDashboard.ts'
@@ -104,4 +109,51 @@ test('agent overview fallback produces a 90-day series and de-duplicated group c
   assert.equal(overview.daily.at(-1)?.active_agents, 1)
   const shortSeries = buildAgentOverview([agent({ active_days: undefined, active_series: [0, 0, 5] })], undefined, '2026-07-13')
   assert.equal(shortSeries.daily.at(-1)?.active_agents, 1)
+})
+
+test('agent KPI model preserves eight facts and maps actions without erasing unrelated filters', () => {
+  const summary = buildAgentOverview([agent({ status: 'running', today_active: 120, week_active: 600, quality: { runs: 4, success: 3, error: 1, blocked: 2 } })], undefined, '2026-07-13').summary
+  const cards = buildAgentKpiCards({
+    comparison: {
+      current: { activeAgents: 3, activeSeconds: 540 },
+      previous: { activeAgents: 2, activeSeconds: 360 },
+      currentAvailable: true,
+      previousAvailable: true,
+    },
+    summary,
+    totalAgents: 5,
+    attention: 1,
+    t: (key) => key,
+  })
+  assert.deepEqual(cards.map((card) => card.key), ['active-agents', 'active-time', 'total', 'operators', 'live', 'week', 'quality', 'attention'])
+  assert.equal(cards[0].value, '3')
+  assert.equal(cards[0].delta, '+50%')
+  assert.equal(cards[2].detail, '1/5 agentVisibleTotal')
+  assert.equal(cards[4].value, '1')
+  assert.equal(cards[6].value, '75%')
+  assert.equal(cards[7].detail, '1 agentErrors · 2 agentBlocked')
+  assert.deepEqual(agentKpiActionPatch('operator-rank'), { rank: 'operator' })
+  assert.deepEqual(agentKpiActionPatch('live'), { status: 'live', signal: '' })
+  assert.deepEqual(agentKpiActionPatch('week'), { sort: 'week' })
+  assert.deepEqual(agentKpiActionPatch('quality'), { sort: 'success' })
+  assert.deepEqual(agentKpiActionPatch('attention'), { status: 'attention', signal: '' })
+  assert.equal(agentKpiActionPatch('trend'), null)
+})
+
+test('agent chart mode uses the selected metric and roving focus stays in bounds', () => {
+  const today = [{ day: '2026-07-13', active_agents: 2, active_seconds: 0 }]
+  const series = [...today, { day: '2026-07-14', active_agents: 1, active_seconds: 60 }]
+  assert.equal(resolveAgentChartMode(today, 'agents'), 'today')
+  assert.equal(resolveAgentChartMode(today, 'seconds'), 'empty')
+  assert.equal(resolveAgentChartMode(series, 'agents'), 'series')
+  assert.equal(moveAgentChartIndex(1, 'ArrowLeft', 3), 0)
+  assert.equal(moveAgentChartIndex(1, 'ArrowRight', 3), 2)
+  assert.equal(moveAgentChartIndex(0, 'ArrowLeft', 3), 0)
+  assert.equal(moveAgentChartIndex(2, 'ArrowRight', 3), 2)
+  assert.equal(moveAgentChartIndex(1, 'Escape', 3), 1)
+})
+
+test('agent mobile layout changes real section order instead of relying on CSS order', () => {
+  assert.deepEqual(agentSectionOrder(false), ['kpis', 'signals', 'analysis', 'directory'])
+  assert.deepEqual(agentSectionOrder(true), ['signals', 'directory', 'kpis', 'analysis'])
 })

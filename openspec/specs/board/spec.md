@@ -460,29 +460,42 @@
 
 - `/api/state` 与 `/api/state/stream` 顶层可返回 `agent_overview`。对象包含 `today`、90 天 `days[]`、`summary`、`daily[]`、`runtime[]`、`operator[]`；日期为服务端 `Asia/Shanghai` 统计日，时长为秒。
 - `agent_overview` 的聚合以最终身份卡片为单位，遵守 `operator + agent||runtime` 合并规则；`summary` 的 runs/success/errors/blocked 沿用 Agent card 的 quality 口径。现有 state 字段保持兼容，缺失 `agent_overview` 时前端由 sessions 降级构建。
-- `/agents` 信息流为控制条 → 时间窗变化卡片 → 原有摘要事实 → 问题线索 → 活跃趋势与 Runtime/操作员排行 → Agent 明细；控制条支持 `q`、`status`、`signal`、`rank`、`w`、`wstart`、`wend`、`rt`、`op`、`sort` URL 参数，变化使用 replace，不得使用浏览器存储。
-- Agents 摘要至少展示 Agent 总数、运行中数量、今日/本周活跃、运行质量和待处理 Agent；待处理总数按身份 key 去重。趋势展示服务端 90 天 active agents/active seconds，长轴只允许在图表容器内横向滚动，页面根不得横向滚动。
+- `/agents` 桌面/平板信息流为控制条 → 单一八卡时间窗变化/快照 → 问题线索 → Runtime/操作员排行与活跃趋势 → Agent 明细；控制条支持 `q`、`status`、`signal`、`rank`、`w`、`wstart`、`wend`、`rt`、`op`、`sort` URL 参数，变化使用 replace，不得使用浏览器存储。
 - 问题线索至少包含当前异常/阻塞、Shim outdated/unknown、最近 14 天无活跃、至少 3 runs 且成功率低于 80%；线索是事实提示，不作为评分或成本指标。
 - Agent 明细为可扫描卡片/摘要行，保留身份、操作员、Runtime、当前状态、任务/步骤、活跃时长、Skill、MCP、质量、Shim 和 7 日活跃趋势；整卡键盘可达并进入 `/agent/:key`。
 - `/agents` 支持中英文、system/light/dark 主题和 `>1080px` 桌面、`601–1080px` 平板、`≤600px` 手机布局；新增 Agents 前端状态不得持久化。
 
-### Agents 时间窗控制与分析布局
+### Agents 控制条与八卡事实区
 
-- `/agents` 顶部控制条同时承载 Runtime/操作员排行榜视角切换、搜索、状态、时间窗、Runtime、操作员与排序筛选；视角切换位于控制条而不是排行榜卡片内部。时间窗复用 Skills 的 `today`、`this_week`、`last_week`、`7d`、`14d`、`30d`、`90d`、`custom` 选项，缺省语义为 `today`，通过 `w/wstart/wend` 保持在 URL，筛选变化使用 replace 且不得写入浏览器持久化存储。
-- 时间窗变化区域以与 Skills 统计相同的独立卡片展示当前窗口与上一同长度窗口的活跃 Agent 数、活跃时长变化，以及当前在线数和运行质量快照。活跃序列以 `/api/state.agent_overview.today` 为统计日右端；上一窗口不存在或两边均为 0 时变化值显示 `—`，前期为 0 且本期大于 0 时显示 `+∞%`。
-- 时间窗变化卡片不得替代既有 Agent 总数、运行中、今日/本周活跃、运行质量和待处理摘要事实；摘要事实仍使用当前可见 Agent 集合展示。
+- 顶部 frame 标题为“控制条”，右侧说明随 `rank=runtime|operator` 显示当前观察视角，不在该 frame 重复页面标题。控制条同时承载 Runtime/操作员视角切换、搜索、状态、时间窗、Runtime、操作员与排序筛选；手机默认只显示一行折叠摘要。
+- 时间窗复用 Skills 的 `today`、`this_week`、`last_week`、`7d`、`14d`、`30d`、`90d`、`custom` 选项，缺省语义为 `today`，通过 `w/wstart/wend` 保持在 URL。
 - `w=custom` 的 `wstart/wend` 可分别增量写入 URL；Unix instant 转 Agents 统计日时使用 `Asia/Shanghai`，不可按 UTC 日期截断造成跨日偏移。排行榜视角使用 `rank=runtime|operator`，缺省为 `runtime`。
-- 问题线索使用与 Skills 健康条一致的紧凑事实条视觉，每个线索仍可点击并回填对应的 `status/signal` 筛选；桌面 `>1080px` 主分析区左侧展示 Runtime/操作员排行榜、右侧展示当前时间窗活跃趋势图，两张卡片外框底边对齐；`≤1080px` 退化为单列，手机根页面不得产生横向滚动。
+- 时间窗变化与稳定摘要合并为单一 Skills 同构八卡网格，不得保留第二个摘要 frame、事实带或次级行。八张卡固定为：窗口活跃 Agent、窗口活跃时长、Agent 总数、操作员数、当前在线/运行中、本周活跃、运行质量、待处理 Agent。
+- 前两卡展示当前窗口、上一同长度窗口与 delta；活跃序列以 `agent_overview.today` 为统计日右端，上一窗口不可用或两边均为 0 时显示 `—`，前期为 0 且本期大于 0 时显示 `+∞%`。其余六卡展示“快照”：Agent 总数 detail 为当前可见/全部身份；操作员数为当前可见去重值；当前在线 detail 为 live/可见 Agent；本周活跃 detail 保留今日活跃；运行质量 detail 为 success/runs；待处理 detail 为错误/阻塞。
+- 八卡的核心数值与右上角真实入口同行，入口默认低权重、hover/focus-visible 高亮并提供真实 `aria-label`。入口动作固定为：前两卡聚焦趋势；Agent 总数聚焦明细；操作员数切 `rank=operator` 并聚焦排行；当前在线写 `status=live` 并清 `signal`；本周活跃写 `sort=week`；运行质量写 `sort=success`；待处理写 `status=attention` 并清 `signal`。动作保留无关的 `q/w/rt/op` 等观察范围。
+- 八卡在桌面、平板、手机分别为 `8×1`、`4×2`、`2×4`。
 
-#### Agents 时间窗与布局场景
+### Agents 趋势图、排行与卡片
 
-- 用户打开没有窗口参数的 `/agents` 时，时间窗控制显示“今天”，Runtime 与操作员选择器位于同一个顶部控制条，页面 URL 不因初次渲染被强制写入无关参数。
-- 用户打开 `/agents?w=14d` 时，页面以最近 14 个服务端统计日作为当前窗口，并以其前紧邻的 14 个统计日作为上一窗口，活跃 Agent 数与活跃时长显示当前值及相对上一窗口的变化。
-- 浏览器视口为 `1440x900` 时，排行榜卡左边界小于趋势卡左边界，且两张卡片底边差值不超过 `4px`。
-- 任意问题线索数量大于 0 时，线索以紧凑条状事实项显示；点击该项保留已有的 `status=attention&signal=...` 筛选行为。
+- 问题线索使用与 Skills health bar 同级的紧凑事实条，每项仍可点击并回填 `status=attention&signal=...`。
+- 桌面 `>1080px` 主分析区左侧为 Runtime/操作员排行，右侧为当前窗口活跃趋势，两列采用接近 `.95fr / 1.05fr` 的近等宽比例并底边对齐；两张面板使用同构 `//标题 + cnt` header。排行无数据时显示居中标题+说明 Empty。`≤1080px` 退化为单列。
+- `AgentActivityChart` 消费与 Skills 相同的 `resolveSkillsChartLayout(dayCount, contentWidth)`：`1..14` 日填满面板且柱宽不超过同一上限；`>14` 日只在图表容器内部横向滚动并默认定位最新日期。Agents 页面根不得出现横向滚动。
+- 多日图沿用同等级轴线、220px viewBox、日期抽样、今日斜纹与 hover 降权；逐日透明 hit rect 覆盖整日槽。tooltip 锚定日期槽并在视口边缘翻转，同时显示该日活跃 Agent 数和活跃时长；只有窗口右端等于服务端 `today` 时标记“今日进行中”。
+- 日期槽支持 pointer hover/click 与键盘 focus，并使用 roving `tabIndex` 使整图只有一个顺序 Tab 停靠点；左右方向键切换日期，Escape/blur 关闭。移动端点击列显示浮层，点击空白或横向滚动关闭。
+- `today` 只有一个真实统计日：当前指标有正值时显示约 160px 紧凑单日 plot，并在图上方直显当日 Agent 数与时长；不得伪造小时数据。当前指标全窗为 0 时只显示 Empty，不绘制坐标轴、日期或零高度柱。
+- Agent 卡片保留身份、状态、Runtime/操作员、任务/步骤、今日/本周活跃、Skill、MCP、质量、Shim、最近活跃和问题数；桌面两列、平板/手机单列，手机压缩质量与治理信息但不得隐藏 Shim 三态或问题数。
+
+### Agents 手机优先级
+
+- `≤600px` 必须按真实 DOM/焦点顺序呈现：控制摘要 → 问题线索 → Agent 明细 → 八卡时间窗变化 → 排行 → 趋势。不得只用 CSS `order` 重排交互节点。
+- 断点切换使用媒体查询选择带稳定 key 的 section 顺序，不复制交互节点、不丢失 URL 状态；页面根宽度不得超过视口，长图仍只在自身容器内横滚。
 
 ### Agents 可验证行为
 
 - 固定数据库数据后，`/api/state.agent_overview.daily` 长度为 90，日期递增且最后一天等于服务端 `today`；身份跨多个 session 时只在 summary、Runtime、operator 和 daily 中计为一个 Agent。
 - `/agents?rt=codex&status=attention&signal=quality` 只显示满足筛选条件的卡片；刷新/复制链接保持筛选，清空筛选回到全量列表。
 - Agent 卡片点击或键盘 Enter/Space 进入对应 `/agent/:key`；无匹配 Agent 时显示空态，不渲染空表头。
+- 无窗口参数打开 `/agents` 时显示“今天”，且初次渲染不强制写入无关参数；打开 `/agents?w=14d` 时使用当前 14 个服务端统计日与其前紧邻 14 日计算前两卡变化。
+- 1440×900 下八卡一行，排行在左、趋势在右且底边差值不超过 4px；768×1024 下八卡四列且分析区单列；375×812 下八卡两列，问题线索之后先出现 Agent 明细。
+- 当前选择指标全窗为 0 时趋势无 SVG 坐标轴；有效单日正值显示 160px 紧凑 plot；7 日正值图无根横滚且柱宽不超过 30px；30 日正值图默认滚到容器末端且根 `scrollWidth <= clientWidth`。
+- 图表顺序 Tab 只有一个日期停靠点；方向键切换后 tooltip 同时显示人数与时长，Escape 关闭。KPI、问题线索、排行和 Agent 卡片入口均保留既定 URL 或下钻语义。
