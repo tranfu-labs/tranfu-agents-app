@@ -1,5 +1,5 @@
 import type { AgentOverview, AgentOverviewGroup, AgentSession, StatePayload } from './types.ts'
-import { daySeries, isoDay, LIVE, shimState } from './utils.ts'
+import { daySeries, dur, isoDay, LIVE, shimState } from './utils.ts'
 
 export const AGENT_LOW_SUCCESS_RATE = 0.8
 export const AGENT_MIN_QUALITY_RUNS = 3
@@ -40,6 +40,22 @@ export type AgentWindowComparison = {
   previous: AgentWindowStats
   currentAvailable: boolean
   previousAvailable: boolean
+}
+
+export type AgentKpiAction = 'trend' | 'directory' | 'operator-rank' | 'live' | 'week' | 'quality' | 'attention'
+export type AgentKpiKey = 'active-agents' | 'active-time' | 'total' | 'operators' | 'live' | 'week' | 'quality' | 'attention'
+export type AgentSectionKey = 'kpis' | 'signals' | 'analysis' | 'directory'
+export type AgentChartMetric = 'agents' | 'seconds'
+export type AgentChartMode = 'empty' | 'today' | 'series'
+
+export type AgentKpiCardModel = {
+  key: AgentKpiKey
+  label: string
+  value: string
+  detail: string
+  delta: string
+  snapshot: boolean
+  action: AgentKpiAction
 }
 
 const STATUSES = new Set<AgentStatusFilter>(['all', 'live', 'attention', 'idle', 'done'])
@@ -163,12 +179,20 @@ function statsForDays(agents: AgentSession[], overviewDays: string[], days: stri
 }
 
 export function agentWindowComparison(agents: AgentSession[], overviewDays: string[], window: AgentWindow): AgentWindowComparison {
+  const currentAvailable = hasCompleteAgentWindow(overviewDays, window.days)
+  const previousAvailable = hasCompleteAgentWindow(overviewDays, window.previousDays)
   return {
-    current: statsForDays(agents, overviewDays, window.days),
-    previous: statsForDays(agents, overviewDays, window.previousDays),
-    currentAvailable: window.days.some((day) => overviewDays.includes(day)),
-    previousAvailable: window.previousDays.some((day) => overviewDays.includes(day)),
+    current: currentAvailable ? statsForDays(agents, overviewDays, window.days) : { activeAgents: 0, activeSeconds: 0 },
+    previous: previousAvailable ? statsForDays(agents, overviewDays, window.previousDays) : { activeAgents: 0, activeSeconds: 0 },
+    currentAvailable,
+    previousAvailable,
   }
+}
+
+export function hasCompleteAgentWindow(overviewDays: string[], selectedDays: string[]) {
+  if (!selectedDays.length) return false
+  const available = new Set(overviewDays)
+  return selectedDays.every((day) => available.has(day))
 }
 
 export function formatAgentDelta(current: number, previous: number, previousAvailable = true) {
@@ -177,6 +201,116 @@ export function formatAgentDelta(current: number, previous: number, previousAvai
   if (!previous) return current > 0 ? '+∞%' : '—'
   const delta = ((current - previous) / Math.max(1, previous)) * 100
   return `${delta >= 0 ? '+' : ''}${Math.round(delta)}%`
+}
+
+function percent(value: number | null | undefined) {
+  return value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`
+}
+
+export function buildAgentKpiCards({ comparison, summary, totalAgents, attention, t }: {
+  comparison: AgentWindowComparison
+  summary: AgentOverview['summary']
+  totalAgents: number
+  attention: number
+  t: (key: string) => string
+}): AgentKpiCardModel[] {
+  const comparable = comparison.currentAvailable && comparison.previousAvailable
+  const activeAgents = comparison.currentAvailable ? String(comparison.current.activeAgents) : '—'
+  const activeTime = comparison.currentAvailable ? dur(comparison.current.activeSeconds) : '—'
+  const previousAgents = comparison.previousAvailable ? comparison.previous.activeAgents : '—'
+  const previousTime = comparison.previousAvailable ? dur(comparison.previous.activeSeconds) : '—'
+  const snapshot = t('snapshot')
+  return [
+    {
+      key: 'active-agents', label: t('agentWindowActiveAgents'), value: activeAgents,
+      detail: `${t('agentWindowPrevious')} ${previousAgents}`,
+      delta: formatAgentDelta(comparison.current.activeAgents, comparison.previous.activeAgents, comparable),
+      snapshot: false, action: 'trend',
+    },
+    {
+      key: 'active-time', label: t('agentWindowActiveTime'), value: activeTime,
+      detail: `${t('agentWindowPrevious')} ${previousTime}`,
+      delta: formatAgentDelta(comparison.current.activeSeconds, comparison.previous.activeSeconds, comparable),
+      snapshot: false, action: 'trend',
+    },
+    {
+      key: 'total', label: t('agentTotal'), value: String(summary.agents),
+      detail: `${summary.agents}/${totalAgents} ${t('agentVisibleTotal')}`,
+      delta: snapshot, snapshot: true, action: 'directory',
+    },
+    {
+      key: 'operators', label: t('agentOperatorCount'), value: String(summary.operators),
+      detail: t('agentOperatorSnapshot'), delta: snapshot, snapshot: true, action: 'operator-rank',
+    },
+    {
+      key: 'live', label: t('agentWindowLiveSnapshot'), value: String(summary.live),
+      detail: `${summary.live}/${summary.agents} ${t('agentLiveVisibleDetail')}`,
+      delta: snapshot, snapshot: true, action: 'live',
+    },
+    {
+      key: 'week', label: t('agentWeekActive'), value: dur(summary.week_active),
+      detail: `${t('agentTodayActive')} ${dur(summary.today_active)}`,
+      delta: snapshot, snapshot: true, action: 'week',
+    },
+    {
+      key: 'quality', label: t('agentWindowQualitySnapshot'), value: percent(summary.success_rate),
+      detail: summary.runs ? `${summary.success}/${summary.runs} ${t('agentSuccessRuns')}` : t('agentNoRuns'),
+      delta: snapshot, snapshot: true, action: 'quality',
+    },
+    {
+      key: 'attention', label: t('agentAttention'), value: String(attention),
+      detail: `${summary.errors} ${t('agentErrors')} · ${summary.blocked} ${t('agentBlocked')}`,
+      delta: snapshot, snapshot: true, action: 'attention',
+    },
+  ]
+}
+
+export function agentKpiActionPatch(action: AgentKpiAction): Partial<AgentFilters> | null {
+  if (action === 'operator-rank') return { rank: 'operator' }
+  if (action === 'live') return { status: 'live', signal: '' }
+  if (action === 'week') return { sort: 'week' }
+  if (action === 'quality') return { sort: 'success' }
+  if (action === 'attention') return { status: 'attention', signal: '' }
+  return null
+}
+
+export function agentSectionOrder(mobile: boolean): AgentSectionKey[] {
+  return mobile
+    ? ['signals', 'directory', 'kpis', 'analysis']
+    : ['kpis', 'signals', 'analysis', 'directory']
+}
+
+export function resolveAgentChartMode(daily: AgentOverview['daily'], metric: AgentChartMetric): AgentChartMode {
+  const hasValue = daily.some((row) => Number(metric === 'agents' ? row.active_agents : row.active_seconds) > 0)
+  if (!hasValue) return 'empty'
+  return daily.length === 1 ? 'today' : 'series'
+}
+
+export function resolveAgentChartAnchorIndex(daily: AgentOverview['daily'], metric: AgentChartMetric) {
+  for (let index = daily.length - 1; index >= 0; index -= 1) {
+    const value = Number(metric === 'agents' ? daily[index].active_agents : daily[index].active_seconds)
+    if (value > 0) return index
+  }
+  return Math.max(0, daily.length - 1)
+}
+
+export function resolveAgentChartScrollLeft(dayCount: number, targetIndex: number, trackWidth: number, clientWidth: number, scrollWidth = trackWidth) {
+  const safeCount = Math.max(1, dayCount)
+  const safeIndex = Math.min(Math.max(0, targetIndex), safeCount - 1)
+  const maxScroll = Math.max(0, scrollWidth - clientWidth)
+  if (!maxScroll) return 0
+  if (safeIndex === safeCount - 1) return maxScroll
+  const step = (trackWidth - 54) / safeCount
+  const contentGutter = Math.max(0, scrollWidth - trackWidth) / 2
+  const targetCenter = contentGutter + 38 + (safeIndex + 0.5) * step
+  return Math.min(maxScroll, Math.max(0, Math.round(targetCenter - clientWidth / 2)))
+}
+
+export function moveAgentChartIndex(current: number, key: string, count: number) {
+  if (count <= 0) return -1
+  if (key === 'ArrowLeft') return Math.max(0, current - 1)
+  if (key === 'ArrowRight') return Math.min(count - 1, current + 1)
+  return current
 }
 
 export function agentSuccessRate(agent: AgentSession) {
@@ -329,12 +463,13 @@ function windowDaily(agents: AgentSession[], overviewDays: string[], days: strin
 }
 
 export function buildAgentWindowOverview(agents: AgentSession[], baseOverview: AgentOverview, window: AgentWindow): AgentOverview {
+  const available = hasCompleteAgentWindow(baseOverview.days, window.days)
   return {
     ...baseOverview,
     days: window.days,
-    daily: windowDaily(agents, baseOverview.days, window.days),
-    runtime: groupWindowStats(agents, 'runtime', baseOverview.days, window),
-    operator: groupWindowStats(agents, 'operator', baseOverview.days, window),
+    daily: available ? windowDaily(agents, baseOverview.days, window.days) : window.days.map((day) => ({ day, active_seconds: 0, active_agents: 0 })),
+    runtime: available ? groupWindowStats(agents, 'runtime', baseOverview.days, window) : [],
+    operator: available ? groupWindowStats(agents, 'operator', baseOverview.days, window) : [],
   }
 }
 

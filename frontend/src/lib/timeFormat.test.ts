@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { formatLocalTimestamp, formatRecentRecordTime } from './timeFormat.ts'
 
+// These fixtures exercise browser-local formatting in a known locale. Keep the
+// test process deterministic without changing the application's runtime zone.
+process.env.TZ = 'Asia/Shanghai'
+
 test('recent record uses browser-local today for relative labels', () => {
   const now = new Date('2026-06-27T17:00:00+00:00')
   const display = formatRecentRecordTime('2026-06-27T16:30:00+00:00', '2026-06-27', 'zh', now)
