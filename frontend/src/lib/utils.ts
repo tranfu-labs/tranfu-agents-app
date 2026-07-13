@@ -1,5 +1,5 @@
 import type { AgentSession, Lang } from './types'
-import { formatLocalTimestamp } from './timeFormat'
+import { formatLocalTimestamp } from './timeFormat.ts'
 
 export const RT: Record<string, string> = {
   'claude-code': 'Claude Code',

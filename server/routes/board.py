@@ -193,6 +193,102 @@ def skill_usage(conn):
     } for r in rows]
 
 
+def _agent_rate(success, runs):
+    return round(success / runs, 3) if runs else None
+
+
+def _agent_group_stats(cards, field):
+    groups = {}
+    for card in cards:
+        name = str(card.get(field) or card.get("runtime") or "unknown")
+        group = groups.setdefault(name, {
+            field: name,
+            "agents": 0,
+            "live": 0,
+            "today_active": 0,
+            "week_active": 0,
+            "runs": 0,
+            "success": 0,
+            "errors": 0,
+            "blocked": 0,
+        })
+        group["agents"] += 1
+        if card.get("status") in LIVE_ST:
+            group["live"] += 1
+        group["today_active"] += int(card.get("today_active") or 0)
+        group["week_active"] += int(card.get("week_active") or 0)
+        quality = card.get("quality") or {}
+        group["runs"] += int(quality.get("runs") or 0)
+        group["success"] += int(quality.get("success") or 0)
+        group["errors"] += int(quality.get("error") or 0)
+        group["blocked"] += int(quality.get("blocked") or 0)
+
+    for group in groups.values():
+        group["success_rate"] = _agent_rate(group["success"], group["runs"])
+    return sorted(groups.values(), key=lambda item: (
+        -item["agents"], -item["live"], -item["today_active"], item[field],
+    ))
+
+
+def _agent_overview(cards, latest_shim):
+    today = stats_today()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(WINDOW_DAYS - 1, -1, -1)]
+    active_seconds = [0] * len(days)
+    active_agents = [0] * len(days)
+    runs = success = errors = blocked = today_active = week_active = 0
+    outdated_shim = unknown_shim = 0
+
+    for card in cards:
+        quality = card.get("quality") or {}
+        runs += int(quality.get("runs") or 0)
+        success += int(quality.get("success") or 0)
+        errors += int(quality.get("error") or 0)
+        blocked += int(quality.get("blocked") or 0)
+        today_active += int(card.get("today_active") or 0)
+        week_active += int(card.get("week_active") or 0)
+        version = card.get("shim_version")
+        if not version:
+            unknown_shim += 1
+        elif latest_shim and version != latest_shim:
+            outdated_shim += 1
+
+        series = card.get("active_days") or []
+        offset = len(days) - len(series)
+        for index, value in enumerate(series[-len(days):]):
+            target = index + max(0, offset)
+            if target >= len(days):
+                continue
+            seconds = int(value or 0)
+            active_seconds[target] += seconds
+            if seconds > 0:
+                active_agents[target] += 1
+
+    return {
+        "today": today.isoformat(),
+        "days": days,
+        "summary": {
+            "agents": len(cards),
+            "live": sum(1 for card in cards if card.get("status") in LIVE_ST),
+            "operators": len({card.get("operator") for card in cards if card.get("operator")}),
+            "today_active": today_active,
+            "week_active": week_active,
+            "runs": runs,
+            "success": success,
+            "errors": errors,
+            "blocked": blocked,
+            "success_rate": _agent_rate(success, runs),
+            "outdated_shim": outdated_shim,
+            "unknown_shim": unknown_shim,
+        },
+        "daily": [
+            {"day": day, "active_seconds": active_seconds[index], "active_agents": active_agents[index]}
+            for index, day in enumerate(days)
+        ],
+        "runtime": _agent_group_stats(cards, "runtime"),
+        "operator": _agent_group_stats(cards, "operator"),
+    }
+
+
 def _skill_scope_sql(skill_names, prefix="AND"):
     if skill_names is None:
         return "", []
@@ -1427,6 +1523,7 @@ def _snapshot(conn):
     live = [c for c in cards if c["status"] in LIVE_ST]
     ops = {c["operator"] for c in cards}
     agents = {(c["operator"], (c.get("agent") or c["runtime"])) for c in cards}
+    agent_overview = _agent_overview(cards, _SHIM_MANIFEST["version"])
     return {
         "now": now_iso(),
         "sessions": cards,
@@ -1436,6 +1533,7 @@ def _snapshot(conn):
         "leverage": leverage(conn),
         "skills": skill_usage(conn),
         "shim": {"version": _SHIM_MANIFEST["version"], "files": len(_SHIM_MANIFEST["files"])},
+        "agent_overview": agent_overview,
         "totals": {
             "live": len(live), "operators": len(ops), "agents": len(agents),
             "today_active": sum(v["today"] for v in dur.values()),

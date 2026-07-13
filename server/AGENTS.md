@@ -48,6 +48,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
   当需要读 `app.X`(可变开关 / 全局状态)时,把 `from server import app` 放在调用它的函数体内。
 - `/api/skills` overview 的重聚合逻辑必须留在 `routes/board.py` 内,优先用 SQLite 组合索引和 SQL
   预聚合减少 Python 侧处理行数;缓存只能作为 SQL/索引达标失败后的有界短 TTL 第二层。
+- `/api/state` 的 `agent_overview` 必须在最终身份卡片之后聚合,遵守 `operator + agent||runtime` 合并口径;
+  其 90 天日序列、Runtime/操作员分组与 summary 必须复用同一 state snapshot,不得新增独立轮询源。
 - `tests/test_module_boundary.py` 守门:
   - `server/app.py` 行数 ≤ 220。
   - `routes/*.py` 可独立 import。
