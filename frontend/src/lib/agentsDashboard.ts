@@ -179,12 +179,20 @@ function statsForDays(agents: AgentSession[], overviewDays: string[], days: stri
 }
 
 export function agentWindowComparison(agents: AgentSession[], overviewDays: string[], window: AgentWindow): AgentWindowComparison {
+  const currentAvailable = hasCompleteAgentWindow(overviewDays, window.days)
+  const previousAvailable = hasCompleteAgentWindow(overviewDays, window.previousDays)
   return {
-    current: statsForDays(agents, overviewDays, window.days),
-    previous: statsForDays(agents, overviewDays, window.previousDays),
-    currentAvailable: window.days.some((day) => overviewDays.includes(day)),
-    previousAvailable: window.previousDays.some((day) => overviewDays.includes(day)),
+    current: currentAvailable ? statsForDays(agents, overviewDays, window.days) : { activeAgents: 0, activeSeconds: 0 },
+    previous: previousAvailable ? statsForDays(agents, overviewDays, window.previousDays) : { activeAgents: 0, activeSeconds: 0 },
+    currentAvailable,
+    previousAvailable,
   }
+}
+
+export function hasCompleteAgentWindow(overviewDays: string[], selectedDays: string[]) {
+  if (!selectedDays.length) return false
+  const available = new Set(overviewDays)
+  return selectedDays.every((day) => available.has(day))
 }
 
 export function formatAgentDelta(current: number, previous: number, previousAvailable = true) {
@@ -276,6 +284,26 @@ export function resolveAgentChartMode(daily: AgentOverview['daily'], metric: Age
   const hasValue = daily.some((row) => Number(metric === 'agents' ? row.active_agents : row.active_seconds) > 0)
   if (!hasValue) return 'empty'
   return daily.length === 1 ? 'today' : 'series'
+}
+
+export function resolveAgentChartAnchorIndex(daily: AgentOverview['daily'], metric: AgentChartMetric) {
+  for (let index = daily.length - 1; index >= 0; index -= 1) {
+    const value = Number(metric === 'agents' ? daily[index].active_agents : daily[index].active_seconds)
+    if (value > 0) return index
+  }
+  return Math.max(0, daily.length - 1)
+}
+
+export function resolveAgentChartScrollLeft(dayCount: number, targetIndex: number, trackWidth: number, clientWidth: number, scrollWidth = trackWidth) {
+  const safeCount = Math.max(1, dayCount)
+  const safeIndex = Math.min(Math.max(0, targetIndex), safeCount - 1)
+  const maxScroll = Math.max(0, scrollWidth - clientWidth)
+  if (!maxScroll) return 0
+  if (safeIndex === safeCount - 1) return maxScroll
+  const step = (trackWidth - 54) / safeCount
+  const contentGutter = Math.max(0, scrollWidth - trackWidth) / 2
+  const targetCenter = contentGutter + 38 + (safeIndex + 0.5) * step
+  return Math.min(maxScroll, Math.max(0, Math.round(targetCenter - clientWidth / 2)))
 }
 
 export function moveAgentChartIndex(current: number, key: string, count: number) {
@@ -435,12 +463,13 @@ function windowDaily(agents: AgentSession[], overviewDays: string[], days: strin
 }
 
 export function buildAgentWindowOverview(agents: AgentSession[], baseOverview: AgentOverview, window: AgentWindow): AgentOverview {
+  const available = hasCompleteAgentWindow(baseOverview.days, window.days)
   return {
     ...baseOverview,
     days: window.days,
-    daily: windowDaily(agents, baseOverview.days, window.days),
-    runtime: groupWindowStats(agents, 'runtime', baseOverview.days, window),
-    operator: groupWindowStats(agents, 'operator', baseOverview.days, window),
+    daily: available ? windowDaily(agents, baseOverview.days, window.days) : window.days.map((day) => ({ day, active_seconds: 0, active_agents: 0 })),
+    runtime: available ? groupWindowStats(agents, 'runtime', baseOverview.days, window) : [],
+    operator: available ? groupWindowStats(agents, 'operator', baseOverview.days, window) : [],
   }
 }
 

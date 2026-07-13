@@ -81,7 +81,7 @@
 | ② | 今天变化 KPI 网格 | 八张同构卡；数值与真实入口同行；前两张显示当前/上期与 delta，其余六张显示快照和 detail；桌面 8×1、平板 4×2、手机 2×4 | `agent_overview` + window helper | Skills KPI grid 视觉语法 + AgentKpiGrid 数据 |
 | ③ | 问题线索 | 点击回填 `status=attention&signal=...`；手机优先显示 | sessions + shim + quality | 当前 agents health |
 | ④ | 排行 | Runtime/操作员视角在控制条；点击回填 `rt/op` | window overview groups | AgentRankPanel |
-| ⑤ | 趋势 | 复用 Skills chart 几何与 Empty；today 使用紧凑单日 plot；支持 hover/click/focus 浮层、长窗内滚和今日斜纹；不改 Skills | window overview daily | AgentActivityChart + `resolveSkillsChartLayout` |
+| ⑤ | 趋势 | 复用 Skills chart 几何与 Empty；today 使用紧凑单日 plot；支持 hover/click/focus 浮层、长窗内滚和今日斜纹；长窗尾部全零时初始定位最后一个非零日期；不改 Skills | window overview daily | AgentActivityChart + `resolveSkillsChartLayout` |
 | ⑥ | Agent 明细 | 全部既有事实保留；整卡键盘可达下钻；手机放在问题线索之后、统计区之前 | sessions | AgentCard |
 
 ## Skills 不变声明

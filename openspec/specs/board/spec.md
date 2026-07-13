@@ -470,7 +470,7 @@
 - 顶部 frame 标题为“控制条”，右侧说明随 `rank=runtime|operator` 显示当前观察视角，不在该 frame 重复页面标题。控制条同时承载 Runtime/操作员视角切换、搜索、状态、时间窗、Runtime、操作员与排序筛选；手机默认只显示一行折叠摘要。
 - 时间窗复用 Skills 的 `today`、`this_week`、`last_week`、`7d`、`14d`、`30d`、`90d`、`custom` 选项，缺省语义为 `today`，通过 `w/wstart/wend` 保持在 URL。
 - `w=custom` 的 `wstart/wend` 可分别增量写入 URL；Unix instant 转 Agents 统计日时使用 `Asia/Shanghai`，不可按 UTC 日期截断造成跨日偏移。排行榜视角使用 `rank=runtime|operator`，缺省为 `runtime`。
-- 时间窗变化与稳定摘要合并为单一 Skills 同构八卡网格，不得保留第二个摘要 frame、事实带或次级行。八张卡固定为：窗口活跃 Agent、窗口活跃时长、Agent 总数、操作员数、当前在线/运行中、本周活跃、运行质量、待处理 Agent。
+- 时间窗变化与稳定摘要合并为单一 Skills 同构八卡网格，不得保留第二个摘要 frame、事实带或次级行。八张卡固定为：窗口活跃 Agent、窗口活跃时长、Agent 总数、操作员数、当前在线/运行中、本周活跃、运行质量、待处理 Agent。frame 标题与 Skills 使用同一窗口派生规则，直接显示“今天变化 / 本周变化 / 近 N 天变化”等完整标题，不得只靠手机会隐藏的右侧 `cnt` 表达窗口。
 - 前两卡展示当前窗口、上一同长度窗口与 delta；活跃序列以 `agent_overview.today` 为统计日右端，上一窗口不可用或两边均为 0 时显示 `—`，前期为 0 且本期大于 0 时显示 `+∞%`。其余六卡展示“快照”：Agent 总数 detail 为当前可见/全部身份；操作员数为当前可见去重值；当前在线 detail 为 live/可见 Agent；本周活跃 detail 保留今日活跃；运行质量 detail 为 success/runs；待处理 detail 为错误/阻塞。
 - 八卡的核心数值与右上角真实入口同行，入口默认低权重、hover/focus-visible 高亮并提供真实 `aria-label`。入口动作固定为：前两卡聚焦趋势；Agent 总数聚焦明细；操作员数切 `rank=operator` 并聚焦排行；当前在线写 `status=live` 并清 `signal`；本周活跃写 `sort=week`；运行质量写 `sort=success`；待处理写 `status=attention` 并清 `signal`。动作保留无关的 `q/w/rt/op` 等观察范围。
 - 八卡在桌面、平板、手机分别为 `8×1`、`4×2`、`2×4`。
@@ -479,9 +479,10 @@
 
 - 问题线索使用与 Skills health bar 同级的紧凑事实条，每项仍可点击并回填 `status=attention&signal=...`。
 - 桌面 `>1080px` 主分析区左侧为 Runtime/操作员排行，右侧为当前窗口活跃趋势，两列采用接近 `.95fr / 1.05fr` 的近等宽比例并底边对齐；两张面板使用同构 `//标题 + cnt` header。排行无数据时显示居中标题+说明 Empty。`≤1080px` 退化为单列。
-- `AgentActivityChart` 消费与 Skills 相同的 `resolveSkillsChartLayout(dayCount, contentWidth)`：`1..14` 日填满面板且柱宽不超过同一上限；`>14` 日只在图表容器内部横向滚动并默认定位最新日期。Agents 页面根不得出现横向滚动。
+- `AgentActivityChart` 消费与 Skills 相同的 `resolveSkillsChartLayout(dayCount, contentWidth)`：`1..14` 日填满面板且柱宽不超过同一上限；`>14` 日只在图表容器内部横向滚动。尾部有数据时定位最新日期；尾部全零但较早日期有数据时定位当前指标最后一个非零日期。Agents 页面根不得出现横向滚动。
 - 多日图沿用同等级轴线、220px viewBox、日期抽样、今日斜纹与 hover 降权；逐日透明 hit rect 覆盖整日槽。tooltip 锚定日期槽并在视口边缘翻转，同时显示该日活跃 Agent 数和活跃时长；只有窗口右端等于服务端 `today` 时标记“今日进行中”。
-- 日期槽支持 pointer hover/click 与键盘 focus，并使用 roving `tabIndex` 使整图只有一个顺序 Tab 停靠点；左右方向键切换日期，Escape/blur 关闭。移动端点击列显示浮层，点击空白或横向滚动关闭。
+- 日期槽支持 pointer hover/click 与键盘 focus，并使用 roving `tabIndex` 使整图只有一个顺序 Tab 停靠点；左右方向键切换日期，Escape/blur 关闭。移动端点击列显示浮层，点击空白或横向滚动关闭。窗口或指标变化时关闭旧 tooltip，并把唯一停靠点与滚动位置同步重置到当前指标最后一个非零日期。
+- current/previous 时间窗只有每个统计日都存在于 overview 日序列时才可展示或参与环比；custom 部分落在可用序列之外时视为不可用，不得把缺失日期静默按 0 聚合。
 - `today` 只有一个真实统计日：当前指标有正值时显示约 160px 紧凑单日 plot，并在图上方直显当日 Agent 数与时长；不得伪造小时数据。当前指标全窗为 0 时只显示 Empty，不绘制坐标轴、日期或零高度柱。
 - Agent 卡片保留身份、状态、Runtime/操作员、任务/步骤、今日/本周活跃、Skill、MCP、质量、Shim、最近活跃和问题数；桌面两列、平板/手机单列，手机压缩质量与治理信息但不得隐藏 Shim 三态或问题数。
 

@@ -28,9 +28,12 @@ test('windowDisplayLabel localizes window query keys', () => {
 })
 
 test('window labels derive human-readable period copy without raw W', () => {
+  assert.equal(windowChangeLabel('today', makeT('zh')), '今天变化')
+  assert.equal(windowChangeLabel('this_week', makeT('zh')), '本周变化')
   assert.equal(windowChangeLabel('last_week', makeT('zh')), '上周变化')
   assert.equal(windowChangeLabel('7d', makeT('zh')), '近 7 天变化')
   assert.equal(windowChangeLabel('last_week', makeT('en')), 'Last week changes')
+  assert.equal(windowChangeLabel('custom', makeT('en')), 'Custom range changes')
   assert.equal(windowChangeLabel('7d', makeT('en')), 'Last 7 days changes')
   assert.equal(windowUsedLabel('30d', makeT('zh')), '近 30 天使用')
   assert.equal(windowZeroUsageLabel('7d', makeT('en')), '0 in Last 7 days')

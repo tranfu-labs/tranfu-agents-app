@@ -108,6 +108,14 @@ AgentCard 继续保留既有业务事实和整卡下钻，只调整层级：
 
 `Agents.tsx`、`AgentActivityChart.tsx` 和 `AgentRankPanel.tsx` 只组合展示与事件。
 
+### 8. 实现复核修正
+
+- `AgentKpiGrid` 直接使用共享 `windowChangeLabel` 派生 frame 标题，标题主体显示“今天变化 / 近 N 天变化”，右侧 `cnt` 仍只显示窗口名；手机隐藏 `cnt` 后标题语义仍完整。
+- Agents KPI 与问题线索 markup 全部改为 `.agents-*` class，并在 Agents CSS 区显式声明同构布局；不继续借用 `.skills-kpi-*`、`.skills-health` 或 `.evidence-*` class。
+- 长窗口图表以当前指标最后一个非零日期作为初始可见/键盘锚点；只有最后一个非零日期就是窗口末日时才滚到最右端。窗口或指标变化时 tooltip 关闭、roving focus 与滚动位置同步重置。
+- custom 与其它窗口的 current/previous 可用性使用“窗口每一天都存在于 overview 日序列”判断；部分重叠不得把缺失日期静默按 0 算作完整窗口。
+- 将初始日期索引、长窗滚动位置和窗口完整性抽成纯函数单测；组件级行为用浏览器验证记录覆盖。
+
 预计 `frontend/src/styles.css` 中 Agents 专用 diff 可能超过 200 行，但属于纯 CSS，豁免单测，以三断点截图、面板尺寸和根溢出断言验证。任一 TypeScript 单文件实际 diff 若超过 200 行，实施前先拆组件/纯函数，不能把新判断堆在页面 JSX。
 
 ## 权衡

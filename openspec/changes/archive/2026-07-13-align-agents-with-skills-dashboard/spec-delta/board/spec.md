@@ -6,6 +6,8 @@
 
 `/agents` 控制区 MUST 使用与 Skills 相同的“控制条标题 + 当前视角说明”层级，不得在控制 frame 内重复页面标题。时间窗变化与稳定摘要 MUST 合并到单一 Skills 同款八卡 KPI 网格，不得保留第二个摘要 frame、事实带或次级行。八张卡 MUST 为：窗口活跃 Agent、窗口活跃时长、Agent 总数、操作员数、当前在线/运行中、本周活跃、运行质量、待处理 Agent；本周活跃卡的 detail MUST 保留今日活跃。前两张展示当前/上一同长度窗口和 delta，其余六张展示“快照”及对应 detail。问题线索 MUST 位于主分析区之前并保持可点击筛选。
 
+八卡 frame 标题 MUST 与 Skills 使用同一窗口派生规则，直接显示“今天变化 / 本周变化 / 近 N 天变化”等完整标题；不得固定显示“时间窗变化”后只靠右侧 `cnt` 补充窗口，因为手机会隐藏 `cnt`。
+
 每张 KPI 卡的核心数值与真实入口 MUST 位于同一行；入口 MUST 指向当前趋势、排行、Agent 明细或现有 URL 筛选，不得使用无目标的装饰图标。入口必须键盘可达并提供与真实动作一致的可访问名称。
 
 #### Scenario: Stable facts remain visible without a second KPI wall
@@ -21,11 +23,13 @@
 
 ### Requirement: Agents window visualization matches available evidence
 
-Agents 活跃趋势 MUST 使用与 Skills 每日趋势一致的图表几何和交互规范：按容器内容宽度布局，`1..14` 天填满自身面板且使用相同柱宽上限，`>14` 天只在图表容器内部横向滚动并默认显示最新日期；轴线、日期抽样、今日斜纹、透明命中区和自定义 tooltip MUST 与 Skills chart 保持同等级表现。该对齐不得改变 Skills chart 的现有行为。
+Agents 活跃趋势 MUST 使用与 Skills 每日趋势一致的图表几何和交互规范：按容器内容宽度布局，`1..14` 天填满自身面板且使用相同柱宽上限，`>14` 天只在图表容器内部横向滚动；尾部有数据时默认显示最新日期，尾部全零但窗口内较早日期有数据时默认定位当前指标最后一个非零日期，避免首屏误判为空。轴线、日期抽样、今日斜纹、透明命中区和自定义 tooltip MUST 与 Skills chart 保持同等级表现。该对齐不得改变 Skills chart 的现有行为。
 
 当窗口为 `today` 时，趋势面板 MUST 明确显示当天活跃 Agent 数和活跃时长；有正值时使用紧凑单日 plot、今日标记和 tooltip，不得伪造小时级序列。当当前指标在整窗内全为 0 时，MUST 显示与 Skills 一致的 Empty，不得渲染一排空坐标轴。活跃 Agent 与活跃时长 MUST 通过指标切换分别控制柱高，不得把人数与秒数堆叠或直接相加。
 
 逐日命中区 MUST 支持 pointer hover/click 与键盘 focus，浮层 MUST 锚定日期槽并在视口边缘翻转；日期槽 MUST 使用 roving focus，整张图在顺序 Tab 中只能产生一个日期停靠点，左右方向键切换日期。移动端点空白或滚动图表时 MUST 关闭浮层。只有窗口右端等于服务端 `today` 的列可标记“今日进行中”。
+
+窗口或指标切换时 MUST 关闭旧 tooltip，并把 roving focus 与长窗滚动位置同时重置到新指标最后一个非零日期；不得出现画面显示最新日期、键盘停靠点仍留在最早日期的分裂状态。current/previous 窗口只有每个统计日都存在于 overview 日序列时才可参与显示或环比，部分重叠窗口 MUST 视为不可用。
 
 #### Scenario: Today uses an honest compact snapshot
 

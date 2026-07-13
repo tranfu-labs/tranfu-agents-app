@@ -2,7 +2,9 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
   moveAgentChartIndex,
+  resolveAgentChartAnchorIndex,
   resolveAgentChartMode,
+  resolveAgentChartScrollLeft,
   type AgentChartMetric,
 } from '../../lib/agentsDashboard'
 import { resolveSkillsChartLayout } from '../../lib/skillsChartLayout'
@@ -27,18 +29,29 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
   const hitRefs = useRef<Array<SVGRectElement | null>>([])
   const [metric, setMetric] = useState<AgentChartMetric>('agents')
   const [tip, setTip] = useState<AgentChartTipModel | null>(null)
-  const [activeIndex, setActiveIndex] = useState(Math.max(0, overview.daily.length - 1))
+  const [activeIndex, setActiveIndex] = useState(() => resolveAgentChartAnchorIndex(overview.daily, 'agents'))
   const chartBoxWidth = useAgentChartWidth(boxRef)
   const mode = resolveAgentChartMode(overview.daily, metric)
   const layout = resolveSkillsChartLayout(overview.daily.length, chartBoxWidth)
+  const chartAnchorIndex = resolveAgentChartAnchorIndex(overview.daily, metric)
+  const windowIdentity = `${overview.days[0] || ''}:${overview.days.at(-1) || ''}:${overview.days.length}`
   const safeActiveIndex = Math.min(activeIndex, Math.max(0, overview.daily.length - 1))
   const visibleTip = tip && overview.daily.includes(tip.row) ? tip : null
 
   useLayoutEffect(() => {
-    if (!layout.scrollToEnd) return
+    hitRefs.current = hitRefs.current.slice(0, overview.daily.length)
     const box = boxRef.current
-    if (box) box.scrollLeft = Math.max(0, box.scrollWidth - box.clientWidth)
-  }, [layout.scrollToEnd, layout.trackWidth, metric, overview.daily.length, overview.days])
+    if (!box) return
+    box.scrollLeft = layout.scrollToEnd
+      ? resolveAgentChartScrollLeft(overview.daily.length, chartAnchorIndex, layout.trackWidth, box.clientWidth, box.scrollWidth)
+      : 0
+  }, [chartAnchorIndex, layout.scrollToEnd, layout.trackWidth, metric, overview.daily.length, windowIdentity])
+
+  const selectMetric = (nextMetric: AgentChartMetric) => {
+    setTip(null)
+    setMetric(nextMetric)
+    setActiveIndex(resolveAgentChartAnchorIndex(overview.daily, nextMetric))
+  }
 
   const showTip = (row: DailyRow, index: number, bar: SVGRectElement) => {
     setActiveIndex(index)
@@ -66,8 +79,8 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
         <span className="cnt">{windowLabel} · {t(metric === 'agents' ? 'agentActiveCount' : 'agentActiveTime')}</span>
       </div>
       <div className="seg compact" role="group" aria-label={t('agentTrendMetric')}>
-        <button type="button" className={metric === 'agents' ? 'on' : ''} aria-pressed={metric === 'agents'} onClick={() => { setTip(null); setMetric('agents') }}>{t('agentActiveCount')}</button>
-        <button type="button" className={metric === 'seconds' ? 'on' : ''} aria-pressed={metric === 'seconds'} onClick={() => { setTip(null); setMetric('seconds') }}>{t('agentActiveTime')}</button>
+        <button type="button" className={metric === 'agents' ? 'on' : ''} aria-pressed={metric === 'agents'} onClick={() => selectMetric('agents')}>{t('agentActiveCount')}</button>
+        <button type="button" className={metric === 'seconds' ? 'on' : ''} aria-pressed={metric === 'seconds'} onClick={() => selectMetric('seconds')}>{t('agentActiveTime')}</button>
       </div>
     </div>
   )

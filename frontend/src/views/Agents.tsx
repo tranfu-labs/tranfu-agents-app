@@ -163,6 +163,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
         summary={summary}
         totalAgents={data.sessions.length}
         attention={attention}
+        windowKey={window.key}
         windowLabel={windowLabel}
         onAction={handleKpiAction}
         t={t}
@@ -170,13 +171,13 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     ),
     signals: (
       <section className="frame agents-signals-frame">
-        <div className="skills-health agents-health">
+        <div className="agents-health">
           <b>{t('agentSignalsTitle')}</b>
           {SIGNALS.map((signal) => {
             const count = signalCount(signal.key)
             const selected = filters.signal === signal.key
             return (
-              <button type="button" className={`signal ${signal.tone} ${selected ? 'selected' : ''}`} key={signal.key} onClick={() => updateFilters({ status: count && !selected ? 'attention' : 'all', signal: selected ? '' : signal.key })}>
+              <button type="button" className={`agent-health-signal ${signal.tone} ${selected ? 'selected' : ''}`} key={signal.key} onClick={() => updateFilters({ status: count && !selected ? 'attention' : 'all', signal: selected ? '' : signal.key })}>
                 <i />
                 <span>{t(signal.label)}</span>
                 <strong>{count}</strong>
@@ -189,7 +190,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     analysis: (
       <div className="agents-analysis">
         <AgentRankPanel overview={windowOverview} view={rankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} windowLabel={windowLabel} t={t} />
-        <AgentActivityChart overview={windowOverview} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
+        <AgentActivityChart key={`${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
       </div>
     ),
     directory: (

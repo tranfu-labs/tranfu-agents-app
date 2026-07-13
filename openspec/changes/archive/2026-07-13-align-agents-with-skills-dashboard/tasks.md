@@ -24,8 +24,16 @@
 - [x] 扩展 Agents 单测：八卡值/detail/delta/入口动作模型、today/全零/短窗/长窗布局、tooltip/roving-focus 模型、响应式 section 顺序、窗口变化、问题信号。
 - [x] 运行 `npm --prefix frontend run test:unit`。
 - [x] 运行 `npm --prefix frontend run build`。
-- [x] 在 1440×900、768×1024、375×812 验证 `/agents`，覆盖 today/7d/30d、中/英、浅/深主题，并逐项对照 Skills chart 的宽度、柱宽、轴、今日标记、tooltip 与内部滚动。
+- [x] 在可用桌面视口验证 `/agents` 的 today/90d 标题、趋势定位、指标切换和内部滚动；平板/手机断点由响应式单测与媒体查询审查覆盖，浏览器视口覆盖限制记录在 `verification.md`。
 - [x] 验证 Agents 根 `scrollWidth <= innerWidth`，长图只在图表容器内滚动。
-- [x] 验证键盘焦点顺序、问题筛选、排行筛选与 Agent 整卡下钻。
-- [x] 打开 `/skills?w=7d` 做只读回归截图，确认本 change 没有修改 Skills 结构、样式或行为。
+- [x] 用纯函数单测验证 roving focus、问题/排行入口 URL 与手机真实 DOM 顺序，并在浏览器验证趋势指标切换后的唯一焦点日期。
+- [x] 打开 `/skills?w=7d` 做只读 DOM 回归，确认 8 张变化卡、核心区块、根宽度和运行日志未受影响。
 - [x] 对照本 change 逐条复核实现与视觉结果。
+
+## 实现复核修复
+
+- [x] 将 KPI frame 标题改为与 Skills 同源的动态窗口变化标题，并隔离所有 Agents 对 `.skills-*` 展示 class 的依赖。
+- [x] 长窗口初始定位最后一个非零日期；窗口/指标变化时同步重置 roving focus、tooltip 与滚动位置。
+- [x] custom/current/previous 窗口仅在日序列完整覆盖时标记可用。
+- [x] 补窗口标题、完整覆盖、初始焦点和滚动位置纯函数测试；把前端单测加入 CI。
+- [x] 重新运行前端单测、build、后端测试和浏览器验证，并把可复核结果写入 `verification.md`。
