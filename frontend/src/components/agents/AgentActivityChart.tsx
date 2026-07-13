@@ -4,12 +4,12 @@ import { dur } from '../../lib/utils'
 
 type Metric = 'agents' | 'seconds'
 
-export function AgentActivityChart({ overview, t }: { overview: AgentOverview; t: (key: string) => string }) {
+export function AgentActivityChart({ overview, currentDay, windowLabel, t }: { overview: AgentOverview; currentDay?: string; windowLabel: string; t: (key: string) => string }) {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const [metric, setMetric] = useState<Metric>('agents')
   const values = overview.daily.map((row) => metric === 'agents' ? row.active_agents : row.active_seconds)
   const max = Math.max(...values, 1)
-  const width = Math.max(760, overview.daily.length * 12)
+  const width = Math.max(760, overview.daily.length * 20)
   const height = 220
   const base = 182
   const step = (width - 52) / Math.max(overview.daily.length, 1)
@@ -25,7 +25,7 @@ export function AgentActivityChart({ overview, t }: { overview: AgentOverview; t
       <div className="agents-panel-title">
         <div>
           <b>{t('agentActivityTrend')}</b>
-          <span className="cnt">{t(metric === 'agents' ? 'agentActiveCount' : 'agentActiveTime')}</span>
+          <span className="cnt">{windowLabel} · {t(metric === 'agents' ? 'agentActiveCount' : 'agentActiveTime')}</span>
         </div>
         <div className="seg compact" role="group" aria-label={t('agentTrendMetric')}>
           <button type="button" className={metric === 'agents' ? 'on' : ''} aria-pressed={metric === 'agents'} onClick={() => setMetric('agents')}>{t('agentActiveCount')}</button>
@@ -40,8 +40,8 @@ export function AgentActivityChart({ overview, t }: { overview: AgentOverview; t
           {overview.daily.map((row, index) => {
             const value = metric === 'agents' ? row.active_agents : row.active_seconds
             const barHeight = value ? Math.max(3, Math.round((value / max) * 140)) : 0
-            const x = 36 + index * step
-            const current = row.day === overview.today
+            const x = overview.daily.length === 1 ? (width - barWidth) / 2 : 36 + index * step
+            const current = row.day === currentDay
             return (
               <g key={row.day} className={current ? 'current' : undefined}>
                 {barHeight ? <rect className="agent-trend-bar" x={x} y={base - barHeight} width={barWidth} height={barHeight} rx="2"><title>{`${row.day} · ${metric === 'agents' ? row.active_agents : dur(row.active_seconds)}`}</title></rect> : null}

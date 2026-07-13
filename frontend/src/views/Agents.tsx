@@ -5,19 +5,26 @@ import { AgentRankPanel } from '../components/agents/AgentRankPanel'
 import { Empty, QBar, ShimPill, SparkMini } from '../components/Common'
 import {
   agentFiltersQuery,
+  agentWindowComparison,
   agentOverviewOf,
   agentSignals,
   agentSuccessRate,
   attentionCount,
   buildAgentOverview,
+  buildAgentWindowOverview,
+  formatAgentDelta,
   filterAgents,
   parseAgentFilters,
+  resolveAgentWindow,
   type AgentFilters,
   type AgentSignal,
 } from '../lib/agentsDashboard'
 import { ago, dur, encodePathParam, keyOf, LIVE, RT } from '../lib/utils'
 import { statusName } from '../lib/i18n'
+import { windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import type { AgentSession, Lang, StatePayload } from '../lib/types'
+
+const WINDOW_OPTIONS = ['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'] as const
 
 const SIGNALS: Array<{ key: AgentSignal; tone: string; label: string; hint: string }> = [
   { key: 'error', tone: 'bad', label: 'agentSignalError', hint: 'agentSignalErrorHint' },
@@ -81,6 +88,24 @@ function AgentCard({ agent, latestShim, lang, t }: { agent: AgentSession; latest
   )
 }
 
+function unixToInput(value: string) {
+  const ts = Number(value)
+  if (!Number.isFinite(ts) || ts <= 0) return ''
+  const date = new Date(ts * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function inputToUnix(value: string) {
+  const ts = new Date(value).getTime()
+  return Number.isFinite(ts) ? String(Math.floor(ts / 1000)) : ''
+}
+
+function deltaTone(value: string) {
+  if (value === '—') return 'snapshot'
+  return value.startsWith('-') ? 'down' : 'up'
+}
+
 function Kpi({ label, value, hint, tone = '' }: { label: string; value: string | number; hint?: string; tone?: string }) {
   return (
     <div className={`agent-kpi ${tone}`}>
@@ -91,25 +116,57 @@ function Kpi({ label, value, hint, tone = '' }: { label: string; value: string |
   )
 }
 
+function AgentWindowBar({ comparison, summary, windowLabel, t }: { comparison: ReturnType<typeof agentWindowComparison>; summary: { live: number; success_rate: number | null }; windowLabel: string; t: (key: string) => string }) {
+  const activeAgentsDelta = formatAgentDelta(comparison.current.activeAgents, comparison.previous.activeAgents, comparison.currentAvailable && comparison.previousAvailable)
+  const activeSecondsDelta = formatAgentDelta(comparison.current.activeSeconds, comparison.previous.activeSeconds, comparison.currentAvailable && comparison.previousAvailable)
+  const activeAgents = comparison.currentAvailable ? String(comparison.current.activeAgents) : '—'
+  const activeSeconds = comparison.currentAvailable ? dur(comparison.current.activeSeconds) : '—'
+  const values = [
+    { label: t('agentWindowActiveAgents'), value: activeAgents, detail: `${t('agentWindowPrevious')} ${comparison.previousAvailable ? comparison.previous.activeAgents : '—'}`, delta: activeAgentsDelta, snapshot: false },
+    { label: t('agentWindowActiveTime'), value: activeSeconds, detail: `${t('agentWindowPrevious')} ${comparison.previousAvailable ? dur(comparison.previous.activeSeconds) : '—'}`, delta: activeSecondsDelta, snapshot: false },
+    { label: t('agentWindowLiveSnapshot'), value: String(summary.live), detail: t('agentWindowSnapshot'), delta: t('snapshot'), snapshot: true },
+    { label: t('agentWindowQualitySnapshot'), value: percent(summary.success_rate), detail: t('agentWindowSnapshot'), delta: t('snapshot'), snapshot: true },
+  ]
+  return (
+    <section className="frame skills-kpi-frame agents-window-frame">
+      <h2><span><span className="sl">//</span>{t('agentWindowChange')}</span><span className="cnt">{windowLabel}</span></h2>
+      <div className="skills-kpi agents-window-kpi">
+        {values.map((item) => (
+          <div className="stat skills-kpi-card" key={item.label}>
+            <div className="skills-kpi-top"><div className="v">{item.value}</div></div>
+            <div className="l">{item.label}</div>
+            <span className="evidence-names">{item.detail}</span>
+            <span className={`delta ${item.snapshot ? 'snapshot' : deltaTone(item.delta)}`}>{item.delta}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (key: string) => string }) {
   const location = useLocation()
   const navigate = useNavigate()
   const filters = useMemo(() => parseAgentFilters(location.search), [location.search])
-  const [rankView, setRankView] = useState<'runtime' | 'operator'>('runtime')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const latestShim = data.shim?.version
   const allOverview = agentOverviewOf(data, latestShim)
   const visibleAgents = useMemo(() => filterAgents(data.sessions, filters, latestShim), [data.sessions, filters, latestShim])
-  const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal || filters.rt || filters.op || filters.sort !== 'recent')
+  const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal || filters.w !== 'today' || filters.wstart || filters.wend || filters.rt || filters.op || filters.sort !== 'recent')
   const overview = hasFilters ? buildAgentOverview(visibleAgents, latestShim, allOverview.today) : allOverview
+  const window = useMemo(() => resolveAgentWindow(filters, allOverview.today), [filters, allOverview.today])
+  const windowOverview = useMemo(() => buildAgentWindowOverview(visibleAgents, overview, window), [visibleAgents, overview, window])
+  const comparison = useMemo(() => agentWindowComparison(visibleAgents, overview.days, window), [visibleAgents, overview.days, window])
+  const windowLabel = windowPeriodLabel(window.key, t)
+  const rankView = filters.rank
+  const summary = overview.summary
+  const qualityHint = summary.runs ? `${summary.success}/${summary.runs}` : t('agentNoRuns')
   const updateFilters = (patch: Partial<AgentFilters>) => {
     const next = { ...filters, ...patch }
     navigate(`/agents${agentFiltersQuery(next)}`, { replace: true })
   }
   const clearFilters = () => navigate('/agents', { replace: true })
   const signalCount = (signal: AgentSignal) => visibleAgents.filter((agent) => agentSignals(agent, latestShim).includes(signal)).length
-  const summary = overview.summary
-  const qualityHint = summary.runs ? `${summary.success}/${summary.runs}` : t('agentNoRuns')
 
   return (
     <div className="agents-page">
@@ -119,13 +176,26 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
           <span className="cnt">{visibleAgents.length} / {data.sessions.length} · {summary.live} {t('agentLiveShort')}</span>
         </h2>
         <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-          <span>{filters.q || `${visibleAgents.length} · ${summary.live} ${t('agentLiveShort')} · ${filters.rt ? (RT[filters.rt] || filters.rt) : t('all')}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
+          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} · ${summary.live} ${t('agentLiveShort')} · ${filters.rt ? (RT[filters.rt] || filters.rt) : t('all')}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
         </button>
         <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
+          <div className="seg agents-view-seg" role="group" aria-label={t('agentRank')}>
+            <button type="button" className={rankView === 'runtime' ? 'on' : ''} aria-pressed={rankView === 'runtime'} onClick={() => updateFilters({ rank: 'runtime' })}>{t('agentRankRuntime')}</button>
+            <button type="button" className={rankView === 'operator' ? 'on' : ''} aria-pressed={rankView === 'operator'} onClick={() => updateFilters({ rank: 'operator' })}>{t('agentRankOperator')}</button>
+          </div>
           <label className="field agents-search-field"><span>{t('agentSearch')}</span><input value={filters.q} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t('agentSearchHint')} /></label>
           <label className="field"><span>{t('agentStatusFilter')}</span><select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as AgentFilters['status'], signal: '' })}>
             <option value="all">{t('all')}</option><option value="live">{t('agentStatusLive')}</option><option value="attention">{t('agentStatusAttention')}</option><option value="idle">{t('agentStatusIdle')}</option><option value="done">{t('agentStatusDone')}</option>
           </select></label>
+          <label className="field"><span>{t('windowFilter')}</span><select value={filters.w} onChange={(event) => updateFilters({ w: event.target.value as AgentFilters['w'], wstart: '', wend: '' })}>
+            {WINDOW_OPTIONS.map((key) => <option value={key} key={key}>{windowDisplayLabel(key, t)}</option>)}
+          </select></label>
+          {filters.w === 'custom' ? (
+            <>
+              <label className="field"><span>{t('customStart')}</span><input type="datetime-local" value={unixToInput(filters.wstart)} onChange={(event) => updateFilters({ w: 'custom', wstart: inputToUnix(event.target.value) })} /></label>
+              <label className="field"><span>{t('customEnd')}</span><input type="datetime-local" value={unixToInput(filters.wend)} onChange={(event) => updateFilters({ w: 'custom', wend: inputToUnix(event.target.value) })} /></label>
+            </>
+          ) : null}
           <label className="field"><span>{t('agentRuntimeFilter')}</span><select value={filters.rt} onChange={(event) => updateFilters({ rt: event.target.value })}>
             <option value="">{t('all')}</option>
             {[...new Set(data.sessions.map((agent) => agent.runtime).filter(Boolean))].sort().map((runtime) => <option value={runtime} key={runtime}>{RT[runtime] || runtime}</option>)}
@@ -141,6 +211,8 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
         </div>
       </section>
 
+      <AgentWindowBar comparison={comparison} summary={summary} windowLabel={windowLabel} t={t} />
+
       <section className="frame agents-kpi-frame">
         <div className="agent-kpis">
           <Kpi label={t('agentTotal')} value={summary.agents} hint={`${summary.operators} ${t('agentOperators')}`} />
@@ -151,27 +223,27 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
         </div>
       </section>
 
-      <div className="agents-analysis">
-        <AgentActivityChart overview={overview} t={t} />
-        <AgentRankPanel overview={overview} view={rankView} setView={setRankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} t={t} />
-      </div>
-
       <section className="frame agents-signals-frame">
-        <div className="agents-panel-title"><b>{t('agentSignalsTitle')}</b><span className="cnt">{attentionCount(visibleAgents, latestShim)} {t('agentAttention')}</span></div>
-        <div className="agent-signals">
+        <div className="skills-health agents-health">
+          <b>{t('agentSignalsTitle')}</b>
           {SIGNALS.map((signal) => {
             const count = signalCount(signal.key)
             const selected = filters.signal === signal.key
             return (
-              <button type="button" className={`agent-signal ${signal.tone} ${selected ? 'selected' : ''}`} key={signal.key} onClick={() => updateFilters({ status: count && !selected ? 'attention' : 'all', signal: selected ? '' : signal.key })}>
-                <span className="agent-signal-dot" />
-                <span><b>{t(signal.label)}</b><small>{t(signal.hint)}</small></span>
+              <button type="button" className={`signal ${signal.tone} ${selected ? 'selected' : ''}`} key={signal.key} onClick={() => updateFilters({ status: count && !selected ? 'attention' : 'all', signal: selected ? '' : signal.key })}>
+                <i />
+                <span>{t(signal.label)}</span>
                 <strong>{count}</strong>
               </button>
             )
           })}
         </div>
       </section>
+
+      <div className="agents-analysis">
+        <AgentRankPanel overview={windowOverview} view={rankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} windowLabel={windowLabel} t={t} />
+        <AgentActivityChart overview={windowOverview} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
+      </div>
 
       <section className="frame agents-list-frame">
         <h2><span><span className="sl">//</span>{t('agentDirectory')}</span><span className="cnt">{visibleAgents.length} {t('agentCards')}</span></h2>
