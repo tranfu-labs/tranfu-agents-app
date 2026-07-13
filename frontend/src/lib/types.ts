@@ -33,6 +33,7 @@ export type AgentSession = {
   task?: string
   current_step?: string
   ts: string
+  last_seen?: string
   fidelity?: string
   shim_version?: string
   today_active?: number
@@ -51,6 +52,42 @@ export type AgentSession = {
   cf?: AgentConfig
   integrations?: Array<{ name: string; desc?: string }>
   memory?: AgentMemory
+}
+
+export type AgentOverviewGroup = {
+  runtime?: string
+  operator?: string
+  agents: number
+  live: number
+  today_active: number
+  week_active: number
+  runs: number
+  success: number
+  errors: number
+  blocked: number
+  success_rate: number | null
+}
+
+export type AgentOverview = {
+  today: string
+  days: string[]
+  summary: {
+    agents: number
+    live: number
+    operators: number
+    today_active: number
+    week_active: number
+    runs: number
+    success: number
+    errors: number
+    blocked: number
+    success_rate: number | null
+    outdated_shim: number
+    unknown_shim: number
+  }
+  daily: Array<{ day: string; active_seconds: number; active_agents: number }>
+  runtime: AgentOverviewGroup[]
+  operator: AgentOverviewGroup[]
 }
 
 export type AgentMemory = {
@@ -94,6 +131,7 @@ export type StatePayload = {
   shim?: {
     version?: string
   }
+  agent_overview?: AgentOverview
   skills?: StateSkillRank[]
   sessions: AgentSession[]
   feed: FeedItem[]

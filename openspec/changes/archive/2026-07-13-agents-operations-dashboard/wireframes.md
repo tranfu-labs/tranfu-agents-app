@@ -1,16 +1,14 @@
-# Agents 运营看板 · 线框图
+# Agents 运营看板线框
 
-> 路由：`/agents`（`frontend/src/views/Agents.tsx`）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)。
+> 基线：[docs/wireframes/pages/agents.md](../../docs/wireframes/pages/agents.md)。本 change 完成后回流更新该页面。
 
-断点：桌面 `>1080px`｜平板 `601px–1080px`｜手机 `≤600px`。趋势图长轴只在图表盒子内部横向滚动。
-
-## 字符图
+## `pages/agents.md`
 
 ```text
 ━━ 桌面 1440×900 ━━
 ┌─ // Agents 运营看板 ─────────────────────────────── 共 N 个 · M 个运行中 ┐
 │ [搜索 Agent / 操作员] [状态 ▾] [Runtime ▾] [操作员 ▾] [排序 ▾]         │
-├─ [Agent 总数] [运行中] [今日活跃] [运行质量] [待处理 Agent]            ┤
+├─ [Agent 总数] [运行中] [今日活跃] [成功率] [待处理 Agent]              ┤
 ├─ 90 天活跃趋势 / Active agents ───────┬─ [Runtime] [操作员] 排行 ───────┤
 │  ▂▃▅▃▆▁▂▅▇▆▃▂▅▆▇▅▃▂▁  最近日期在右侧     │ Claude Code █████  N · 92% │
 │  [图表盒子内部横滚]                    │ Codex      ███    N · 84% │
@@ -30,34 +28,21 @@
 ├─ [总数] [运行中] [今日活跃] [待处理]                    ┤
 ├─ 活跃趋势                                          ────┤
 ├─ [Runtime] [操作员] 排行（单列）                         ┤
-├─ 问题线索（两列）                                        ┤
+├─ 问题线索（两列或单列）                                  ┤
 ├─ Agent 卡片（单列）                                      ┤
 └─────────────────────────────────────────────────────────┘
 
 ━━ 手机 375×812 ━━
-┌─ Agents · N 个 · M 运行中 ┐
-│ N 个 · M 运行中 · 筛选⌄   │
-├─ [总数] [运行中]           ┤
-│ [今日活跃] [待处理]        │
-├─ 活跃趋势（内部横滚）      ┤
-├─ [Runtime] [操作员] 排行   ┤
-├─ [异常 N] [Shim N]         ┤
-│ [未活跃 N] [低成功率 N]     │
-├─ Agent A · ●运行中         ┤
-│  Codex · alice              │
-│  当前步骤 · 今日/本周 · 质量 │
-├─ Agent B · ○空闲            ┤
-└─────────────────────────────┘
+┌─ Agents · N 个 · M 运行中 ─┐
+│ 7 个 Agent · 筛选⌄          │
+├─ 运行中 N · 今日 1h · 待处理 N ┤
+├─ [异常 N] [Shim N] [未活跃 N] ┤
+├─ 活跃趋势（内部横滚）       ┤
+├─ Agent A · ●运行中          ┤
+│  Codex · alice               │
+│  当前步骤 · 今日/本周 · 质量  │
+├─ Agent B · ○空闲             ┤
+└──────────────────────────────┘
 ```
 
-## 注释
-
-| 编号 | 元素 | 状态/交互 | 数据来源 |
-|---|---|---|---|
-| ① | 控制条 | `q/status/signal/rt/op/sort` 写入 URL；移动端默认折叠；变化 replace | 当前 `/agents` URL + `/api/state.sessions` |
-| ② | 摘要 KPI | 展示 Agent 总数、运行中、今日/本周活跃、运行质量、待处理去重 Agent | `/api/state.agent_overview.summary` |
-| ③ | 活跃趋势 | 活跃 Agent/活跃时长切换；90 天；长轴只在图表盒子内横滚并默认显示最新日期 | `/api/state.agent_overview.days/daily` |
-| ④ | Runtime/操作员排行 | 分段切换；点击 Runtime/操作员回填 `rt/op` 筛选 | `/api/state.agent_overview.runtime/operator` |
-| ⑤ | 问题线索 | 异常/阻塞、Shim 不一致、14 天未活跃、成功率偏低；点击写入 `status=attention&signal=...` | `sessions[]` + Shim 三态 + 纯函数分类 |
-| ⑥ | Agent 卡片 | 整卡链接与键盘 Enter/Space 下钻 `/agent/:key`；展示任务、步骤、活跃、Skill、MCP、质量、Shim | `/api/state.sessions[]` |
-| ⑦ | 主题/语言 | 复用全局三态主题、中英文切换；Agents 新增状态不持久化 | TopBar + `tf-theme-mode` 主题例外 |
+交互：筛选和排序写入 URL；排行操作员点击回填 `op`，Runtime 点击回填 `rt`；问题线索点击应用对应 status/筛选；Agent 卡片整卡下钻，最近任务和无目标数据不伪装成可点击表格。
