@@ -30,7 +30,7 @@
 ### 3. 组件与版式
 
 - `AgentsToolbar` 继续承担 Runtime/Operator 视角切换、搜索、状态、时间窗、Runtime、操作员、排序；桌面与平板 label/input 保持同一行，手机折叠为一行摘要。
-- 新增 `AgentWindowBar`，复用 Skills `.skills-health`/`.signal` 的紧凑事实条视觉，展示四项窗口结论；每项无下钻动作，问题线索仍用同一紧凑样式并可点击筛选。
+- 新增 `AgentWindowBar`，复用 Skills 时间窗变化区的 `.skills-kpi`/`.skills-kpi-card` 独立卡片结构，展示四项窗口结论；卡片不下钻，问题线索仍用 `.skills-health`/`.signal` 的紧凑样式并可点击筛选。
 - `AgentRankPanel` 与 `AgentActivityChart` 保持 Agents 数据职责，但调整外框、排行 track、趋势 chart-box 的视觉和布局，使其与 Skills 主分析区组件语言一致；不复用 Skill 专属数据组件，避免错误引入 Skill 口径。
 - 桌面 `.agents-analysis` 改为 `minmax(0, .75fr) minmax(0, 1.25fr)`，即左排行、右趋势；两张卡片等高。`<=1080px` 单列，手机问题条和窗口条均可换行但根页面不横滚。
 

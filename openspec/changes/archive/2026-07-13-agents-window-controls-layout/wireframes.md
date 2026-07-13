@@ -9,7 +9,11 @@
 ┌─ // Agents 运营看板 ──────────────────────────────────────────────┐
 │ [Runtime | 操作员] [搜索…] [状态 ▾] [时间窗：今天 ▾] [Runtime ▾] [操作员 ▾] [排序 ▾] │
 ├─ 时间窗变化 · 今天 ───────────────────────────────────────────────┤
-│ [活跃 Agent 12  +25%] [活跃时长 4h20m  +18%] [当前在线 5] [质量 92%] │
+│ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ │
+│ │ 12   +25%  │ │ 4h20m +18% │ │ 5    快照  │ │ 92%  快照  │ │
+│ │ 活跃 Agent │ │ 活跃时长   │ │ 当前在线   │ │ 运行质量   │ │
+│ │ 上期 10    │ │ 上期 3h40m │ │ 当前快照   │ │ 当前快照   │ │
+│ └────────────┘ └────────────┘ └────────────┘ └────────────┘ │
 ├─ 问题线索 · 小型事实条 ────────────────────────────────────────────┤
 │ ● 异常/阻塞 2   ● Shim 不一致 1   ● 14 天未活跃 3   ● 低成功率 1 │
 ├─ Runtime / 操作员排行 ───────────┬─ 时间窗活跃趋势 · 今天 ────────┤
@@ -61,7 +65,7 @@
 | 编号 | 元素 | 状态/交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
 | ① | 顶部控制条 | Runtime/操作员视角切换与 `q/status/w/wstart/wend/rt/op/sort` 同处控制条；默认 `w=today` 语义；手机默认折叠 | 当前 `/agents` URL + `sessions[]` + `agent_overview.today` | Skills 视角分段按钮 + `windowFilter` 选项 |
-| ② | 时间窗变化栏 | 当前窗 vs 上一同长度窗展示活跃 Agent 数、活跃时长 delta；在线与质量为当前快照 | `sessions[].active_days` + `agent_overview.summary` | Skills `.skills-health` / `.signal` |
+| ② | 时间窗变化卡片 | 复用 Skills 时间窗变化区的独立卡片结构；当前/上一同长度窗展示活跃 Agent 数、活跃时长 delta；在线与质量为当前快照 | `sessions[].active_days` + `agent_overview.summary` | Skills `.skills-kpi` / `.skills-kpi-card` |
 | ③ | 问题线索 | 紧凑事实条；点击回填 `status=attention&signal=...`；不持久化忽略状态 | `sessions[]` + Shim 三态 + `agentSignals` | Skills `.skills-health` / `.signal` |
 | ④ | 主分析区 | 桌面左排行榜右趋势，点击排行回填 `rt/op`；平板/手机单列 | `agent_overview.runtime/operator/daily` + 当前窗口纯函数 | Skills rank/chart 外壳语言 |
 | ⑤ | Agent 明细 | 继续整卡键盘可达下钻；卡片中的今日/本周辅助字段保持原语义 | `sessions[]` | 现有 AgentCard |

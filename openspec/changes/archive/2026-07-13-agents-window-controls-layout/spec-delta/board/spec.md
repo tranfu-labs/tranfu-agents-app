@@ -6,7 +6,7 @@
 
 `/agents` 顶部控制条 MUST 同时承载 Runtime/操作员排行榜视角切换、搜索、状态、时间窗、Runtime、操作员与排序筛选。视角切换 MUST 位于控制条而不是排行榜卡片内部。时间窗 MUST 复用 Skills 的 `today`、`this_week`、`last_week`、`7d`、`14d`、`30d`、`90d`、`custom` 选项，缺省语义为 `today`，并通过 `w/wstart/wend` 保持在 URL；筛选变化使用 replace，不得写入浏览器持久化存储。
 
-时间窗区域 MUST 展示当前窗口与上一同长度窗口的活跃 Agent 数、活跃时长变化，以及当前在线数和运行质量快照。活跃序列以 `/api/state.agent_overview.today` 为统计日右端；上一窗口不存在或两边均为 0 时，变化值 MUST 显示 `—`，前期为 0 且本期大于 0 时 MUST 显示 `+∞%`。
+时间窗变化区域 MUST 像 Skills 统计一样使用独立卡片，展示当前窗口与上一同长度窗口的活跃 Agent 数、活跃时长变化，以及当前在线数和运行质量快照。活跃序列以 `/api/state.agent_overview.today` 为统计日右端；上一窗口不存在或两边均为 0 时，变化值 MUST 显示 `—`，前期为 0 且本期大于 0 时 MUST 显示 `+∞%`。
 
 #### Scenario: Agents defaults to today and exposes shared filters
 

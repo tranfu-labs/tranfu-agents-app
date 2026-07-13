@@ -111,22 +111,22 @@ function AgentWindowBar({ comparison, summary, windowLabel, t }: { comparison: R
   const activeAgents = comparison.currentAvailable ? String(comparison.current.activeAgents) : '—'
   const activeSeconds = comparison.currentAvailable ? dur(comparison.current.activeSeconds) : '—'
   const values = [
-    { label: t('agentWindowActiveAgents'), value: activeAgents, delta: activeAgentsDelta },
-    { label: t('agentWindowActiveTime'), value: activeSeconds, delta: activeSecondsDelta },
-    { label: t('agentWindowLiveSnapshot'), value: String(summary.live), delta: t('agentWindowSnapshot') },
-    { label: t('agentWindowQualitySnapshot'), value: percent(summary.success_rate), delta: t('agentWindowSnapshot') },
+    { label: t('agentWindowActiveAgents'), value: activeAgents, detail: `${t('agentWindowPrevious')} ${comparison.previousAvailable ? comparison.previous.activeAgents : '—'}`, delta: activeAgentsDelta, snapshot: false },
+    { label: t('agentWindowActiveTime'), value: activeSeconds, detail: `${t('agentWindowPrevious')} ${comparison.previousAvailable ? dur(comparison.previous.activeSeconds) : '—'}`, delta: activeSecondsDelta, snapshot: false },
+    { label: t('agentWindowLiveSnapshot'), value: String(summary.live), detail: t('agentWindowSnapshot'), delta: t('snapshot'), snapshot: true },
+    { label: t('agentWindowQualitySnapshot'), value: percent(summary.success_rate), detail: t('agentWindowSnapshot'), delta: t('snapshot'), snapshot: true },
   ]
   return (
-    <section className="frame agents-window-frame">
-      <div className="skills-health agents-window-health">
-        <b>{t('agentWindowChange')} · {windowLabel}</b>
+    <section className="frame skills-kpi-frame agents-window-frame">
+      <h2><span><span className="sl">//</span>{t('agentWindowChange')}</span><span className="cnt">{windowLabel}</span></h2>
+      <div className="skills-kpi agents-window-kpi">
         {values.map((item) => (
-          <span className="signal" key={item.label}>
-            <i />
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-            <em className={deltaTone(item.delta)}>{item.delta}</em>
-          </span>
+          <div className="stat skills-kpi-card" key={item.label}>
+            <div className="skills-kpi-top"><div className="v">{item.value}</div></div>
+            <div className="l">{item.label}</div>
+            <span className="evidence-names">{item.detail}</span>
+            <span className={`delta ${item.snapshot ? 'snapshot' : deltaTone(item.delta)}`}>{item.delta}</span>
+          </div>
         ))}
       </div>
     </section>
