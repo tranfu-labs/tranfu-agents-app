@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>二、显示框架 — 智能体列表页单日活跃分布</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:24px;background:#f5f5f5;color:#333;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}h1{margin:0 0 12px}.notice{padding:12px 16px;background:#fff;border:1px solid #ccc}.state{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;margin:18px 0 32px}.canvas,.legend{background:#fff;border:1px solid #ccc;padding:16px}.region{margin:10px 0;padding:12px;border:2px dashed #888;background:#fafafa}.tag{display:inline-block;margin-bottom:8px;padding:2px 7px;background:#ddd;font-weight:700}.row{padding:6px 0;border-bottom:1px dotted #ccc}.row:last-child{border:0}.chart{display:grid;place-items:center;min-height:180px}.donut{display:grid;place-items:center;width:150px;height:150px;border:34px solid #888;border-top-color:#444;border-right-color:#aaa;border-bottom-color:#666;border-radius:50%}.donut span{display:grid;place-items:center;width:82px;height:82px;border-radius:50%;background:#fafafa;font-weight:700}.legend{align-self:start;position:sticky;top:16px;background:#fff}.legend h3{margin-top:0}.legend code{padding:1px 4px;border:1px solid #ccc;background:#f5f5f5}.empty{display:grid;place-items:center;min-height:180px;color:#888}.bars{display:flex;align-items:end;gap:18px;height:170px;padding:20px;border-left:1px solid #888;border-bottom:1px solid #888}.bar{width:26px;background:#888}.tip{margin:10px auto 0;max-width:260px;border:2px solid #444;background:#fff;padding:10px}@media(max-width:760px){.state{grid-template-columns:1fr}.legend{position:static}}
+</style>
+</head>
+<body>
+<h1>二、显示框架 — 智能体列表页单日活跃分布</h1>
+<div class="notice"><strong>注：</strong>本页所有内容为模拟数据，仅用于展示信息密度与排版。</div>
+
+<h2>单日入口态</h2>
+<div class="state">
+  <main class="canvas">
+    <div class="region"><span class="tag">面板头部区</span><div class="row">活跃趋势 · 今天　按操作员查看　[活跃智能体｜活跃时长]</div></div>
+    <div class="region"><span class="tag">单日摘要区</span><div class="row">活跃智能体 7　　活跃时长 11 小时 54 分</div></div>
+    <div class="region"><span class="tag">扇形图区</span><div class="chart"><div class="donut"><span>当前值<br>7</span></div></div></div>
+    <div class="region"><span class="tag">图例区</span><div class="row">● 哪吒 3　● 小北 2　● 阿辰 1　● 其他 1</div></div>
+  </main>
+  <aside class="legend"><h3>图例 — 模拟数据对应字段</h3><ul><li>“活跃智能体 7”对应 <code>当日活跃智能体总数</code></li><li>“11 小时 54 分”对应 <code>当日活跃总时长</code></li><li>扇区大小对应 <code>当前指标各分组值</code></li><li>中心数字对应 <code>当前指标总值</code></li><li>图例文字对应 <code>分组名称</code> 与 <code>分组颜色</code></li></ul></aside>
+</div>
+
+<h2>单日指向态与键盘态</h2>
+<div class="state">
+  <main class="canvas">
+    <div class="region"><span class="tag">面板头部区</span><div class="row">活跃趋势 · 今天　按操作员查看　[活跃智能体｜活跃时长]</div></div>
+    <div class="region"><span class="tag">扇形图区</span><div class="chart"><div class="donut"><span>当前值<br>7</span></div><div class="tip"><strong>2026-07-14 · 今天进行中</strong><br>哪吒　3 个活跃智能体<br>小北　2 个活跃智能体<br>阿辰　1 个活跃智能体<br>其他　1 个活跃智能体<hr>合计　7 个 · 11 小时 54 分</div></div></div>
+    <div class="region"><span class="tag">图例区</span><div class="row"><strong>● 哪吒 3</strong>　● 小北 2　● 阿辰 1　● 其他 1</div></div>
+  </main>
+  <aside class="legend"><h3>图例 — 模拟数据对应字段</h3><ul><li>高权重“哪吒”对应当前指向的 <code>分组名称</code></li><li>浮层首行对应 <code>统计日期</code></li><li>浮层分组行对应 <code>当前指标各分组值</code></li><li>浮层末行对应 <code>当日活跃智能体总数</code> 与 <code>当日活跃总时长</code></li></ul></aside>
+</div>
+
+<h2>单日空数据态</h2>
+<div class="state">
+  <main class="canvas"><div class="region"><span class="tag">面板头部区</span><div class="row">活跃趋势 · 今天　已选择活跃时长</div></div><div class="region"><span class="tag">空状态区</span><div class="empty">当前筛选范围内暂无活跃趋势</div></div></main>
+  <aside class="legend"><h3>图例 — 空状态</h3><ul><li>当前指标总值为零，因此不绑定扇形或日期轴。</li></ul></aside>
+</div>
+
+<h2>多日态</h2>
+<div class="state">
+  <main class="canvas"><div class="region"><span class="tag">面板头部区</span><div class="row">活跃趋势 · 近 7 天　[活跃智能体｜活跃时长]</div></div><div class="region"><span class="tag">多日图区</span><div class="bars"><div class="bar" style="height:45%"></div><div class="bar" style="height:62%"></div><div class="bar" style="height:36%"></div><div class="bar" style="height:78%"></div><div class="bar" style="height:55%"></div><div class="bar" style="height:88%"></div><div class="bar" style="height:70%"></div></div></div></main>
+  <aside class="legend"><h3>图例 — 多日保持不变</h3><ul><li>每根柱继续对应一个统计日。</li><li>柱内堆叠继续对应当日各分组值。</li></ul></aside>
+</div>
+</body>
+</html>

@@ -74,6 +74,13 @@ export type AgentTrendModel = {
   legend: string[]
 }
 
+export type AgentDonutSegment = {
+  name: string
+  value: number
+  share: number
+  offset: number
+}
+
 export type AgentDirectoryRow = {
   agent: AgentSession
   active_seconds: number
@@ -510,6 +517,21 @@ export function buildAgentTrendModel(
       }
     }),
   }
+}
+
+export function buildAgentDonutSegments(day: AgentTrendDay, metric: AgentChartMetric): AgentDonutSegment[] {
+  const metricKey = metric === 'agents' ? 'active_agents' : 'active_seconds'
+  const values = day.segments
+    .map((segment) => ({ name: segment.name, value: Number(segment[metricKey] || 0) }))
+    .filter((segment) => segment.value > 0)
+  const total = values.reduce((sum, segment) => sum + segment.value, 0)
+  let offset = 0
+  return values.map((segment) => {
+    const share = total ? segment.value / total : 0
+    const slice = { ...segment, share, offset }
+    offset += share
+    return slice
+  })
 }
 
 export function attentionCount(agents: AgentSession[], latestShim?: string) {

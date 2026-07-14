@@ -9,6 +9,7 @@ import {
   agentSignals,
   buildAgentKpiCards,
   buildAgentDailyBreakdown,
+  buildAgentDonutSegments,
   buildAgentDirectoryRows,
   buildAgentOverview,
   buildAgentTrendModel,
@@ -290,4 +291,26 @@ test('agent trend model keeps top eight segments and folds the rest into other',
   assert.equal(model.legend.at(-1), '__other')
   assert.equal(model.days[0].segments.find((item) => item.name === '__other')?.active_agents, 2)
   assert.equal(model.days[0].segments.reduce((sum, item) => sum + item.active_seconds, 0), rows.reduce((sum, item) => sum + item.active_seconds, 0))
+})
+
+test('agent donut segments preserve legend order and calculate metric-specific shares', () => {
+  const day = {
+    day: '2026-07-14',
+    active_agents: 4,
+    active_seconds: 180,
+    segments: [
+      { name: 'alice', active_agents: 3, active_seconds: 60 },
+      { name: 'bob', active_agents: 1, active_seconds: 120 },
+      { name: 'idle', active_agents: 0, active_seconds: 0 },
+    ],
+  }
+  const agentSlices = buildAgentDonutSegments(day, 'agents')
+  assert.deepEqual(agentSlices.map((slice) => [slice.name, slice.value]), [['alice', 3], ['bob', 1]])
+  assert.deepEqual(agentSlices.map((slice) => slice.offset), [0, 0.75])
+  assert.equal(agentSlices.reduce((sum, slice) => sum + slice.share, 0), 1)
+
+  const secondSlices = buildAgentDonutSegments(day, 'seconds')
+  assert.deepEqual(secondSlices.map((slice) => [slice.name, slice.value]), [['alice', 60], ['bob', 120]])
+  assert.equal(secondSlices[0].share, 1 / 3)
+  assert.equal(secondSlices[1].offset, 1 / 3)
 })
