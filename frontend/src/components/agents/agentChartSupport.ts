@@ -1,9 +1,9 @@
 import { useLayoutEffect, useState } from 'react'
 import type { RefObject } from 'react'
-import type { AgentChartMetric, AgentRankView, AgentTrendDay } from '../../lib/agentsDashboard'
+import type { AgentTrendDay } from '../../lib/agentsDashboard'
 
 type TipAnchor = { left: number; right: number; chartTop: number }
-export type AgentChartTipModel = { row: AgentTrendDay; current: boolean; anchor: TipAnchor; metric: AgentChartMetric; view: AgentRankView; legend: string[] }
+export type AgentChartTipModel = { row: AgentTrendDay; current: boolean; anchor: TipAnchor; legend: string[] }
 
 const PLOT_TOP = 24
 

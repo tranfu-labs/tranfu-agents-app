@@ -14,7 +14,6 @@ function deltaTone(value: string) {
 const ACTION_LABELS: Record<AgentKpiAction, string> = {
   trend: 'agentKpiViewTrend',
   directory: 'agentKpiViewDirectory',
-  'operator-rank': 'agentKpiViewOperatorRank',
   live: 'agentKpiFilterLive',
   week: 'agentKpiSortWeek',
   quality: 'agentKpiSortQuality',

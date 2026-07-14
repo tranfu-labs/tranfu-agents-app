@@ -3,6 +3,7 @@ import type { Lang, Status } from './types'
 export const I18N = {
   zh: {
     board: 'Pods 看板', agents: 'Agents 列表', skillsNav: 'SKILLS 统计', tokenUsageNav: 'Token 用量', demo: '演示数据 · 未连接',
+    agentScopeDuration: '全部 Agent · 按运行时长', agentScopeAgent: '对象：Agent', agentDurationRank: 'Agent 运行时长排行', agentWindowAverageTime: '平均运行时长', agentUnnamed: '未命名 Agent', agentSearchAgentsHint: 'Agent / 任务 / 步骤',
     themeMode: '主题模式', themeSystem: '系统', themeLight: '浅色', themeDark: '深色',
     ro_skill: '7天新发现', ro_assets: 'Skill 资产', ro_live: '在线', newSkillsLinkLabel: '查看 7 天新发现 Skill 名单', newSkillsScope: '新发现名单', newSkillsSummary: '新发现', clearScope: '清除名单',
     pods: 'Mission Pods', running: '运行', of: '共', dispatcher: '调度员', squad: '编队', live: '在线', feed: '活动流', silent: '静默中…', noPods: '尚无 Pod 上报', noPodsH: '成员入职后在此出现',
@@ -34,6 +35,7 @@ export const I18N = {
   },
   en: {
     board: 'Pods', agents: 'Agents', skillsNav: 'SKILLS', tokenUsageNav: 'Token usage', demo: 'Demo · offline',
+    agentScopeDuration: 'All agents · by active time', agentScopeAgent: 'Scope: Agent', agentDurationRank: 'Agent active-time ranking', agentWindowAverageTime: 'Average active time', agentUnnamed: 'Unnamed agent', agentSearchAgentsHint: 'Agent / task / step',
     themeMode: 'Theme mode', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark',
     ro_skill: 'New in 7d', ro_assets: 'Skill assets', ro_live: 'Live', newSkillsLinkLabel: 'View new skills found in 7 days', newSkillsScope: 'New list', newSkillsSummary: 'New', clearScope: 'Clear list',
     pods: 'Mission Pods', running: 'running', of: 'of', dispatcher: 'dispatcher', squad: 'squad', live: 'live', feed: 'Activity', silent: 'quiet…', noPods: 'No pods yet', noPodsH: 'appears after onboarding',

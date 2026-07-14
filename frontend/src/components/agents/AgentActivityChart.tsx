@@ -7,14 +7,12 @@ import {
   resolveAgentChartAnchorIndex,
   resolveAgentChartMode,
   resolveAgentChartScrollLeft,
-  type AgentChartMetric,
   type AgentDailyBreakdownRow,
-  type AgentRankView,
   type AgentTrendDay,
 } from '../../lib/agentsDashboard'
 import { resolveSkillsChartLayout } from '../../lib/skillsChartLayout'
 import type { AgentOverview } from '../../lib/types'
-import { dur, RT } from '../../lib/utils'
+import { dur } from '../../lib/utils'
 import { AgentChartTip } from './AgentChartTip'
 import {
   agentChartAnchor,
@@ -22,27 +20,25 @@ import {
   useAgentChartWidth,
 } from './agentChartSupport'
 
-export function AgentActivityChart({ overview, breakdown, view, currentDay, windowLabel, t }: {
+export function AgentActivityChart({ overview, breakdown, currentDay, windowLabel, t }: {
   overview: AgentOverview
   breakdown: AgentDailyBreakdownRow[]
-  view: AgentRankView
   currentDay?: string
   windowLabel: string
   t: (key: string) => string
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const hitRefs = useRef<Array<SVGGraphicsElement | null>>([])
-  const [metric, setMetric] = useState<AgentChartMetric>('agents')
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<AgentChartTipModel | null>(null)
-  const [activeIndex, setActiveIndex] = useState(() => resolveAgentChartAnchorIndex(overview.daily, 'agents'))
+  const [activeIndex, setActiveIndex] = useState(() => resolveAgentChartAnchorIndex(overview.daily))
   const chartBoxWidth = useAgentChartWidth(boxRef)
-  const mode = resolveAgentChartMode(overview.daily, metric)
-  const model = useMemo(() => buildAgentTrendModel(breakdown, overview.days, metric), [breakdown, overview.days, metric])
+  const mode = resolveAgentChartMode(overview.daily)
+  const model = useMemo(() => buildAgentTrendModel(breakdown, overview.days), [breakdown, overview.days])
   const todayRow = model.days[0]
-  const todaySlices = useMemo(() => todayRow ? buildAgentDonutSegments(todayRow, metric) : [], [metric, todayRow])
+  const todaySlices = useMemo(() => todayRow ? buildAgentDonutSegments(todayRow) : [], [todayRow])
   const layout = resolveSkillsChartLayout(overview.daily.length, chartBoxWidth)
-  const chartAnchorIndex = resolveAgentChartAnchorIndex(overview.daily, metric)
+  const chartAnchorIndex = resolveAgentChartAnchorIndex(overview.daily)
   const windowIdentity = `${overview.days[0] || ''}:${overview.days.at(-1) || ''}:${overview.days.length}`
   const safeActiveIndex = Math.min(activeIndex, Math.max(0, overview.daily.length - 1))
   const visibleTip = tip && model.days.includes(tip.row) ? tip : null
@@ -54,17 +50,11 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
     box.scrollLeft = layout.scrollToEnd
       ? resolveAgentChartScrollLeft(overview.daily.length, chartAnchorIndex, layout.trackWidth, box.clientWidth, box.scrollWidth)
       : 0
-  }, [chartAnchorIndex, layout.scrollToEnd, layout.trackWidth, metric, overview.daily.length, windowIdentity])
-
-  const selectMetric = (nextMetric: AgentChartMetric) => {
-    setTip(null)
-    setMetric(nextMetric)
-    setActiveIndex(resolveAgentChartAnchorIndex(overview.daily, nextMetric))
-  }
+  }, [chartAnchorIndex, layout.scrollToEnd, layout.trackWidth, overview.daily.length, windowIdentity])
 
   const showTip = (row: AgentTrendDay, index: number, element: SVGGraphicsElement) => {
     setActiveIndex(index)
-    setTip({ row, current: row.day === currentDay, anchor: agentChartAnchor(element), metric, view, legend: model.legend })
+    setTip({ row, current: row.day === currentDay, anchor: agentChartAnchor(element), legend: model.legend })
   }
 
   const onBarKeyDown = (event: KeyboardEvent<SVGGraphicsElement>, index: number) => {
@@ -85,11 +75,7 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
     <div className="agents-panel-title">
       <div>
         <b><span className="sl">//</span>{t('agentActivityTrend')}</b>
-        <span className="cnt">{windowLabel} · {t(metric === 'agents' ? 'agentActiveCount' : 'agentActiveTime')}</span>
-      </div>
-      <div className="seg compact" role="group" aria-label={t('agentTrendMetric')}>
-        <button type="button" className={metric === 'agents' ? 'on' : ''} aria-pressed={metric === 'agents'} onClick={() => selectMetric('agents')}>{t('agentActiveCount')}</button>
-        <button type="button" className={metric === 'seconds' ? 'on' : ''} aria-pressed={metric === 'seconds'} onClick={() => selectMetric('seconds')}>{t('agentActiveTime')}</button>
+        <span className="cnt">{windowLabel} · {t('agentActiveTime')}</span>
       </div>
     </div>
   )
@@ -103,7 +89,7 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
     )
   }
 
-  const values = overview.daily.map((row) => Number(metric === 'agents' ? row.active_agents : row.active_seconds))
+  const values = overview.daily.map((row) => Number(row.active_seconds))
   const max = Math.max(...values, 1)
   const width = Math.max(mode === 'today' ? 280 : 0, layout.trackWidth)
   const height = mode === 'today' ? 190 : 220
@@ -111,11 +97,11 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
   const plotHeight = 165
   const step = (width - 54) / Math.max(overview.daily.length, 1)
   const barWidth = layout.barWidth
-  const patternId = `agentStripe-${metric}-${overview.daily.length}`
+  const patternId = `agentStripe-seconds-${overview.daily.length}`
   const labelEvery = Math.max(1, Math.ceil(overview.daily.length / 8))
   const colorOf = (name: string) => `var(--agent-segment-${Math.max(0, model.legend.indexOf(name)) % 9})`
-  const nameOf = (name: string) => name === '__other' ? t('other') : name === '__unassigned' ? t('agentUnassigned') : view === 'runtime' ? (RT[name] || name) : name
-  const todayValue = todayRow ? (metric === 'agents' ? String(todayRow.active_agents) : dur(todayRow.active_seconds)) : '0'
+  const nameOf = (name: string) => name === '__other' ? t('other') : name
+  const todayValue = todayRow ? dur(todayRow.active_seconds) : '0s'
   const donutCenterX = width / 2
   const donutCenterY = 82
   const donutRadius = 52
@@ -146,7 +132,7 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
           setHoverSegment(null)
         }}
       >
-        <svg className={`agents-trend-chart metric-${metric} ${visibleTip ? 'hovering' : ''}`} viewBox={`0 0 ${width} ${height}`} style={{ width, minWidth: width }} role="img" aria-label={t('agentActivityTrend')}>
+        <svg className={`agents-trend-chart metric-seconds ${visibleTip ? 'hovering' : ''}`} viewBox={`0 0 ${width} ${height}`} style={{ width, minWidth: width }} role="img" aria-label={t('agentActivityTrend')}>
           <defs>
             <pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
               <path d="M 0 0 L 0 6" stroke="var(--text)" strokeOpacity=".22" strokeWidth="2" />
@@ -196,7 +182,7 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
                 />
               ))}
               {todayRow.day === currentDay ? <circle className="agent-donut-progress" cx={donutCenterX} cy={donutCenterY} r={donutRadius} fill="none" stroke={`url(#${patternId})`} strokeWidth={donutStroke} pointerEvents="none" /> : null}
-              <text className="agent-donut-label" x={donutCenterX} y={donutCenterY - 5} textAnchor="middle">{t(metric === 'agents' ? 'agentActiveCount' : 'agentActiveTime')}</text>
+              <text className="agent-donut-label" x={donutCenterX} y={donutCenterY - 5} textAnchor="middle">{t('agentActiveTime')}</text>
               <text className="agent-donut-value" x={donutCenterX} y={donutCenterY + 17} textAnchor="middle">{todayValue}</text>
               <text className="agent-donut-day" x={donutCenterX} y="166" textAnchor="middle">{todayRow.day.slice(5)}</text>
             </g>
@@ -204,9 +190,9 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
             <>
               <line x1="34" y1={base} x2={width - 12} y2={base} stroke="var(--line2)" />
               <line x1="34" y1="24" x2="34" y2={base} stroke="var(--line2)" />
-              <text x="4" y="30" fill="var(--muted)" fontSize="10">{t(metric === 'agents' ? 'agents' : 'agentSeconds')}</text>
+              <text x="4" y="30" fill="var(--muted)" fontSize="10">{t('agentSeconds')}</text>
               {model.days.map((row, index) => {
-                const value = Number(metric === 'agents' ? row.active_agents : row.active_seconds)
+                const value = Number(row.active_seconds)
                 const barHeight = value ? Math.max(3, Math.round((value / max) * plotHeight)) : 0
                 const slotX = 38 + index * step
                 const x = slotX + Math.max(0, (step - barWidth) / 2)
@@ -217,7 +203,7 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
                 return (
                   <g key={row.day} className={`day-col ${visibleTip?.row.day === row.day ? 'hovered' : ''}`}>
                     {row.segments.map((segment) => {
-                      const segmentValue = Number(metric === 'agents' ? segment.active_agents : segment.active_seconds)
+                      const segmentValue = Number(segment.active_seconds)
                       if (!segmentValue) return null
                       const segmentHeight = Math.max(1, Math.round((segmentValue / max) * plotHeight))
                       y -= segmentHeight
@@ -248,7 +234,7 @@ export function AgentActivityChart({ overview, breakdown, view, currentDay, wind
             </>
           )}
         </svg>
-        <div className="legend2 agent-trend-legend" aria-label={t(view === 'runtime' ? 'agentRankRuntime' : 'agentRankOperator')}>
+        <div className="legend2 agent-trend-legend" aria-label={t('agentDurationRank')}>
           {model.legend.map((name) => (
             <button key={name} type="button" className={hoverSegment === name ? 'on' : ''} onMouseEnter={() => setHoverSegment(name)} onMouseLeave={() => setHoverSegment(null)} onFocus={() => setHoverSegment(name)} onBlur={() => setHoverSegment(null)}>
               <span className="sw" style={{ background: colorOf(name) }} />{nameOf(name)}
