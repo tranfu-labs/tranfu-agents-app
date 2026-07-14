@@ -5,6 +5,8 @@ import { buildRankItems } from '../../lib/skillsDashboard'
 import type { SkillTableRow } from '../../lib/types'
 import { sourceLabel, skillColor } from '../../lib/utils'
 import { evidencePath } from '../../lib/skillsEvidence'
+import { skillDisplayName } from '../../lib/skillNames'
+import type { Lang, SkillNamesMap } from '../../lib/types'
 
 function n(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(Math.round(Number(value || 0)))
@@ -16,7 +18,7 @@ function rowKey(event: KeyboardEvent<HTMLButtonElement>, action: () => void) {
   action()
 }
 
-export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTableRow[]; topN: number; selected: string; onSelect: (name: string) => void; t: (key: string) => string }) {
+export function RankBars({ rows, topN, selected, onSelect, lang, names, t }: { rows: SkillTableRow[]; topN: number; selected: string; onSelect: (name: string) => void; lang: Lang; names?: SkillNamesMap; t: (key: string) => string }) {
   const [expanded, setExpanded] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -33,7 +35,8 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
       {items.map((item) => {
         const active = selected && selected === item.name
         const dim = selected && !active
-        const displayName = item.isOther ? `${t('other')} ${item.names?.length || 0} ${t('skillsUnit')}` : item.name
+        const row = rows.find((candidate) => candidate.name === item.name)
+        const displayName = item.isOther ? `${t('other')} ${item.names?.length || 0} ${t('skillsUnit')}` : skillDisplayName(row || item.name, lang, names)
         const click = () => {
           if (item.isOther) setExpanded((value) => !value)
           else onSelect(item.name)
@@ -53,7 +56,7 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
                   className="rank-evidence evidence-icon-link"
                   role="link"
                   tabIndex={-1}
-                  aria-label={`${t('viewEvidence')}: ${item.name}`}
+                  aria-label={`${t('viewEvidence')}: ${displayName}`}
                   title={t('viewEvidence')}
                   onClick={(event) => {
                     event.stopPropagation()
@@ -69,13 +72,15 @@ export function RankBars({ rows, topN, selected, onSelect, t }: { rows: SkillTab
       })}
       {expanded && tailRows.length ? (
         <div className="skills-rank-tail">
-          {tailRows.map((row) => (
-            <button type="button" key={row.name} className={selected === row.name ? 'selected' : ''} aria-label={row.name} title={row.name} onClick={() => onSelect(row.name)}>
-              <span>{row.name}</span>
+          {tailRows.map((row) => {
+            const displayName = skillDisplayName(row, lang, names)
+            return (
+            <button type="button" key={row.name} className={selected === row.name ? 'selected' : ''} aria-label={displayName} title={displayName} onClick={() => onSelect(row.name)}>
+              <span>{displayName}</span>
               <strong>{n(row.sessions_window ?? row.sessions_30d)}</strong>
               <em>{sourceLabel(row.source, t)}</em>
             </button>
-          ))}
+          )})}
         </div>
       ) : null}
     </div>

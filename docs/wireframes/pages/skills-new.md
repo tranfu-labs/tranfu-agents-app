@@ -2,6 +2,7 @@
 
 > 路由：`/skills/new`（`frontend/src/views/SkillsNew.tsx`）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
 > 加载规则：本页不等待全局 `/api/state` 首包，独立请求 `/api/skills` 并读取 `published_skills[]`。
+> 名称规则：列表与搜索使用当前语言 display name，详情跳转仍使用 slug。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 手机 375×812（31 列）

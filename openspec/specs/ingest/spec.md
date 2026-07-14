@@ -75,6 +75,9 @@
 - 上报失败不得影响使用者 agent(客户端侧静默,见 ADR-0005)。
 - `skills_seen.first_day` 在普通采集时记录 skill 首见统计日;当后台清理或恢复导致某 skill 的
   `skill_uses` 引用增减时,必须按剩余引用重算(取剩余最早 `Asia/Shanghai` 统计日;无引用则删除该行)。
+- profile 自动探测读取每个 `SKILL.md` 时保留 `name`，并 best-effort 读取可选
+  `display_name/display_name_zh`；解析或读取失败 MUST 静默降级且不得阻塞宿主 agent。
+  `name` 仍是 Skill identity，显示字段仅供读侧呈现；旧 Skill 未定义显示名时仍必须正常上报。
 
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。

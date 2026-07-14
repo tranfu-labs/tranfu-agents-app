@@ -6,6 +6,7 @@ import { windowZeroUsageLabel } from '../lib/skillsPresentation'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillsEvidencePayload } from '../lib/types'
 import { sourceLabel } from '../lib/utils'
+import { skillDisplayName } from '../lib/skillNames'
 
 function n(value: unknown) {
   const num = Number(value || 0)
@@ -27,7 +28,7 @@ function RecordsTable({ data, lang }: { data: SkillsEvidencePayload | null; lang
             return (
               <tr key={`${record.session_id}:${record.skill}:${record.first_seen}:${index}`}>
                 <td data-label="Time" title={time.title}>{time.label}</td>
-                <td className="mobile-main" data-label="Skill"><b>{record.skill || '—'}</b></td>
+                <td className="mobile-main" data-label="Skill"><b>{skillDisplayName(record, lang, data?.skill_names) || '—'}</b></td>
                 <td data-label="Operator">{record.operator || '—'}</td>
                 <td data-label="Runtime">{record.runtime || '—'}</td>
                 <td data-label="Session"><code>{record.session_id || '—'}</code></td>
@@ -80,7 +81,7 @@ function UntrackedView({ data, lang, search, t }: { data: SkillsEvidencePayload 
           <div className="evidence-list">
             {(data?.top_skills || []).slice(0, 10).map((row) => (
               <div className="evidence-list-row" key={row.name}>
-                <b>{row.name}</b>
+                <b>{skillDisplayName(row, lang, data?.skill_names)}</b>
                 <span>{n(row.records)} records · {n(row.operators)} operators</span>
               </div>
             ))}
@@ -92,7 +93,7 @@ function UntrackedView({ data, lang, search, t }: { data: SkillsEvidencePayload 
   )
 }
 
-function IdleView({ data, t }: { data: SkillsEvidencePayload | null; t: (key: string) => string }) {
+function IdleView({ data, lang, t }: { data: SkillsEvidencePayload | null; lang: Lang; t: (key: string) => string }) {
   const items = data?.items || []
   return (
     <section className="frame evidence-primary">
@@ -106,7 +107,7 @@ function IdleView({ data, t }: { data: SkillsEvidencePayload | null; t: (key: st
             <tbody>
               {items.map((item) => (
                 <tr key={item.name}>
-                  <td className="mobile-main" data-label="Skill"><b>{item.name}</b></td>
+                  <td className="mobile-main" data-label="Skill"><b>{skillDisplayName(item, lang, data?.skill_names)}</b></td>
                   <td className="num" data-label={t('peopleInstalled')}>{item.installers || 0}</td>
                   <td data-label={t('installersList')}><InstallerList installers={item.installers_detail} /></td>
                   <td data-label={t('lastUsed')}>{item.last_day || t('neverUsed')}</td>
@@ -120,7 +121,7 @@ function IdleView({ data, t }: { data: SkillsEvidencePayload | null; t: (key: st
   )
 }
 
-function ZeroInstallView({ data, t }: { data: SkillsEvidencePayload | null; t: (key: string) => string }) {
+function ZeroInstallView({ data, lang, t }: { data: SkillsEvidencePayload | null; lang: Lang; t: (key: string) => string }) {
   const items = data?.items || []
   return (
     <section className="frame evidence-primary">
@@ -134,7 +135,7 @@ function ZeroInstallView({ data, t }: { data: SkillsEvidencePayload | null; t: (
             <tbody>
               {items.map((item) => (
                 <tr key={item.name}>
-                  <td className="mobile-main" data-label="Skill"><b>{item.name}</b></td>
+                  <td className="mobile-main" data-label="Skill"><b>{skillDisplayName(item, lang, data?.skill_names)}</b></td>
                   <td data-label="Source"><span className="source-pill">{sourceLabel(item.source, t)}</span></td>
                   <td className="num" data-label={t('peopleInstalled')}>0</td>
                 </tr>
@@ -149,7 +150,7 @@ function ZeroInstallView({ data, t }: { data: SkillsEvidencePayload | null; t: (
 
 export function SkillsClueView({ clueKind, data, loading, error, lang, search, t }: { clueKind: SkillsClueKind; data: SkillsEvidencePayload | null; loading: boolean; error: string; lang: Lang; search: string; t: (key: string) => string }) {
   const back = `/skills${skillsBackSearch(search)}`
-  const chips = humanFilterChips(data, t)
+  const chips = humanFilterChips(data, t, lang)
   const summary = data?.summary || {}
   const windowKey = data?.window?.key || '7d'
   const headline = clueKind === 'untracked'
@@ -174,8 +175,8 @@ export function SkillsClueView({ clueKind, data, loading, error, lang, search, t
       {error ? <div className="note-warn">{t(error)}</div> : null}
       {loading && !data ? <section className="frame"><Empty title={t('loading')} /></section> : null}
       {clueKind === 'untracked' ? <UntrackedView data={data} lang={lang} search={search} t={t} /> : null}
-      {clueKind === 'idle' ? <IdleView data={data} t={t} /> : null}
-      {clueKind === 'zero-install' ? <ZeroInstallView data={data} t={t} /> : null}
+      {clueKind === 'idle' ? <IdleView data={data} lang={lang} t={t} /> : null}
+      {clueKind === 'zero-install' ? <ZeroInstallView data={data} lang={lang} t={t} /> : null}
     </div>
   )
 }

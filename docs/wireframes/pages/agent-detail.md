@@ -1,6 +1,7 @@
 # Agent 详情 · 线框图
 
 > 路由：`/agent/:key`（frontend/src/views/AgentDetail.tsx）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
+> 名称规则：已安装 Skill 读取 profile 中的双语 display name 并随界面语言切换；缺失时回退 slug。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 平板 768×1024（64 列）｜ 手机 375×812（31 列）

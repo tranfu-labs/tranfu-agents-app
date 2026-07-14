@@ -1,6 +1,7 @@
 # Operator 详情 · 线框图
 
 > 路由：`/operator/:name`（frontend/src/views/OperatorDetail.tsx）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
+> 名称规则：Skill 排行、趋势图例/tooltip 与最近记录统一显示当前语言 display name，点击仍以 slug 下钻。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 平板 768×1024（64 列）｜ 手机 375×812（31 列）

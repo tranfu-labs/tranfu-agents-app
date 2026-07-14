@@ -2,6 +2,7 @@
 
 > 路由：`/skills/clues/untracked`、`/skills/clues/idle`、`/skills/clues/zero-install`（`frontend/src/views/SkillsClue.tsx`）。
 > 从 `/skills` 待处理线索的查看图标进入；旧 `/skills/evidence?kind=untracked|idle|zero_install` 前端兼容跳转到本页。
+> 名称规则：未收录记录、闲置/零装机名单和 Top Skills 统一显示当前语言 display name，治理目标仍由 slug 唯一标识。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 手机 375×812（31 列）

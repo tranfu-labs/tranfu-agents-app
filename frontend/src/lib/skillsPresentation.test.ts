@@ -81,9 +81,13 @@ test('humanFilterChips hides raw query field names and enum values', () => {
       src: 'non_catalog',
       skill: 'coolify-deploy',
     },
+    skill_names: {
+      'coolify-deploy': { display_name: 'Coolify Deployment', display_name_zh: 'Coolify 部署' },
+    },
   }
   const text = humanFilterChips(data, makeT('zh')).join(' · ')
-  assert.equal(text, '近 7 天 · 2026-06-27 ~ 2026-07-03 · 来源：未收录 · skill：coolify-deploy')
+  assert.equal(text, '近 7 天 · 2026-06-27 ~ 2026-07-03 · 来源：未收录 · skill：Coolify 部署')
+  assert.equal(humanFilterChips(data, makeT('en'), 'en').at(-1), 'skill：Coolify Deployment')
   assert.equal(text.includes('window_start'), false)
   assert.equal(text.includes('non_catalog'), false)
 })

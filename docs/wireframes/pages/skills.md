@@ -2,6 +2,7 @@
 
 > 路由：`/skills`（`frontend/src/views/Skills.tsx`）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
 > 加载规则：`/skills` 不等待全局 `/api/state` 首包才挂载；首次进入先显示控制条 + loading，返回页面或刷新时可保留同 URL 已校验旧列表并以 refreshing 状态后台校验。
+> 名称规则：所有可见 Skill 名、图例、tooltip 与无障碍文案按当前语言显示 `display_name_zh/display_name`；slug 只保留为 URL、筛选、颜色和选择 identity。搜索同时匹配三者。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 平板 768×1024（64 列）｜ 手机 375×812（31 列）

@@ -154,11 +154,15 @@ def _parse_skill_md(p):
     front = m.group(1) if m else txt[:500]
     nm = re.search(r"^name:\s*(.+)$", front, re.M)
     ds = re.search(r"^description:\s*(.+)$", front, re.M)
+    dn = re.search(r"^display_name:\s*(.+)$", front, re.M)
+    dz = re.search(r"^display_name_zh:\s*(.+)$", front, re.M)
     name = (nm.group(1).strip() if nm else Path(p).parent.name).strip("\"' ")
     desc = (ds.group(1).strip() if ds else "").strip("\"' ")
+    display_name = (dn.group(1).strip() if dn else "").strip("\"' ")
+    display_name_zh = (dz.group(1).strip() if dz else "").strip("\"' ")
     if len(desc) > 90:
         desc = desc[:90].rstrip() + "…"
-    return name, desc
+    return name, desc, display_name[:240], display_name_zh[:240]
 
 
 def _skill_sources(runtime, cwd):
@@ -224,10 +228,16 @@ def detect_skills(cwd, runtime=None):
                     first = Path(os.path.dirname(sk))
                 if skip and first.is_symlink():
                     continue
-                nm, desc = _safe(lambda: _parse_skill_md(sk), (None, None))
+                nm, desc, display_name, display_name_zh = _safe(
+                    lambda: _parse_skill_md(sk), (None, None, None, None))
                 if nm and nm not in seen:
                     seen.add(nm)
-                    local.append({"name": nm, "desc": desc or ""})
+                    item = {"name": nm, "desc": desc or ""}
+                    if display_name:
+                        item["display_name"] = display_name
+                    if display_name_zh:
+                        item["display_name_zh"] = display_name_zh
+                    local.append(item)
     return {"local": local, "cross": [], "pitfalls": []} if local else None
 
 

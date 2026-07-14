@@ -4,14 +4,15 @@ import { DEMO_CONFIG, DEMO_MEMORY } from '../lib/demo'
 import { ACT_DAYS, dur, hashHue, initials, keyOf, LIVE, RT, shimState, shortShim } from '../lib/utils'
 import { statusName } from '../lib/i18n'
 import type { AgentConfig, AgentMemory, Lang, SkillRef, StatePayload } from '../lib/types'
+import { skillDisplayName } from '../lib/skillNames'
 
-function SkillList({ items, cls, t }: { items?: SkillRef[]; cls: 'local' | 'cross'; t: (key: string) => string }) {
+function SkillList({ items, cls, lang, t }: { items?: SkillRef[]; cls: 'local' | 'cross'; lang: Lang; t: (key: string) => string }) {
   return (
     <>
       {(items || []).map((skill) => (
         <div className="skill" key={`${cls}-${skill.name}`}>
           <div className="nm">
-            {skill.name} <span className={`pin ${cls}`}>{t(cls)}</span>
+            {skillDisplayName(skill, lang)} <span className={`pin ${cls}`}>{t(cls)}</span>
           </div>
           <div className="ds">{skill.desc || ''}</div>
         </div>
@@ -20,7 +21,7 @@ function SkillList({ items, cls, t }: { items?: SkillRef[]; cls: 'local' | 'cros
   )
 }
 
-function MemoryPanel({ memory, pitfalls, t }: { memory: AgentMemory | null; pitfalls: Array<string | SkillRef>; t: (key: string) => string }) {
+function MemoryPanel({ memory, pitfalls, lang, t }: { memory: AgentMemory | null; pitfalls: Array<string | SkillRef>; lang: Lang; t: (key: string) => string }) {
   if (!memory) {
     return (
       <div className="panel">
@@ -62,7 +63,7 @@ function MemoryPanel({ memory, pitfalls, t }: { memory: AgentMemory | null; pitf
         pitfalls.map((item) => (
           <div className="mem" key={typeof item === 'string' ? item : item.name}>
             <span className="mt">{t('pit')}</span>
-            {typeof item === 'string' ? item : item.name}
+            {typeof item === 'string' ? item : skillDisplayName(item, lang)}
           </div>
         ))
       ) : (
@@ -218,14 +219,14 @@ export function AgentDetail({ data, lang, t }: { data: StatePayload; lang: Lang;
             </h3>
             {skillCount ? (
               <>
-                <SkillList items={skills.local} cls="local" t={t} />
-                <SkillList items={skills.cross} cls="cross" t={t} />
+                <SkillList items={skills.local} cls="local" lang={lang} t={t} />
+                <SkillList items={skills.cross} cls="cross" lang={lang} t={t} />
               </>
             ) : (
               <div className="hint">{t('none')}</div>
             )}
           </div>
-          <MemoryPanel memory={memory} pitfalls={skills.pitfalls || []} t={t} />
+          <MemoryPanel memory={memory} pitfalls={skills.pitfalls || []} lang={lang} t={t} />
         </div>
       </div>
     </>

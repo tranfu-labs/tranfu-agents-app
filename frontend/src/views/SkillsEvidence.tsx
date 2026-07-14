@@ -6,6 +6,7 @@ import { sourceLabel } from '../lib/utils'
 import { evidencePath, skillsBackSearch } from '../lib/skillsEvidence'
 import { humanFilterChips } from '../lib/skillsClues'
 import { defaultEvidenceTab, evidenceSummaryLine, isListEvidenceKind } from '../lib/skillsPresentation'
+import { skillDisplayName } from '../lib/skillNames'
 
 const KIND_LABEL_ZH: Record<SkillsEvidenceKind, string> = {
   total: '总触发记录',
@@ -45,9 +46,9 @@ function n(value: unknown) {
   return new Intl.NumberFormat('zh-CN').format(Number.isFinite(num) ? Math.round(num * 100) / 100 : 0)
 }
 
-function FilterChips({ data, t }: { data: SkillsEvidencePayload | null; t: (key: string) => string }) {
+function FilterChips({ data, lang, t }: { data: SkillsEvidencePayload | null; lang: Lang; t: (key: string) => string }) {
   const ignored = data?.ignored_filters || []
-  const visible = humanFilterChips(data, t)
+  const visible = humanFilterChips(data, t, lang)
   return (
     <div className="evidence-filters">
       {visible.map((chip) => <span key={chip}>{chip}</span>)}
@@ -86,7 +87,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
                 return (
                   <tr key={`${record.session_id}:${record.skill}:${record.first_seen}:${index}`}>
                     <td data-label="Time" title={time.title}>{time.label}</td>
-                    <td className="mobile-main" data-label="Skill"><b>{record.skill || '—'}</b></td>
+                    <td className="mobile-main" data-label="Skill"><b>{skillDisplayName(record, lang, data?.skill_names) || '—'}</b></td>
                     <td data-label="Operator">{record.operator || '—'}</td>
                     <td data-label="Runtime">{record.runtime || '—'}</td>
                     <td data-label="Source"><span className="source-pill">{sourceLabel(record.source, t)}</span></td>
@@ -112,7 +113,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             <tbody>
               {items.map((item) => (
                 <tr key={item.name}>
-                  <td className="mobile-main" data-label="Skill"><b>{item.name}</b></td>
+                  <td className="mobile-main" data-label="Skill"><b>{skillDisplayName(item, lang, data?.skill_names)}</b></td>
                   <td data-label="Source"><span className="source-pill">{sourceLabel(item.source, t)}</span></td>
                   <td className="num" data-label="Installers">{item.installers || 0}</td>
                   <td data-label="Last used">{item.last_day || '—'}</td>
@@ -133,7 +134,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
             <h1>{kindLabel(data?.kind, lang)}</h1>
             <p>{data?.window?.start || '—'} .. {data?.window?.end || '—'}</p>
           </div>
-          <FilterChips data={data} t={t} />
+          <FilterChips data={data} lang={lang} t={t} />
           <div className="evidence-summary-line">
             <span>{evidenceSummaryLine(data)}</span>
             {showUntrackedSlice ? (
@@ -160,7 +161,7 @@ export function SkillsEvidenceView({ data, loading, error, lang, search, t }: { 
           <div className="evidence-list">
             {(data?.top_skills || []).slice(0, 10).map((row) => (
               <div className="evidence-list-row" key={row.name}>
-                <b>{row.name}</b>
+                <b>{skillDisplayName(row, lang, data?.skill_names)}</b>
                 <span>{sourceLabel(row.source, t)} · {n(row.records)} records · {n(row.operators)} operators</span>
               </div>
             ))}

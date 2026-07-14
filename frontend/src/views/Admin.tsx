@@ -10,8 +10,9 @@ import {
   fetchAdminTrash,
   restoreAdminBatch,
 } from '../lib/api'
-import type { AdminInventory, AdminInventoryRow, AdminPreview, AdminTarget, AdminTrashBatch } from '../lib/types'
+import type { AdminInventory, AdminInventoryRow, AdminPreview, AdminTarget, AdminTrashBatch, Lang } from '../lib/types'
 import { fmtTs, RT } from '../lib/utils'
+import { skillDisplayName } from '../lib/skillNames'
 
 type AdminTab = 'operators' | 'identities' | 'sessions' | 'skills' | 'trash'
 
@@ -85,12 +86,14 @@ function InventoryTable({
   rows,
   selected,
   setSelected,
+  lang,
   t,
 }: {
   tab: AdminTab
   rows: AdminInventoryRow[]
   selected: Set<string>
   setSelected: (next: Set<string>) => void
+  lang: Lang
   t: (key: string) => string
 }) {
   if (!rows.length) return <Empty title={t('adminEmpty')} hint={t('adminEmptyHint')} />
@@ -133,7 +136,7 @@ function InventoryTable({
                   />
                 </td>
                 <td>
-                  <b>{row.name || row.session_id || row.skill}</b>
+                  <b>{tab === 'skills' ? skillDisplayName(row, lang) : row.name || row.session_id || row.skill}</b>
                   {row.active ? <span className="mode-badge danger">{t('adminLive')}</span> : null}
                 </td>
                 <td className="q">{scope}</td>
@@ -159,6 +162,7 @@ function PreviewPanel({
   onDelete,
   onCancel,
   deleting,
+  lang,
   t,
 }: {
   preview: AdminPreview
@@ -169,6 +173,7 @@ function PreviewPanel({
   onDelete: () => void
   onCancel: () => void
   deleting: boolean
+  lang: Lang
   t: (key: string) => string
 }) {
   const confirmOk = !preview.requires_confirm || Number(confirmCount) === preview.total_rows
@@ -213,7 +218,7 @@ function PreviewPanel({
             <b>{t('adminFirstDay')}</b>
             <span>
               {(preview.effects?.first_day_changes || [])
-                .map((item) => `${item.skill}: ${item.from || '∅'}→${item.to || '∅'}`)
+                .map((item) => `${skillDisplayName(item, lang, preview.skill_names)}: ${item.from || '∅'}→${item.to || '∅'}`)
                 .join(', ') || '—'}
             </span>
           </div>
@@ -271,7 +276,7 @@ function TrashTable({ batches, onRestore, restoring, t }: { batches: AdminTrashB
   )
 }
 
-export function AdminView({ t }: { t: (key: string) => string }) {
+export function AdminView({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const [adminKey, setAdminKey] = useState(() => window.sessionStorage.getItem(STORAGE_KEY) || '')
   const [gateError, setGateError] = useState('')
   const [tab, setTab] = useState<AdminTab>('operators')
@@ -524,7 +529,7 @@ export function AdminView({ t }: { t: (key: string) => string }) {
           </section>
           <section className="frame" style={{ marginTop: 16 }}>
             <SectionTitle title={t(`adminTab_${tab}`)} count={rows.length} />
-            <InventoryTable tab={tab} rows={rows} selected={selected} setSelected={setSelected} t={t} />
+            <InventoryTable tab={tab} rows={rows} selected={selected} setSelected={setSelected} lang={lang} t={t} />
           </section>
           <section className="frame admin-actionbar">
             <div className="pad">
@@ -547,6 +552,7 @@ export function AdminView({ t }: { t: (key: string) => string }) {
               onCancel={cancelPreview}
               onDelete={() => void runDelete()}
               deleting={busy}
+              lang={lang}
               t={t}
             />
           ) : null}

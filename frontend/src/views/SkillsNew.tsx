@@ -3,8 +3,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Empty, SectionTitle } from '../components/Common'
 import { useSkillQueryState } from '../lib/skillQuery'
 import { formatRecentRecordTime } from '../lib/timeFormat'
-import type { Lang, PublishedSkill, SkillsOverview } from '../lib/types'
+import type { Lang, PublishedSkill, SkillNamesMap, SkillsOverview } from '../lib/types'
 import { encodePathParam, sourceLabel } from '../lib/utils'
+import { skillDisplayName, skillNameMatches } from '../lib/skillNames'
 import { windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 
 const WINDOW_OPTIONS = ['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'] as const
@@ -32,10 +33,10 @@ function rowKey(event: KeyboardEvent<HTMLTableRowElement>, action: () => void) {
   action()
 }
 
-function filterRows(rows: PublishedSkill[], q: string, source: string) {
+function filterRows(rows: PublishedSkill[], q: string, source: string, names?: SkillNamesMap) {
   const needle = q.trim().toLowerCase()
   return rows.filter((row) => {
-    if (needle && !row.name.toLowerCase().includes(needle)) return false
+    if (needle && !skillNameMatches(row, needle, names)) return false
     if (source && row.source !== source) return false
     return true
   })
@@ -47,7 +48,7 @@ export function SkillsNewView({ data, loading, error, lang, t }: { data: SkillsO
   const navigate = useNavigate()
   const currentWindow = params.w || `${params.win || 7}d`
   const source = params.src === 'own' || params.src === 'meta' ? params.src : ''
-  const rows = filterRows(data?.published_skills || [], params.q, source)
+  const rows = filterRows(data?.published_skills || [], params.q, source, data?.skill_names)
   const backSearch = new URLSearchParams(location.search)
   backSearch.delete('src')
   const back = `/skills${backSearch.toString() ? `?${backSearch.toString()}` : ''}`
@@ -143,7 +144,7 @@ export function SkillsNewView({ data, loading, error, lang, t }: { data: SkillsO
                       onClick={canOpen ? () => openSkill(row) : undefined}
                       onKeyDown={canOpen ? (event) => rowKey(event, () => openSkill(row)) : undefined}
                     >
-                      <td className="mobile-main" data-label={t('skillName')}><b>{row.name}</b></td>
+                      <td className="mobile-main" data-label={t('skillName')}><b>{skillDisplayName(row, lang, data?.skill_names)}</b></td>
                       <td data-label={t('sourceFilter')}><span className="source-pill">{sourceLabel(row.source, t)}</span></td>
                       <td data-label={t('cfg_ver')}>{row.version || '—'}</td>
                       <td data-label={t('publishedAt')} title={published.title}>{published.label}</td>

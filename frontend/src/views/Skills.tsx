@@ -16,7 +16,8 @@ import { useSkillQueryState } from '../lib/skillQuery'
 import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
 import { mobileFilterSummary, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
-import type { OperatorTableRow, SkillsOverview, SkillTableRow } from '../lib/types'
+import { skillDisplayName, skillNameMatches } from '../lib/skillNames'
+import type { Lang, OperatorTableRow, SkillsOverview, SkillTableRow, SkillNamesMap } from '../lib/types'
 import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
 
 type FilterableSkill = { name?: string; skill?: string; runtime?: string; source?: string; runtime_counts?: Record<string, number> }
@@ -38,10 +39,8 @@ function inputToUnix(value: string) {
   return Number.isFinite(ts) ? String(Math.floor(ts / 1000)) : ''
 }
 
-function skillPass(row: FilterableSkill, q: string, runtime: string, source: string) {
-  const needle = q.trim().toLowerCase()
-  const name = String(row.name || row.skill || '')
-  if (needle && !name.toLowerCase().includes(needle)) return false
+function skillPass(row: FilterableSkill, q: string, runtime: string, source: string, names?: SkillNamesMap) {
+  if (!skillNameMatches(row, q, names)) return false
   if (source && sourceKey(row.source) !== source) return false
   if (runtime) {
     if (row.runtime) return row.runtime === runtime
@@ -56,11 +55,11 @@ function operatorNamePass(row: FilterableOperator, q: string) {
   return !needle || operator.toLowerCase().includes(needle)
 }
 
-function sortedRows<T extends object>(rows: T[], sort: string, dir: string) {
+function sortedRows<T extends object>(rows: T[], sort: string, dir: string, nameOf?: (row: T) => string) {
   const direction = dir === 'asc' ? 1 : -1
   return rows.slice().sort((a, b) => {
-    const av = (a as Record<string, unknown>)[sort] ?? ''
-    const bv = (b as Record<string, unknown>)[sort] ?? ''
+    const av = sort === 'name' && nameOf ? nameOf(a) : (a as Record<string, unknown>)[sort] ?? ''
+    const bv = sort === 'name' && nameOf ? nameOf(b) : (b as Record<string, unknown>)[sort] ?? ''
     if (typeof av === 'number' || typeof bv === 'number') return (Number(av || 0) - Number(bv || 0)) * direction
     return String(av).localeCompare(String(bv)) * direction
   })
@@ -228,7 +227,7 @@ function OperatorTable({ rows, params, setParams, windowKey, t }: { rows: Operat
   )
 }
 
-export function SkillsView({ data, loading, error, t }: { data: SkillsOverview | null; loading: boolean; error: string; t: (key: string) => string }) {
+export function SkillsView({ data, loading, error, lang, t }: { data: SkillsOverview | null; loading: boolean; error: string; lang: Lang; t: (key: string) => string }) {
   const [params, setParams] = useSkillQueryState()
   const location = useLocation()
   const [drawerSkill, setDrawerSkill] = useState('')
@@ -236,12 +235,12 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
   const view = params.view === 'operator' ? 'operator' : 'skill'
   const selected = selectedSkillOf(params)
   const topN = TOP_OPTIONS.includes(params.topn) ? params.topn : 8
-  const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass({ skill: row.skill, runtime: row.runtime, source: row.source }, params.q, params.rt, params.src))
+  const filteredSkillDaily = (data?.daily || []).filter((row) => skillPass(row, params.q, params.rt, params.src, data?.skill_names))
   const filteredOperatorDaily = (data?.operator_daily || []).filter((row) => operatorNamePass({ operator: row.operator }, params.q))
   const skillRowsBase = (data?.table || [])
-    .filter((row) => skillPass(row, params.q, params.rt, params.src))
+    .filter((row) => skillPass(row, params.q, params.rt, params.src, data?.skill_names))
     .filter((row) => params.hz !== '1' || Number(row.sessions_window ?? row.sessions_30d ?? 0) > 0)
-  const skillRows = sortedRows(skillRowsBase, params.sort, params.dir) as SkillTableRow[]
+  const skillRows = sortedRows(skillRowsBase, params.sort, params.dir, (row) => skillDisplayName(row, lang, data?.skill_names)) as SkillTableRow[]
   const rankRows = useMemo(() => skillRowsBase.slice().sort((a, b) => Number(b.sessions_window ?? b.sessions_30d ?? 0) - Number(a.sessions_window ?? a.sessions_30d ?? 0)), [skillRowsBase])
   const operatorRows = sortedRows((data?.operator_table || []).filter((row) => operatorNamePass(row, params.q)), params.sort, params.dir) as OperatorTableRow[]
   const chartRows = view === 'operator' ? filteredOperatorDaily : filteredSkillDaily
@@ -279,21 +278,21 @@ export function SkillsView({ data, loading, error, t }: { data: SkillsOverview |
               <OperatorTable rows={operatorRows} params={params} setParams={setParams} windowKey={skillsWindow.key} t={t} />
             </>
           ) : (
-            <RankBars rows={rankRows} topN={topN} selected={selected} onSelect={selectSkill} t={t} />
+            <RankBars rows={rankRows} topN={topN} selected={selected} onSelect={selectSkill} lang={lang} names={data?.skill_names} t={t} />
           )}
         </section>
         <section className="frame skills-trend-panel">
           <SectionTitle title={view === 'operator' ? t('dailyByOperator') : t('dailyUsed')} count={skillsWindow.label} />
-          <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
+          <StackedSkillChart rows={chartRows} overview={data} days={chartDays} t={t} lang={lang} skillNames={data?.skill_names} segmentKey={view === 'operator' ? 'operator' : 'skill'} selectedSegment={view === 'skill' ? selected : ''} topN={topN} emptyTitle={view === 'operator' ? t('noOperators') : undefined} emptyHint={view === 'operator' ? t('noOperatorsH') : undefined} />
         </section>
       </div>
       <section className="frame skills-governance-row-frame">
-        <GovernanceTodo data={data} view={view} t={t} />
+        <GovernanceTodo data={data} view={view} lang={lang} t={t} />
       </section>
-      {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} setSource={setSource} t={t} /> : null}
-      {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} t={t} /> : null}
-      <FunnelSection data={data} t={t} />
-      {drawerSkill ? <SkillDrawer name={drawerSkill} row={(data?.table || []).find((row) => row.name === drawerSkill)} search={location.search} onClose={() => setDrawerSkill('')} t={t} /> : null}
+      {view === 'skill' ? <AttributionDonuts data={data} selected={selected} rows={skillRowsBase} lang={lang} setSource={setSource} t={t} /> : null}
+      {view === 'skill' ? <SkillsDetailTable rows={skillRows} allRows={data?.table || []} params={params} setParams={setParams} selected={selected} onOpen={openSkill} lang={lang} names={data?.skill_names} t={t} /> : null}
+      <FunnelSection data={data} lang={lang} t={t} />
+      {drawerSkill ? <SkillDrawer name={drawerSkill} row={(data?.table || []).find((row) => row.name === drawerSkill)} search={location.search} onClose={() => setDrawerSkill('')} lang={lang} names={data?.skill_names} t={t} /> : null}
     </div>
   )
 }

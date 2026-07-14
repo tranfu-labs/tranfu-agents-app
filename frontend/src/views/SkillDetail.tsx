@@ -4,6 +4,7 @@ import { Empty } from '../components/Common'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, SkillDetail as SkillDetailPayload } from '../lib/types'
 import { RT, sourceLabel } from '../lib/utils'
+import { skillDisplayName } from '../lib/skillNames'
 
 export function SkillDetailView({ data, loading, error, lang, t }: { data: SkillDetailPayload | null; loading: boolean; error: string; lang: Lang; t: (key: string) => string }) {
   const params = useParams()
@@ -49,7 +50,7 @@ export function SkillDetailView({ data, loading, error, lang, t }: { data: Skill
         ← {t('skillsNav')}
       </Link>
       <div className="dhead">
-        <span className="alabel">{data.name}</span>
+        <span className="alabel">{skillDisplayName(data, lang, data.skill_names)}</span>
         <span className="source-pill">{sourceLabel(data.source, t)}</span>
       </div>
       <div className="statgrid">
