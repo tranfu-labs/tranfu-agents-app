@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
-import { useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
+import { useAgentsOverview, useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
+import { agentsApiQuery, parseAgentFilters } from './lib/agentsDashboard'
 import { makeT } from './lib/i18n'
 import { useSkillQueryState } from './lib/skillQuery'
 import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
@@ -12,7 +13,7 @@ import type { Lang } from './lib/types'
 import type { StatePayload } from './lib/types'
 import { clueApiSearch, legacyEvidenceCluePath, type SkillsClueKind } from './lib/skillsEvidence'
 import { Board } from './views/Board'
-import { Agents } from './views/Agents'
+import { Agents, AgentsLoadError, AgentsSkeleton } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
 import { SkillsNewView } from './views/SkillsNew'
@@ -22,6 +23,17 @@ import { SkillDetailView } from './views/SkillDetail'
 import { OperatorDetailView } from './views/OperatorDetail'
 import { AdminView } from './views/Admin'
 import { TokenUsageView } from './views/TokenUsage'
+
+function AgentsRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
+  const location = useLocation()
+  const filters = useMemo(() => parseAgentFilters(location.search), [location.search])
+  const query = useMemo(() => agentsApiQuery(filters), [filters])
+  const overview = useAgentsOverview(query !== null, query || '')
+  if (query === null) return <AgentsSkeleton t={t} />
+  if (!overview.data && overview.loading) return <AgentsSkeleton t={t} />
+  if (!overview.data) return <AgentsLoadError retry={() => { void overview.refresh(true) }} t={t} />
+  return <Agents data={overview.data} loading={overview.loading} lang={lang} t={t} />
+}
 
 function SkillsRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const [params] = useSkillQueryState()
@@ -156,7 +168,7 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/" element={<StateRoute state={state.data} t={t}>{(data) => <Board data={data} lang={lang} t={t} />}</StateRoute>} />
-          <Route path="/agents" element={<StateRoute state={state.data} t={t}>{(data) => <Agents data={data} lang={lang} t={t} />}</StateRoute>} />
+          <Route path="/agents" element={<AgentsRoute lang={lang} t={t} />} />
           <Route path="/agent/:key" element={<StateRoute state={state.data} t={t}>{(data) => <AgentDetail data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/skills" element={<SkillsRoute lang={lang} t={t} />} />
           <Route path="/skills/new" element={<SkillsNewRoute lang={lang} t={t} />} />

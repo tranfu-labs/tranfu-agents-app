@@ -134,6 +134,11 @@ export function agentFiltersQuery(filters: AgentFilters) {
   return query ? `?${query}` : ''
 }
 
+export function agentsApiQuery(filters: AgentFilters) {
+  if (filters.w === 'custom' && (!filters.wstart || !filters.wend)) return null
+  return agentFiltersQuery(filters).replace(/^\?/, '') || 'w=today'
+}
+
 function shiftDay(day: string, offset: number) {
   const date = new Date(`${day}T00:00:00Z`)
   if (Number.isNaN(date.getTime())) return day

@@ -7,29 +7,19 @@ import { AgentKpiGrid } from '../components/agents/AgentKpiGrid'
 import { AgentRankPanel } from '../components/agents/AgentRankPanel'
 import { Empty } from '../components/Common'
 import {
-  buildAgentDailyBreakdown,
-  buildAgentDisplayLabels,
-  buildAgentDirectoryRows,
   agentKpiActionPatch,
   agentFiltersQuery,
   agentSectionOrder,
-  agentWindowComparison,
-  agentOverviewOf,
-  agentSignals,
-  attentionCount,
-  buildAgentOverview,
-  buildAgentWindowOverview,
-  filterAgents,
   parseAgentFilters,
-  resolveAgentWindow,
   type AgentFilters,
   type AgentKpiAction,
   type AgentSectionKey,
   type AgentSignal,
+  type AgentWindowComparison,
 } from '../lib/agentsDashboard'
 import { dur } from '../lib/utils'
 import { windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
-import type { Lang, StatePayload } from '../lib/types'
+import type { AgentOverview, AgentsPayload, Lang } from '../lib/types'
 
 const WINDOW_OPTIONS = ['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'] as const
 
@@ -74,7 +64,37 @@ function focusAgentSection(id: string) {
   }))
 }
 
-export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (key: string) => string }) {
+export function AgentsSkeleton({ t }: { t: (key: string) => string }) {
+  const mobileLayout = useMobileAgentsLayout()
+  const sections: Record<AgentSectionKey, ReactNode> = {
+    kpis: <section className="frame agents-skeleton-kpis">{Array.from({ length: 8 }, (_, index) => <span key={index} />)}</section>,
+    signals: <section className="frame agents-skeleton-signals"><span /><span /><span /><span /></section>,
+    analysis: (
+      <div className="agents-analysis">
+        <section className="frame agents-skeleton-rank"><span /><span /><span /><span /></section>
+        <section className="frame agents-skeleton-trend"><span /></section>
+      </div>
+    ),
+    directory: <section className="frame agents-skeleton-directory"><span /><span /><span /></section>,
+  }
+  return (
+    <div className="agents-page agents-skeleton" aria-busy="true" aria-label={t('loading')}>
+      <section className="frame agents-skeleton-toolbar"><span /></section>
+      {agentSectionOrder(mobileLayout).map((key) => <Fragment key={key}>{sections[key]}</Fragment>)}
+    </div>
+  )
+}
+
+export function AgentsLoadError({ retry, t }: { retry: () => void; t: (key: string) => string }) {
+  return (
+    <section className="frame agents-load-error">
+      <Empty title={t('loadError')} />
+      <button type="button" onClick={retry}>{t('refresh')}</button>
+    </section>
+  )
+}
+
+export function Agents({ data, loading, lang, t }: { data: AgentsPayload; loading?: boolean; lang: Lang; t: (key: string) => string }) {
   const location = useLocation()
   const navigate = useNavigate()
   const filters = useMemo(() => parseAgentFilters(location.search), [location.search])
@@ -85,25 +105,45 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     const canonicalSearch = agentFiltersQuery(filters)
     if (location.search !== canonicalSearch) navigate(`/agents${canonicalSearch}`, { replace: true })
   }, [filters, location.search, navigate])
-  const allOverview = agentOverviewOf(data, latestShim)
-  const agentLabels = useMemo(() => buildAgentDisplayLabels(data.sessions), [data.sessions])
-  const visibleAgents = useMemo(() => filterAgents(data.sessions, filters, latestShim), [data.sessions, filters, latestShim])
+  const visibleAgents = data.agents
+  const agentLabels = data.agent_labels
+  const directoryRows = useMemo(() => data.agents.map((agent) => ({
+    agent,
+    active_seconds: agent.active_seconds,
+    active_days: agent.window_active_days,
+  })), [data.agents])
+  const agentsByKey = useMemo(() => new Map(directoryRows.map((row) => [row.agent.key, row])), [directoryRows])
+  const rankingRows = useMemo(() => data.ranking.map((rank) => agentsByKey.get(rank.key)).filter((row): row is NonNullable<typeof row> => Boolean(row)), [agentsByKey, data.ranking])
+  const trendBreakdown = useMemo(() => data.daily.flatMap((row) => row.segments.map((segment) => ({
+    day: row.day,
+    segment: agentLabels[segment.key] || segment.agent || 'Agent',
+    active_agents: segment.active_agents,
+    active_seconds: segment.active_seconds,
+  }))), [agentLabels, data.daily])
+  const overview = useMemo<AgentOverview>(() => ({
+    today: data.today,
+    days: data.window.days,
+    summary: data.summary,
+    daily: data.daily.map(({ day, active_agents, active_seconds }) => ({ day, active_agents, active_seconds })),
+    runtime: [],
+    operator: [],
+  }), [data])
+  const comparison = useMemo<AgentWindowComparison>(() => ({
+    current: { activeAgents: data.comparison.current.active_agents, activeSeconds: data.comparison.current.active_seconds },
+    previous: { activeAgents: data.comparison.previous.active_agents, activeSeconds: data.comparison.previous.active_seconds },
+    currentAvailable: data.comparison.current.available,
+    previousAvailable: data.comparison.previous.available,
+  }), [data.comparison])
   const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal)
-  const overview = hasFilters ? buildAgentOverview(visibleAgents, latestShim, allOverview.today) : allOverview
-  const window = useMemo(() => resolveAgentWindow(filters, allOverview.today), [filters, allOverview.today])
-  const windowOverview = useMemo(() => buildAgentWindowOverview(visibleAgents, overview, window), [visibleAgents, overview, window])
-  const trendBreakdown = useMemo(() => buildAgentDailyBreakdown(visibleAgents, overview.days, window.days, agentLabels), [visibleAgents, overview.days, window.days, agentLabels])
-  const directoryRows = useMemo(() => buildAgentDirectoryRows(visibleAgents, overview.days, window.days, filters.sort), [visibleAgents, overview.days, window.days, filters.sort])
-  const comparison = useMemo(() => agentWindowComparison(visibleAgents, overview.days, window), [visibleAgents, overview.days, window])
-  const windowLabel = windowPeriodLabel(window.key, t)
-  const summary = overview.summary
-  const attention = attentionCount(visibleAgents, latestShim)
+  const windowLabel = windowPeriodLabel(data.window.key, t)
+  const summary = data.summary
+  const attention = data.summary.attention
   const updateFilters = (patch: Partial<AgentFilters>) => {
     const next = { ...filters, ...patch }
     navigate(`/agents${agentFiltersQuery(next)}`, { replace: true })
   }
   const clearFilters = () => navigate('/agents', { replace: true })
-  const signalCount = (signal: AgentSignal) => visibleAgents.filter((agent) => agentSignals(agent, latestShim).includes(signal)).length
+  const signalCount = (signal: AgentSignal) => Number(data.signals[signal] || 0)
   const handleKpiAction = (action: AgentKpiAction) => {
     const patch = agentKpiActionPatch(action)
     if (patch) updateFilters(patch)
@@ -116,9 +156,9 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
       <AgentKpiGrid
         comparison={comparison}
         summary={summary}
-        totalAgents={data.sessions.length}
+        totalAgents={data.summary.total_agents}
         attention={attention}
-        windowKey={window.key}
+        windowKey={data.window.key}
         windowLabel={windowLabel}
         onAction={handleKpiAction}
         t={t}
@@ -144,8 +184,8 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     ),
     analysis: (
       <div className="agents-analysis">
-        <AgentRankPanel rows={directoryRows} labels={agentLabels} lang={lang} windowLabel={windowLabel} t={t} />
-        <AgentActivityChart key={`${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} breakdown={trendBreakdown} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
+        <AgentRankPanel rows={rankingRows} labels={agentLabels} lang={lang} windowLabel={windowLabel} t={t} />
+        <AgentActivityChart key={`${data.window.key}:${data.window.start}:${data.window.end}:${data.window.days.length}`} overview={overview} breakdown={trendBreakdown} currentDay={data.window.end === data.today ? data.today : undefined} windowLabel={windowLabel} t={t} />
       </div>
     ),
     directory: (
@@ -157,14 +197,14 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   }
 
   return (
-    <div className="agents-page">
+    <div className={`agents-page ${loading ? 'is-loading' : ''}`} aria-busy={loading || undefined}>
       <section className="frame agents-toolbar-frame">
         <h2>
           <span><span className="sl">//</span>{t('skillsControls')}</span>
           <span className="cnt">{t('agentScopeDuration')}</span>
         </h2>
         <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} Agent · ${dur(windowOverview.daily.reduce((sum, row) => sum + Number(row.active_seconds || 0), 0))}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
+          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} Agent · ${dur(data.summary.active_seconds)}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
         </button>
         <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
           <span className="agent-scope-chip">{t('agentScopeAgent')}</span>

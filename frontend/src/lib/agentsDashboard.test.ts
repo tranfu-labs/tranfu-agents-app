@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   AGENT_UNASSIGNED,
+  agentsApiQuery,
   agentKpiActionPatch,
   agentFiltersQuery,
   agentSectionOrder,
@@ -48,6 +49,9 @@ test('agent filters normalize unknown URL values and preserve meaningful params'
   assert.equal(agentFiltersQuery({ ...filters, w: '14d' }), '?q=code&status=attention&signal=quality&w=14d&sort=success')
   assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&sort=success')
   assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '1783987200' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&wend=1783987200&sort=success')
+  assert.equal(agentsApiQuery({ ...filters, q: '', status: 'all', signal: '', sort: 'window_time' }), 'w=today')
+  assert.equal(agentsApiQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '' }), null)
+  assert.equal(agentsApiQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '1783987200' }), 'q=code&status=attention&signal=quality&w=custom&wstart=1783900800&wend=1783987200&sort=success')
   assert.deepEqual(parseAgentFilters('?status=nope&sort=nope'), { q: '', status: 'all', signal: '', w: 'today', wstart: '', wend: '', sort: 'window_time' })
   assert.equal(agentFiltersQuery(parseAgentFilters('?rank=runtime&rt=codex&op=alice')), '')
   assert.equal(parseAgentFilters('?sort=today').sort, 'window_time')

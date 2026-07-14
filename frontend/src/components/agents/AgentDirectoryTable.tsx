@@ -40,6 +40,7 @@ export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabe
         <thead>
           <tr>
             <th>{t('agentColumnAgent')}</th>
+            <th>{t('operatorName')}</th>
             <th>{windowLabel}</th>
             <th>{t('agentCumulativeQuality')}</th>
             <th>{t('agentResources')}</th>
@@ -75,6 +76,7 @@ export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabe
                     <span className="agent-directory-step" title={item.current_step || t('agentNoStep')}>{item.current_step ? `▸ ${item.current_step}` : t('agentNoStep')}</span>
                   </span>
                 </td>
+                <td className="agent-directory-operator" data-label={t('operatorName')}><b>{item.operator || t('agentUnassigned')}</b></td>
                 <td className="agent-directory-window" data-label={windowLabel}>
                   <b>{dur(row.active_seconds)}</b>
                   <small>{row.active_days} {t('agentDays')}</small>

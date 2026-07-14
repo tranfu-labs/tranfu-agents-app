@@ -99,6 +99,81 @@ export type AgentOverview = {
   operator: AgentOverviewGroup[]
 }
 
+export type AgentSignalKey = 'error' | 'shim' | 'quiet' | 'quality'
+
+export type AgentsWindow = {
+  key: 'today' | 'this_week' | 'last_week' | '7d' | '14d' | '30d' | '90d' | 'custom'
+  start: string
+  end: string
+  days: string[]
+  previous_start: string
+  previous_end: string
+  previous_days: string[]
+}
+
+export type AgentsWindowStats = {
+  active_agents: number
+  active_seconds: number
+  available: boolean
+}
+
+export type AgentsApiRow = AgentSession & {
+  key: string
+  active_seconds: number
+  window_active_days: number
+  signals: AgentSignalKey[]
+}
+
+export type AgentRankingRow = {
+  rank: number
+  key: string
+  operator: string
+  agent?: string
+  runtime: string
+  status: Status
+  last_seen?: string
+  active_seconds: number
+  active_days: number
+}
+
+export type AgentsDailySegment = {
+  key: string
+  operator: string
+  agent?: string
+  runtime: string
+  active_agents: number
+  active_seconds: number
+}
+
+export type AgentsDailyRow = {
+  day: string
+  active_agents: number
+  active_seconds: number
+  segments: AgentsDailySegment[]
+}
+
+export type AgentsPayload = {
+  today: string
+  window: AgentsWindow
+  summary: AgentOverview['summary'] & {
+    total_agents: number
+    active_agents: number
+    active_seconds: number
+    average_active_seconds: number
+    attention: number
+  }
+  comparison: {
+    current: AgentsWindowStats
+    previous: AgentsWindowStats
+  }
+  daily: AgentsDailyRow[]
+  ranking: AgentRankingRow[]
+  agents: AgentsApiRow[]
+  signals: Record<AgentSignalKey, number>
+  agent_labels: Record<string, string>
+  shim: { version?: string }
+}
+
 export type AgentMemory = {
   file?: string
   updated?: number

@@ -7,6 +7,7 @@ import type {
   AdminPreview,
   AdminTarget,
   AdminTrashBatch,
+  AgentsPayload,
   Loadable,
   OperatorDetail,
   SkillDetail,
@@ -294,6 +295,38 @@ export function usePollingState(enabled = true): Loadable<StatePayload> {
   }, [applyState, enabled, refresh])
 
   return { data, loading, error, demo, refresh }
+}
+
+export function useAgentsOverview(enabled: boolean, query: string): Loadable<AgentsPayload> {
+  const [data, setData] = useState<AgentsPayload | null>(null)
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  const [revision, setRevision] = useState(0)
+
+  const refresh = useCallback(async () => {
+    setRevision((value) => value + 1)
+  }, [])
+
+  useEffect(() => {
+    if (!enabled) {
+      setLoading(false)
+      return undefined
+    }
+    const controller = new AbortController()
+    setLoading(true)
+    setError('')
+    fetchJson<AgentsPayload>(`/api/agents?${query}`, { signal: controller.signal })
+      .then((next) => setData(next))
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') setError(err.message || 'agents')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [enabled, query, revision])
+
+  return { data, loading, error, demo: false, refresh }
 }
 
 export function useSkillsOverview(enabled: boolean, days: number, query = `days=${days}`): Loadable<SkillsOverview> {

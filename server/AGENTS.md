@@ -52,7 +52,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
 - 含 Skill 的读侧对象必须同时返回 slug 与 `display_name/display_name_zh`;多 Skill payload 另返回
   `skill_names`。展示字段不得替代 slug 参与 SQL、URL、选择器、删除或 source 归因。
 - `/api/state` 的 `agent_overview` 必须在最终身份卡片之后聚合,遵守 `operator + agent||runtime` 合并口径;
-  其 90 天日序列、Runtime/操作员分组与 summary 必须复用同一 state snapshot,不得新增独立轮询源。
+  其 90 天日序列、Runtime/操作员分组与 summary 必须复用同一 state snapshot。`/api/agents` 同样必须从该最终快照身份卡片生成指定窗口统计,
+  不得复制身份/profile/质量计算;`ranking[]`、`agents[]` 与每日 identity 分段都必须显式返回 `operator`。
 - `tests/test_module_boundary.py` 守门:
   - `server/app.py` 行数 ≤ 220。
   - `routes/*.py` 可独立 import。

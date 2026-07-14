@@ -22,9 +22,9 @@
 │                                                        │                  ╰────────────╯                             │
 │                                                        │●build 38% ●review 26% ●scout 16% ●docs 10% ●其他 10%        │
 ├─ 响应式表格 ⑥ // Agent 明细 ───────────────────────────┴─────────────────────────────────────────────────────────────┤
-│Agent / 状态 / 任务                     │今天时长/天数│累计质量│Skills/MCP│Shim    │最近活跃                          │
-│build · 运行中  › 构建 Agents dashboard │4h32m / 1天 │91%     │3 / 3     │current │9秒前                            › │
-│review · 空闲   › 复核交互与口径        │3h08m / 1天 │96%     │2 / 1     │current │2分钟前                          › │
+│Agent / 状态 / 任务                   │操作员    │今天时长/天数 │累计质量  │Skills/MCP  │Shim    │最近活跃            │
+│build · 运行中 › 构建 Agents dashboard│alice     │4h32m / 1天   │91%       │3 / 3       │current │9秒前 ›             │
+│review · 空闲 › 复核交互与口径        │bob       │3h08m / 1天   │96%       │2 / 1       │current │2分钟前 ›           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,11 +43,11 @@
 │                    │  11h54m  │                              │
 │                    ╰──────────╯                              │
 │●build  ●review  ●scout  ●docs  ●其他                         │
-├─ ⑥ Agent 明细（无操作员/运行终端列；表格盒内横滚）───────────┤
+├─ ⑥ Agent 明细（显示操作员；无运行终端；表格盒内横滚）────────┤
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 手机 375×812（31 列 × 34 行）
+### 手机 375×812（31 列 × 35 行）
 
 ```text
 ┌─ 页面 Agents ───────────────┐
@@ -56,6 +56,7 @@
 │异常6 Shim2 未活跃0 低质量1  │
 ├─ 明细表摘要行 ⑥ ────────────┤
 │build · 运行中           ›   │
+│操作员 alice                 │
 │今天 4h32m / 1天 · 累计91%   │
 │Skill3 · MCP3 · current · 9s │
 ├─ KPI 网格 ② 今天变化 2×4 ───┤
@@ -88,11 +89,15 @@
 | 编号 | 元素 | 状态 / 交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
 | ① | 控制条 / 手机摘要 | 固定 Agent × 运行时长口径；保留搜索、状态、时间、排序；旧 `rank/rt/op` 清理 | `/agents` URL | Agents toolbar |
-| ② | 八卡 | 时长优先；平均时长替换操作员数；前三卡使用完整窗口环比 | sessions `active_days` + comparison | AgentKpiGrid |
-| ③ | 问题线索 | 点击回填 `status=attention&signal=...`，手机优先显示 | sessions + shim + quality | agents health |
-| ④ | Agent 时长排行 | 非零 Agent 按窗口时长降序；整行下钻 `/agent/:key` | window directory rows | AgentRankPanel |
-| ⑤ | 单日扇形 / 多日趋势 | 固定 `active_seconds`；单日按 Agent 分扇区、中心总时长；多日按 Agent 堆叠 | Agent identity daily breakdown | AgentActivityChart |
-| ⑥ | Agent 明细 | 删除操作员/运行终端列；默认窗口时长排序；整行下钻 | filtered sessions + window rows | AgentDirectoryTable |
+| ② | 八卡 | 时长优先；平均时长替换操作员数；前三卡使用完整窗口环比 | `/api/agents.summary/comparison` | AgentKpiGrid |
+| ③ | 问题线索 | 点击回填 `status=attention&signal=...`，手机优先显示 | `/api/agents.signals` | agents health |
+| ④ | Agent 时长排行 | 非零 Agent 按窗口时长降序；整行下钻 `/agent/:key` | `/api/agents.ranking` | AgentRankPanel |
+| ⑤ | 单日扇形 / 多日趋势 | 固定 `active_seconds`；单日按 Agent 分扇区、中心总时长；多日按 Agent 堆叠 | `/api/agents.daily` | AgentActivityChart |
+| ⑥ | Agent 明细 | 显示操作员、隐藏运行终端；默认窗口时长排序；整行下钻 | `/api/agents.agents` | AgentDirectoryTable |
+
+### 加载态
+
+`/agents` 首次请求 `/api/agents` 时，按真实布局显示中性 skeleton：桌面依次为控制条、八卡、问题线索、排行与趋势双栏、Agent 明细；平板按同顺序单列；手机按真实 DOM 顺序显示控制摘要、问题线索、Agent 明细、八卡、排行、趋势。占位块不得产生页面根横向滚动。
 
 ## Skills 不变声明
 
