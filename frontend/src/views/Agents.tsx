@@ -8,6 +8,7 @@ import { AgentRankPanel } from '../components/agents/AgentRankPanel'
 import { Empty } from '../components/Common'
 import {
   buildAgentDailyBreakdown,
+  buildAgentDisplayLabels,
   buildAgentDirectoryRows,
   agentKpiActionPatch,
   agentFiltersQuery,
@@ -85,12 +86,13 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     if (location.search !== canonicalSearch) navigate(`/agents${canonicalSearch}`, { replace: true })
   }, [filters, location.search, navigate])
   const allOverview = agentOverviewOf(data, latestShim)
+  const agentLabels = useMemo(() => buildAgentDisplayLabels(data.sessions), [data.sessions])
   const visibleAgents = useMemo(() => filterAgents(data.sessions, filters, latestShim), [data.sessions, filters, latestShim])
   const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal)
   const overview = hasFilters ? buildAgentOverview(visibleAgents, latestShim, allOverview.today) : allOverview
   const window = useMemo(() => resolveAgentWindow(filters, allOverview.today), [filters, allOverview.today])
   const windowOverview = useMemo(() => buildAgentWindowOverview(visibleAgents, overview, window), [visibleAgents, overview, window])
-  const trendBreakdown = useMemo(() => buildAgentDailyBreakdown(visibleAgents, overview.days, window.days), [visibleAgents, overview.days, window.days])
+  const trendBreakdown = useMemo(() => buildAgentDailyBreakdown(visibleAgents, overview.days, window.days, agentLabels), [visibleAgents, overview.days, window.days, agentLabels])
   const directoryRows = useMemo(() => buildAgentDirectoryRows(visibleAgents, overview.days, window.days, filters.sort), [visibleAgents, overview.days, window.days, filters.sort])
   const comparison = useMemo(() => agentWindowComparison(visibleAgents, overview.days, window), [visibleAgents, overview.days, window])
   const windowLabel = windowPeriodLabel(window.key, t)
@@ -142,14 +144,14 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     ),
     analysis: (
       <div className="agents-analysis">
-        <AgentRankPanel rows={directoryRows} lang={lang} windowLabel={windowLabel} t={t} />
+        <AgentRankPanel rows={directoryRows} labels={agentLabels} lang={lang} windowLabel={windowLabel} t={t} />
         <AgentActivityChart key={`${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} breakdown={trendBreakdown} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
       </div>
     ),
     directory: (
       <section id="agents-directory" tabIndex={-1} className="frame agents-list-frame">
         <h2><span><span className="sl">//</span>{t('agentDirectory')}</span><span className="cnt">{directoryRows.length} {t('agentRows')}</span></h2>
-        {directoryRows.length ? <AgentDirectoryTable rows={directoryRows} latestShim={latestShim} lang={lang} windowLabel={windowLabel} t={t} /> : <Empty title={t('agentNoAgents')} hint={t('agentNoAgentsHint')} />}
+        {directoryRows.length ? <AgentDirectoryTable rows={directoryRows} labels={agentLabels} latestShim={latestShim} lang={lang} windowLabel={windowLabel} t={t} /> : <Empty title={t('agentNoAgents')} hint={t('agentNoAgentsHint')} />}
       </section>
     ),
   }

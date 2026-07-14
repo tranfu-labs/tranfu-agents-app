@@ -1,15 +1,13 @@
 import { useNavigate } from 'react-router-dom'
-import {
-  buildAgentDisplayLabels,
-  type AgentDirectoryRow,
-} from '../../lib/agentsDashboard'
+import type { AgentDirectoryRow } from '../../lib/agentsDashboard'
 import { statusName } from '../../lib/i18n'
 import type { Lang } from '../../lib/types'
 import { dur, encodePathParam, keyOf } from '../../lib/utils'
 import { Empty } from '../Common'
 
-export function AgentRankPanel({ rows, lang, windowLabel, t }: {
+export function AgentRankPanel({ rows, labels, lang, windowLabel, t }: {
   rows: AgentDirectoryRow[]
+  labels: Record<string, string>
   lang: Lang
   windowLabel: string
   t: (key: string) => string
@@ -19,7 +17,6 @@ export function AgentRankPanel({ rows, lang, windowLabel, t }: {
     .filter((row) => row.active_seconds > 0)
     .slice()
     .sort((a, b) => b.active_seconds - a.active_seconds || keyOf(a.agent).localeCompare(keyOf(b.agent)))
-  const labels = buildAgentDisplayLabels(rows.map((row) => row.agent))
   const maxSeconds = Math.max(...ranked.map((row) => row.active_seconds), 1)
   return (
     <section id="agents-rank" tabIndex={-1} className="frame agents-rank-panel">

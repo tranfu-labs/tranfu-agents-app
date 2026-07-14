@@ -27,6 +27,7 @@ import {
   type AgentFilters,
 } from './agentsDashboard.ts'
 import type { AgentSession } from './types.ts'
+import { keyOf } from './utils.ts'
 
 function agent(overrides: Partial<AgentSession> = {}): AgentSession {
   return {
@@ -83,6 +84,11 @@ test('agent labels keep same-name identities separate without exposing operator 
   const labels = buildAgentDisplayLabels([second, first])
   assert.deepEqual(Object.values(labels).sort(), ['builder · 1', 'builder · 2'])
   assert.equal(Object.values(labels).some((label) => label.includes('alice') || label.includes('codex')), false)
+  const activeDays = [...Array(89).fill(0), 60]
+  const overview = buildAgentOverview([first, second], undefined, '2026-07-13')
+  const filteredRows = buildAgentDailyBreakdown([{ ...second, active_days: activeDays }], overview.days, ['2026-07-13'], labels)
+  assert.equal(filteredRows[0].segment, labels[keyOf(second)])
+  assert.equal(filteredRows[0].segment, 'builder · 2')
 })
 
 test('agent windows use the service day and compare adjacent equal ranges', () => {

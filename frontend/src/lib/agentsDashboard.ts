@@ -461,8 +461,8 @@ export function buildAgentDailyBreakdown(
   agents: AgentSession[],
   overviewDays: string[],
   days: string[],
+  labels = buildAgentDisplayLabels(agents),
 ): AgentDailyBreakdownRow[] {
-  const labels = buildAgentDisplayLabels(agents)
   const byDay = new Map(days.map((day) => [day, new Map<string, { active_agents: number; active_seconds: number }>()]))
   agents.forEach((item) => {
     const segment = labels[keyOf(item)] || 'Agent'

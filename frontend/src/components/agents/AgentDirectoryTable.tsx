@@ -1,7 +1,7 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { QBar, ShimPill } from '../Common'
-import { agentSignals, agentSuccessRate, buildAgentDisplayLabels, type AgentDirectoryRow } from '../../lib/agentsDashboard'
+import { agentSignals, agentSuccessRate, type AgentDirectoryRow } from '../../lib/agentsDashboard'
 import { statusName } from '../../lib/i18n'
 import type { AgentSession, Lang } from '../../lib/types'
 import { ago, dur, encodePathParam, hashHue, initials, keyOf, LIVE } from '../../lib/utils'
@@ -14,15 +14,15 @@ function skillsCount(agent: AgentSession) {
   return (agent.skills?.local || []).length + (agent.skills?.cross || []).length
 }
 
-export function AgentDirectoryTable({ rows, latestShim, lang, windowLabel, t }: {
+export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabel, t }: {
   rows: AgentDirectoryRow[]
+  labels: Record<string, string>
   latestShim?: string
   lang: Lang
   windowLabel: string
   t: (key: string) => string
 }) {
   const navigate = useNavigate()
-  const labels = buildAgentDisplayLabels(rows.map((row) => row.agent))
   const open = (row: AgentDirectoryRow) => navigate(`/agent/${encodePathParam(keyOf(row.agent))}`)
   const onKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, row: AgentDirectoryRow) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
