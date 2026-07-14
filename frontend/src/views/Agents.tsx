@@ -165,8 +165,8 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
         </button>
         <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
           <div className="seg agents-view-seg" role="group" aria-label={t('agentRank')}>
-            <button type="button" className={rankView === 'runtime' ? 'on' : ''} aria-pressed={rankView === 'runtime'} onClick={() => updateFilters({ rank: 'runtime' })}>{t('agentRankRuntime')}</button>
             <button type="button" className={rankView === 'operator' ? 'on' : ''} aria-pressed={rankView === 'operator'} onClick={() => updateFilters({ rank: 'operator' })}>{t('agentRankOperator')}</button>
+            <button type="button" className={rankView === 'runtime' ? 'on' : ''} aria-pressed={rankView === 'runtime'} onClick={() => updateFilters({ rank: 'runtime' })}>{t('agentRankRuntime')}</button>
           </div>
           <label className="field agents-search-field"><span>{t('agentSearch')}</span><input value={filters.q} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t('agentSearchHint')} /></label>
           <label className="field"><span>{t('agentStatusFilter')}</span><select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as AgentFilters['status'], signal: '' })}>

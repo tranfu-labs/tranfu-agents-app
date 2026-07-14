@@ -34,7 +34,7 @@ agent 机器                         中心服务器(单容器)                 
   新增删除路径不得绕过 `_purge` 的级联、回收站与审计。
 
 ### M2 — 看板前端 (`frontend/`)
-- **职责**:优先通过 `/api/state/stream` SSE(失败时回退 `/api/state` adaptive polling)渲染 Pods 看板 / Agents 运营列表 / 治理详情;Agents 使用 `/api/state.agent_overview` 与身份卡片 `active_days` 做 90 天活跃/质量分析、按 Runtime/操作员的每日堆叠趋势及随控制条窗口重算的明细表;低频读取
+- **职责**:优先通过 `/api/state/stream` SSE(失败时回退 `/api/state` adaptive polling)渲染 Pods 看板 / Agents 运营列表 / 治理详情;Agents 使用 `/api/state.agent_overview` 与身份卡片 `active_days` 做 90 天活跃/质量分析、按操作员/运行终端的每日堆叠趋势及随控制条窗口重算的明细表;低频读取
   `/api/skills`、`/api/skills/evidence`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / 新增发布 Skill 列表 / 记录页 / clue 详情 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
   `window.start..window.end` 铺满所选 `w/days` 窗口,详情页按 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
   SKILLS 总览使用证据导向 dashboard 结构(控制条/过去 W 变化/问题线索/主分析区:排行+趋势图|待处理线索/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,

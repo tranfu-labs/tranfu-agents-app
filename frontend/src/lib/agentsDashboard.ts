@@ -99,7 +99,7 @@ export function parseAgentFilters(search: string): AgentFilters {
   const params = new URLSearchParams(search)
   const status = params.get('status') || 'all'
   const signal = params.get('signal') || ''
-  const rank = params.get('rank') || 'runtime'
+  const rank = params.get('rank') || 'operator'
   const window = params.get('w') || 'today'
   const rawSort = params.get('sort') || 'recent'
   const sort = rawSort === 'today' ? 'window_time' : rawSort === 'week' ? 'window_days' : rawSort
@@ -107,7 +107,7 @@ export function parseAgentFilters(search: string): AgentFilters {
     q: params.get('q') || '',
     status: STATUSES.has(status as AgentStatusFilter) ? status as AgentStatusFilter : 'all',
     signal: SIGNALS.has(signal as AgentSignal) ? signal as AgentSignal : '',
-    rank: RANK_VIEWS.has(rank as AgentRankView) ? rank as AgentRankView : 'runtime',
+    rank: RANK_VIEWS.has(rank as AgentRankView) ? rank as AgentRankView : 'operator',
     w: WINDOWS.has(window as AgentWindowKey) ? window as AgentWindowKey : 'today',
     wstart: params.get('wstart') || '',
     wend: params.get('wend') || '',
@@ -122,7 +122,7 @@ export function agentFiltersQuery(filters: AgentFilters) {
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.status !== 'all') params.set('status', filters.status)
   if (filters.signal) params.set('signal', filters.signal)
-  if (filters.rank !== 'runtime') params.set('rank', filters.rank)
+  if (filters.rank !== 'operator') params.set('rank', filters.rank)
   if (filters.w !== 'today') params.set('w', filters.w)
   if (filters.w === 'custom') {
     if (filters.wstart) params.set('wstart', filters.wstart)
