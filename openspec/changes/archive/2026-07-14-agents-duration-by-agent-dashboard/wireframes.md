@@ -1,10 +1,9 @@
-# Agents 固定 Agent × 运行时长 · 字符线框
+# Agents 固定 Agent × 运行时长 · 变更线框
 
-> 路由：`/agents`（`frontend/src/views/Agents.tsx`）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)。
-> 只读参照：`docs/wireframes/pages/skills.md`；Agents 复用其视觉语法，不修改 Skills 页面。
+> 基线：`docs/wireframes/pages/agents.md`。本 change 修改控制条、八卡、排行、趋势和明细列，不改变路由或手机区块顺序。
 > 比例尺：横向 1 显示列 = 12px，纵向 1 行 = 24px。覆盖桌面 1440×900、平板 768×1024、手机 375×812。
 
-## 字符图
+## pages/agents.md
 
 ### 桌面 1440×900（120 列 × 38 行）
 
@@ -93,7 +92,3 @@
 | ④ | Agent 时长排行 | 非零 Agent 按窗口时长降序；整行下钻 `/agent/:key` | window directory rows | AgentRankPanel |
 | ⑤ | 单日扇形 / 多日趋势 | 固定 `active_seconds`；单日按 Agent 分扇区、中心总时长；多日按 Agent 堆叠 | Agent identity daily breakdown | AgentActivityChart |
 | ⑥ | Agent 明细 | 删除操作员/运行终端列；默认窗口时长排序；整行下钻 | filtered sessions + window rows | AgentDirectoryTable |
-
-## Skills 不变声明
-
-`docs/wireframes/pages/skills.md` 是本次视觉参照，不在本次变更范围内；实现和归档均不修改它。

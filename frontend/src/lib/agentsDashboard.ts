@@ -1,5 +1,5 @@
 import type { AgentOverview, AgentOverviewGroup, AgentSession, StatePayload } from './types.ts'
-import { daySeries, dur, isoDay, LIVE, shimState } from './utils.ts'
+import { daySeries, dur, isoDay, keyOf, LIVE, shimState } from './utils.ts'
 
 export const AGENT_LOW_SUCCESS_RATE = 0.8
 export const AGENT_MIN_QUALITY_RUNS = 3
@@ -9,19 +9,15 @@ export const AGENT_UNASSIGNED = '__unassigned'
 export type AgentSignal = 'error' | 'shim' | 'quiet' | 'quality'
 export type AgentStatusFilter = 'all' | 'live' | 'attention' | 'idle' | 'done'
 export type AgentSort = 'recent' | 'window_time' | 'window_days' | 'success' | 'errors' | 'name'
-export type AgentRankView = 'runtime' | 'operator'
 export type AgentWindowKey = 'today' | 'this_week' | 'last_week' | '7d' | '14d' | '30d' | '90d' | 'custom'
 
 export type AgentFilters = {
   q: string
   status: AgentStatusFilter
   signal: AgentSignal | ''
-  rank: AgentRankView
   w: AgentWindowKey
   wstart: string
   wend: string
-  rt: string
-  op: string
   sort: AgentSort
 }
 
@@ -43,10 +39,9 @@ export type AgentWindowComparison = {
   previousAvailable: boolean
 }
 
-export type AgentKpiAction = 'trend' | 'directory' | 'operator-rank' | 'live' | 'week' | 'quality' | 'attention'
-export type AgentKpiKey = 'active-agents' | 'active-time' | 'total' | 'operators' | 'live' | 'week' | 'quality' | 'attention'
+export type AgentKpiAction = 'trend' | 'directory' | 'live' | 'week' | 'quality' | 'attention'
+export type AgentKpiKey = 'active-time' | 'average-time' | 'active-agents' | 'total' | 'live' | 'week' | 'quality' | 'attention'
 export type AgentSectionKey = 'kpis' | 'signals' | 'analysis' | 'directory'
-export type AgentChartMetric = 'agents' | 'seconds'
 export type AgentChartMode = 'empty' | 'today' | 'series'
 
 export type AgentDailyBreakdownRow = {
@@ -100,7 +95,6 @@ export type AgentKpiCardModel = {
 const STATUSES = new Set<AgentStatusFilter>(['all', 'live', 'attention', 'idle', 'done'])
 const SORTS = new Set<AgentSort>(['recent', 'window_time', 'window_days', 'success', 'errors', 'name'])
 const SIGNALS = new Set<AgentSignal>(['error', 'shim', 'quiet', 'quality'])
-const RANK_VIEWS = new Set<AgentRankView>(['runtime', 'operator'])
 const WINDOWS = new Set<AgentWindowKey>(['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'])
 
 function agentGroupName(agent: AgentSession, field: 'runtime' | 'operator') {
@@ -111,21 +105,17 @@ export function parseAgentFilters(search: string): AgentFilters {
   const params = new URLSearchParams(search)
   const status = params.get('status') || 'all'
   const signal = params.get('signal') || ''
-  const rank = params.get('rank') || 'operator'
   const window = params.get('w') || 'today'
-  const rawSort = params.get('sort') || 'recent'
+  const rawSort = params.get('sort') || 'window_time'
   const sort = rawSort === 'today' ? 'window_time' : rawSort === 'week' ? 'window_days' : rawSort
   return {
     q: params.get('q') || '',
     status: STATUSES.has(status as AgentStatusFilter) ? status as AgentStatusFilter : 'all',
     signal: SIGNALS.has(signal as AgentSignal) ? signal as AgentSignal : '',
-    rank: RANK_VIEWS.has(rank as AgentRankView) ? rank as AgentRankView : 'operator',
     w: WINDOWS.has(window as AgentWindowKey) ? window as AgentWindowKey : 'today',
     wstart: params.get('wstart') || '',
     wend: params.get('wend') || '',
-    rt: params.get('rt') || '',
-    op: params.get('op') || '',
-    sort: SORTS.has(sort as AgentSort) ? sort as AgentSort : 'recent',
+    sort: SORTS.has(sort as AgentSort) ? sort as AgentSort : 'window_time',
   }
 }
 
@@ -134,15 +124,12 @@ export function agentFiltersQuery(filters: AgentFilters) {
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.status !== 'all') params.set('status', filters.status)
   if (filters.signal) params.set('signal', filters.signal)
-  if (filters.rank !== 'operator') params.set('rank', filters.rank)
   if (filters.w !== 'today') params.set('w', filters.w)
   if (filters.w === 'custom') {
     if (filters.wstart) params.set('wstart', filters.wstart)
     if (filters.wend) params.set('wend', filters.wend)
   }
-  if (filters.rt) params.set('rt', filters.rt)
-  if (filters.op) params.set('op', filters.op)
-  if (filters.sort !== 'recent') params.set('sort', filters.sort)
+  if (filters.sort !== 'window_time') params.set('sort', filters.sort)
   const query = params.toString()
   return query ? `?${query}` : ''
 }
@@ -263,14 +250,12 @@ export function buildAgentKpiCards({ comparison, summary, totalAgents, attention
   const activeTime = comparison.currentAvailable ? dur(comparison.current.activeSeconds) : '—'
   const previousAgents = comparison.previousAvailable ? comparison.previous.activeAgents : '—'
   const previousTime = comparison.previousAvailable ? dur(comparison.previous.activeSeconds) : '—'
+  const currentAverage = comparison.current.activeAgents ? comparison.current.activeSeconds / comparison.current.activeAgents : 0
+  const previousAverage = comparison.previous.activeAgents ? comparison.previous.activeSeconds / comparison.previous.activeAgents : 0
+  const averageTime = comparison.currentAvailable && comparison.current.activeAgents ? dur(currentAverage) : '—'
+  const previousAverageTime = comparison.previousAvailable && comparison.previous.activeAgents ? dur(previousAverage) : '—'
   const snapshot = t('snapshot')
   return [
-    {
-      key: 'active-agents', label: t('agentWindowActiveAgents'), value: activeAgents,
-      detail: `${t('agentWindowPrevious')} ${previousAgents}`,
-      delta: formatAgentDelta(comparison.current.activeAgents, comparison.previous.activeAgents, comparable),
-      snapshot: false, action: 'trend',
-    },
     {
       key: 'active-time', label: t('agentWindowActiveTime'), value: activeTime,
       detail: `${t('agentWindowPrevious')} ${previousTime}`,
@@ -278,13 +263,21 @@ export function buildAgentKpiCards({ comparison, summary, totalAgents, attention
       snapshot: false, action: 'trend',
     },
     {
+      key: 'average-time', label: t('agentWindowAverageTime'), value: averageTime,
+      detail: `${t('agentWindowPrevious')} ${previousAverageTime}`,
+      delta: formatAgentDelta(currentAverage, previousAverage, comparable),
+      snapshot: false, action: 'trend',
+    },
+    {
+      key: 'active-agents', label: t('agentWindowActiveAgents'), value: activeAgents,
+      detail: `${t('agentWindowPrevious')} ${previousAgents}`,
+      delta: formatAgentDelta(comparison.current.activeAgents, comparison.previous.activeAgents, comparable),
+      snapshot: false, action: 'directory',
+    },
+    {
       key: 'total', label: t('agentTotal'), value: String(summary.agents),
       detail: `${summary.agents}/${totalAgents} ${t('agentVisibleTotal')}`,
       delta: snapshot, snapshot: true, action: 'directory',
-    },
-    {
-      key: 'operators', label: t('agentOperatorCount'), value: String(summary.operators),
-      detail: t('agentOperatorSnapshot'), delta: snapshot, snapshot: true, action: 'operator-rank',
     },
     {
       key: 'live', label: t('agentWindowLiveSnapshot'), value: String(summary.live),
@@ -310,7 +303,6 @@ export function buildAgentKpiCards({ comparison, summary, totalAgents, attention
 }
 
 export function agentKpiActionPatch(action: AgentKpiAction): Partial<AgentFilters> | null {
-  if (action === 'operator-rank') return { rank: 'operator' }
   if (action === 'live') return { status: 'live', signal: '' }
   if (action === 'week') return { sort: 'window_time' }
   if (action === 'quality') return { sort: 'success' }
@@ -324,15 +316,15 @@ export function agentSectionOrder(mobile: boolean): AgentSectionKey[] {
     : ['kpis', 'signals', 'analysis', 'directory']
 }
 
-export function resolveAgentChartMode(daily: AgentOverview['daily'], metric: AgentChartMetric): AgentChartMode {
-  const hasValue = daily.some((row) => Number(metric === 'agents' ? row.active_agents : row.active_seconds) > 0)
+export function resolveAgentChartMode(daily: AgentOverview['daily']): AgentChartMode {
+  const hasValue = daily.some((row) => Number(row.active_seconds) > 0)
   if (!hasValue) return 'empty'
   return daily.length === 1 ? 'today' : 'series'
 }
 
-export function resolveAgentChartAnchorIndex(daily: AgentOverview['daily'], metric: AgentChartMetric) {
+export function resolveAgentChartAnchorIndex(daily: AgentOverview['daily']) {
   for (let index = daily.length - 1; index >= 0; index -= 1) {
-    const value = Number(metric === 'agents' ? daily[index].active_agents : daily[index].active_seconds)
+    const value = Number(daily[index].active_seconds)
     if (value > 0) return index
   }
   return Math.max(0, daily.length - 1)
@@ -410,10 +402,8 @@ export function sortAgents(agents: AgentSession[], sort: AgentSort) {
 export function filterAgents(agents: AgentSession[], filters: AgentFilters, latestShim?: string) {
   const query = filters.q.trim().toLowerCase()
   const filtered = agents.filter((agent) => {
-    const searchable = [agent.agent, agent.operator, agent.runtime, agent.task, agent.current_step, ...(agent.models || [])].filter(Boolean).join(' ').toLowerCase()
+    const searchable = [agent.agent, agent.task, agent.current_step, ...(agent.models || [])].filter(Boolean).join(' ').toLowerCase()
     if (query && !searchable.includes(query)) return false
-    if (filters.rt && agentGroupName(agent, 'runtime') !== filters.rt) return false
-    if (filters.op && agentGroupName(agent, 'operator') !== filters.op) return false
     if (filters.status === 'live' && !LIVE.includes(agent.status)) return false
     if (filters.status === 'attention' && !agentSignals(agent, latestShim).length) return false
     if (filters.signal && !agentSignals(agent, latestShim).includes(filters.signal)) return false
@@ -449,15 +439,33 @@ export function buildAgentDirectoryRows(agents: AgentSession[], overviewDays: st
   })
 }
 
+export function buildAgentDisplayLabels(agents: AgentSession[]) {
+  const groups = new Map<string, AgentSession[]>()
+  agents.forEach((agent) => {
+    const name = String(agent.agent || '').trim() || 'Agent'
+    const group = groups.get(name) || []
+    group.push(agent)
+    groups.set(name, group)
+  })
+  const labels: Record<string, string> = {}
+  groups.forEach((group, name) => {
+    const sorted = group.slice().sort((a, b) => keyOf(a).localeCompare(keyOf(b)))
+    sorted.forEach((agent, index) => {
+      labels[keyOf(agent)] = sorted.length > 1 ? `${name} · ${index + 1}` : name
+    })
+  })
+  return labels
+}
+
 export function buildAgentDailyBreakdown(
   agents: AgentSession[],
   overviewDays: string[],
   days: string[],
-  view: AgentRankView,
 ): AgentDailyBreakdownRow[] {
+  const labels = buildAgentDisplayLabels(agents)
   const byDay = new Map(days.map((day) => [day, new Map<string, { active_agents: number; active_seconds: number }>()]))
   agents.forEach((item) => {
-    const segment = agentGroupName(item, view)
+    const segment = labels[keyOf(item)] || 'Agent'
     const series = agentSeriesByDay(item, overviewDays)
     days.forEach((day) => {
       const seconds = Number(series.get(day) || 0)
@@ -476,12 +484,10 @@ export function buildAgentDailyBreakdown(
 export function buildAgentTrendModel(
   rows: AgentDailyBreakdownRow[],
   days: string[],
-  metric: AgentChartMetric,
   topN = 8,
 ): AgentTrendModel {
-  const metricKey = metric === 'agents' ? 'active_agents' : 'active_seconds'
   const totals = new Map<string, number>()
-  rows.forEach((row) => totals.set(row.segment, (totals.get(row.segment) || 0) + Number(row[metricKey] || 0)))
+  rows.forEach((row) => totals.set(row.segment, (totals.get(row.segment) || 0) + Number(row.active_seconds || 0)))
   const top = [...totals.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, topN)
@@ -519,10 +525,9 @@ export function buildAgentTrendModel(
   }
 }
 
-export function buildAgentDonutSegments(day: AgentTrendDay, metric: AgentChartMetric): AgentDonutSegment[] {
-  const metricKey = metric === 'agents' ? 'active_agents' : 'active_seconds'
+export function buildAgentDonutSegments(day: AgentTrendDay): AgentDonutSegment[] {
   const values = day.segments
-    .map((segment) => ({ name: segment.name, value: Number(segment[metricKey] || 0) }))
+    .map((segment) => ({ name: segment.name, value: Number(segment.active_seconds || 0) }))
     .filter((segment) => segment.value > 0)
   const total = values.reduce((sum, segment) => sum + segment.value, 0)
   let offset = 0

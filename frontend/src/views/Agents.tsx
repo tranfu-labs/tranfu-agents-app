@@ -7,7 +7,6 @@ import { AgentKpiGrid } from '../components/agents/AgentKpiGrid'
 import { AgentRankPanel } from '../components/agents/AgentRankPanel'
 import { Empty } from '../components/Common'
 import {
-  AGENT_UNASSIGNED,
   buildAgentDailyBreakdown,
   buildAgentDirectoryRows,
   agentKpiActionPatch,
@@ -27,7 +26,7 @@ import {
   type AgentSectionKey,
   type AgentSignal,
 } from '../lib/agentsDashboard'
-import { RT } from '../lib/utils'
+import { dur } from '../lib/utils'
 import { windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import type { Lang, StatePayload } from '../lib/types'
 
@@ -81,22 +80,22 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   const [filtersOpen, setFiltersOpen] = useState(false)
   const mobileLayout = useMobileAgentsLayout()
   const latestShim = data.shim?.version
+  useEffect(() => {
+    const canonicalSearch = agentFiltersQuery(filters)
+    if (location.search !== canonicalSearch) navigate(`/agents${canonicalSearch}`, { replace: true })
+  }, [filters, location.search, navigate])
   const allOverview = agentOverviewOf(data, latestShim)
   const visibleAgents = useMemo(() => filterAgents(data.sessions, filters, latestShim), [data.sessions, filters, latestShim])
-  const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal || filters.w !== 'today' || filters.wstart || filters.wend || filters.rt || filters.op || filters.sort !== 'recent')
+  const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal)
   const overview = hasFilters ? buildAgentOverview(visibleAgents, latestShim, allOverview.today) : allOverview
   const window = useMemo(() => resolveAgentWindow(filters, allOverview.today), [filters, allOverview.today])
   const windowOverview = useMemo(() => buildAgentWindowOverview(visibleAgents, overview, window), [visibleAgents, overview, window])
-  const trendBreakdown = useMemo(() => buildAgentDailyBreakdown(visibleAgents, overview.days, window.days, filters.rank), [visibleAgents, overview.days, window.days, filters.rank])
+  const trendBreakdown = useMemo(() => buildAgentDailyBreakdown(visibleAgents, overview.days, window.days), [visibleAgents, overview.days, window.days])
   const directoryRows = useMemo(() => buildAgentDirectoryRows(visibleAgents, overview.days, window.days, filters.sort), [visibleAgents, overview.days, window.days, filters.sort])
   const comparison = useMemo(() => agentWindowComparison(visibleAgents, overview.days, window), [visibleAgents, overview.days, window])
   const windowLabel = windowPeriodLabel(window.key, t)
-  const rankView = filters.rank
   const summary = overview.summary
   const attention = attentionCount(visibleAgents, latestShim)
-  const runtimeOptions = [...new Set(data.sessions.map((agent) => String(agent.runtime || '').trim() || AGENT_UNASSIGNED))].sort()
-  const operatorOptions = [...new Set(data.sessions.map((agent) => String(agent.operator || '').trim() || AGENT_UNASSIGNED))].sort()
-  const filterLabel = (value: string, runtime = false) => value === AGENT_UNASSIGNED ? t('agentUnassigned') : runtime ? (RT[value] || value) : value
   const updateFilters = (patch: Partial<AgentFilters>) => {
     const next = { ...filters, ...patch }
     navigate(`/agents${agentFiltersQuery(next)}`, { replace: true })
@@ -106,9 +105,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   const handleKpiAction = (action: AgentKpiAction) => {
     const patch = agentKpiActionPatch(action)
     if (patch) updateFilters(patch)
-    const target = action === 'trend' ? 'agents-trend'
-      : action === 'operator-rank' ? 'agents-rank'
-        : 'agents-directory'
+    const target = action === 'trend' ? 'agents-trend' : 'agents-directory'
     focusAgentSection(target)
   }
 
@@ -145,8 +142,8 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
     ),
     analysis: (
       <div className="agents-analysis">
-        <AgentRankPanel overview={windowOverview} view={rankView} onFilter={(key, value) => updateFilters({ [key]: value, signal: '' })} windowLabel={windowLabel} t={t} />
-        <AgentActivityChart key={`${filters.rank}:${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} breakdown={trendBreakdown} view={filters.rank} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
+        <AgentRankPanel rows={directoryRows} lang={lang} windowLabel={windowLabel} t={t} />
+        <AgentActivityChart key={`${window.key}:${window.days[0] || ''}:${window.days.at(-1) || ''}:${window.days.length}`} overview={windowOverview} breakdown={trendBreakdown} currentDay={window.days.at(-1) === allOverview.today ? allOverview.today : undefined} windowLabel={windowLabel} t={t} />
       </div>
     ),
     directory: (
@@ -162,17 +159,14 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
       <section className="frame agents-toolbar-frame">
         <h2>
           <span><span className="sl">//</span>{t('skillsControls')}</span>
-          <span className="cnt">{t(rankView === 'runtime' ? 'agentRankRuntimeHint' : 'agentRankOperatorHint')}</span>
+          <span className="cnt">{t('agentScopeDuration')}</span>
         </h2>
         <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} · ${summary.live} ${t('agentLiveShort')} · ${filters.rt ? filterLabel(filters.rt, true) : t('all')}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
+          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} Agent · ${dur(windowOverview.daily.reduce((sum, row) => sum + Number(row.active_seconds || 0), 0))}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
         </button>
         <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
-          <div className="seg agents-view-seg" role="group" aria-label={t('agentRank')}>
-            <button type="button" className={rankView === 'operator' ? 'on' : ''} aria-pressed={rankView === 'operator'} onClick={() => updateFilters({ rank: 'operator' })}>{t('agentRankOperator')}</button>
-            <button type="button" className={rankView === 'runtime' ? 'on' : ''} aria-pressed={rankView === 'runtime'} onClick={() => updateFilters({ rank: 'runtime' })}>{t('agentRankRuntime')}</button>
-          </div>
-          <label className="field agents-search-field"><span>{t('agentSearch')}</span><input value={filters.q} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t('agentSearchHint')} /></label>
+          <span className="agent-scope-chip">{t('agentScopeAgent')}</span>
+          <label className="field agents-search-field"><span>{t('agentSearch')}</span><input value={filters.q} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t('agentSearchAgentsHint')} /></label>
           <label className="field"><span>{t('agentStatusFilter')}</span><select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as AgentFilters['status'], signal: '' })}>
             <option value="all">{t('all')}</option><option value="live">{t('agentStatusLive')}</option><option value="attention">{t('agentStatusAttention')}</option><option value="idle">{t('agentStatusIdle')}</option><option value="done">{t('agentStatusDone')}</option>
           </select></label>
@@ -185,16 +179,8 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
               <label className="field"><span>{t('customEnd')}</span><input type="datetime-local" value={unixToInput(filters.wend)} onChange={(event) => updateFilters({ w: 'custom', wend: inputToUnix(event.target.value) })} /></label>
             </>
           ) : null}
-          <label className="field"><span>{t('agentRuntimeFilter')}</span><select value={filters.rt} onChange={(event) => updateFilters({ rt: event.target.value })}>
-            <option value="">{t('all')}</option>
-            {runtimeOptions.map((runtime) => <option value={runtime} key={runtime}>{filterLabel(runtime, true)}</option>)}
-          </select></label>
-          <label className="field"><span>{t('agentOperatorFilter')}</span><select value={filters.op} onChange={(event) => updateFilters({ op: event.target.value })}>
-            <option value="">{t('all')}</option>
-            {operatorOptions.map((operator) => <option value={operator} key={operator}>{filterLabel(operator)}</option>)}
-          </select></label>
           <label className="field"><span>{t('agentSort')}</span><select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as AgentFilters['sort'] })}>
-            <option value="recent">{t('agentSortRecent')}</option><option value="window_time">{t('agentSortWindowTime')}</option><option value="window_days">{t('agentSortWindowDays')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>
+            <option value="window_time">{t('agentSortWindowTime')}</option><option value="window_days">{t('agentSortWindowDays')}</option><option value="recent">{t('agentSortRecent')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>
           </select></label>
           {hasFilters ? <button className="agent-clear-filters" type="button" onClick={clearFilters}>{t('agentFiltersClear')}</button> : null}
         </div>

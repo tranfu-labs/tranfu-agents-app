@@ -1,10 +1,10 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { QBar, ShimPill } from '../Common'
-import { agentSignals, agentSuccessRate, type AgentDirectoryRow } from '../../lib/agentsDashboard'
+import { agentSignals, agentSuccessRate, buildAgentDisplayLabels, type AgentDirectoryRow } from '../../lib/agentsDashboard'
 import { statusName } from '../../lib/i18n'
 import type { AgentSession, Lang } from '../../lib/types'
-import { ago, dur, encodePathParam, keyOf, LIVE, RT } from '../../lib/utils'
+import { ago, dur, encodePathParam, hashHue, initials, keyOf, LIVE } from '../../lib/utils'
 
 function statusColor(status: string) {
   return LIVE.includes(status) ? 'var(--run)' : ['error', 'blocked'].includes(status) ? 'var(--err)' : 'var(--done)'
@@ -22,6 +22,7 @@ export function AgentDirectoryTable({ rows, latestShim, lang, windowLabel, t }: 
   t: (key: string) => string
 }) {
   const navigate = useNavigate()
+  const labels = buildAgentDisplayLabels(rows.map((row) => row.agent))
   const open = (row: AgentDirectoryRow) => navigate(`/agent/${encodePathParam(keyOf(row.agent))}`)
   const onKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, row: AgentDirectoryRow) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
@@ -39,8 +40,6 @@ export function AgentDirectoryTable({ rows, latestShim, lang, windowLabel, t }: 
         <thead>
           <tr>
             <th>{t('agentColumnAgent')}</th>
-            <th>{t('agentOperatorFilter')}</th>
-            <th>{t('agentRuntimeFilter')}</th>
             <th>{windowLabel}</th>
             <th>{t('agentCumulativeQuality')}</th>
             <th>{t('agentResources')}</th>
@@ -54,11 +53,12 @@ export function AgentDirectoryTable({ rows, latestShim, lang, windowLabel, t }: 
             const rate = agentSuccessRate(item)
             const signals = agentSignals(item, latestShim)
             const quality = item.quality || {}
-            const name = item.agent || item.runtime
+            const identity = keyOf(item)
+            const name = labels[identity] || item.agent || t('agentUnnamed')
             const lastSeen = item.last_seen || item.ts
             return (
               <tr
-                key={keyOf(item)}
+                key={identity}
                 role="link"
                 tabIndex={0}
                 aria-label={`${name}, ${statusName(lang, item.status)}`}
@@ -66,8 +66,8 @@ export function AgentDirectoryTable({ rows, latestShim, lang, windowLabel, t }: 
                 onKeyDown={(event) => onKeyDown(event, row)}
               >
                 <td className="agent-directory-identity" data-label={t('agentColumnAgent')}>
-                  <span className="avatar agent-avatar" style={{ ['--c' as string]: `hsl(${(item.operator || name || '').length * 47 % 360} 30% 42%)`, borderColor: statusColor(item.status) }}>
-                    {(item.operator || name || '?').slice(0, 1).toUpperCase()}
+                  <span className="avatar agent-avatar" style={{ ['--c' as string]: `hsl(${hashHue(identity)} 30% 42%)`, borderColor: statusColor(item.status) }}>
+                    {initials(name)}
                   </span>
                   <span className="agent-directory-main">
                     <span className="agent-directory-name"><b title={name}>{name}</b><span className="agent-status"><i className="dot" style={{ background: statusColor(item.status) }} />{statusName(lang, item.status)}</span></span>
@@ -75,8 +75,6 @@ export function AgentDirectoryTable({ rows, latestShim, lang, windowLabel, t }: 
                     <span className="agent-directory-step" title={item.current_step || t('agentNoStep')}>{item.current_step ? `▸ ${item.current_step}` : t('agentNoStep')}</span>
                   </span>
                 </td>
-                <td data-label={t('agentOperatorFilter')}><b>{item.operator || '—'}</b></td>
-                <td data-label={t('agentRuntimeFilter')}><span className="agent-runtime-pill">{RT[item.runtime] || item.runtime}</span></td>
                 <td className="agent-directory-window" data-label={windowLabel}>
                   <b>{dur(row.active_seconds)}</b>
                   <small>{row.active_days} {t('agentDays')}</small>

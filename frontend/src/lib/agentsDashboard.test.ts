@@ -9,6 +9,7 @@ import {
   agentSignals,
   buildAgentKpiCards,
   buildAgentDailyBreakdown,
+  buildAgentDisplayLabels,
   buildAgentDonutSegments,
   buildAgentDirectoryRows,
   buildAgentOverview,
@@ -40,17 +41,14 @@ function agent(overrides: Partial<AgentSession> = {}): AgentSession {
 }
 
 test('agent filters normalize unknown URL values and preserve meaningful params', () => {
-  const filters = parseAgentFilters('?q=code&status=attention&signal=quality&rt=codex&op=alice&sort=success')
-  assert.deepEqual(filters, { q: 'code', status: 'attention', signal: 'quality', rank: 'operator', w: 'today', wstart: '', wend: '', rt: 'codex', op: 'alice', sort: 'success' })
-  assert.equal(agentFiltersQuery(filters), '?q=code&status=attention&signal=quality&rt=codex&op=alice&sort=success')
-  assert.equal(agentFiltersQuery({ ...filters, w: '14d' }), '?q=code&status=attention&signal=quality&w=14d&rt=codex&op=alice&sort=success')
-  assert.equal(agentFiltersQuery({ ...filters, rank: 'operator' }), '?q=code&status=attention&signal=quality&rt=codex&op=alice&sort=success')
-  assert.equal(agentFiltersQuery({ ...filters, rank: 'runtime' }), '?q=code&status=attention&signal=quality&rank=runtime&rt=codex&op=alice&sort=success')
-  assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&rt=codex&op=alice&sort=success')
-  assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '1783987200' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&wend=1783987200&rt=codex&op=alice&sort=success')
-  assert.deepEqual(parseAgentFilters('?status=nope&sort=nope'), { q: '', status: 'all', signal: '', rank: 'operator', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' })
-  assert.equal(parseAgentFilters('?rank=operator').rank, 'operator')
-  assert.equal(parseAgentFilters('?rank=runtime').rank, 'runtime')
+  const filters = parseAgentFilters('?q=code&status=attention&signal=quality&rank=runtime&rt=codex&op=alice&sort=success')
+  assert.deepEqual(filters, { q: 'code', status: 'attention', signal: 'quality', w: 'today', wstart: '', wend: '', sort: 'success' })
+  assert.equal(agentFiltersQuery(filters), '?q=code&status=attention&signal=quality&sort=success')
+  assert.equal(agentFiltersQuery({ ...filters, w: '14d' }), '?q=code&status=attention&signal=quality&w=14d&sort=success')
+  assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&sort=success')
+  assert.equal(agentFiltersQuery({ ...filters, w: 'custom', wstart: '1783900800', wend: '1783987200' }), '?q=code&status=attention&signal=quality&w=custom&wstart=1783900800&wend=1783987200&sort=success')
+  assert.deepEqual(parseAgentFilters('?status=nope&sort=nope'), { q: '', status: 'all', signal: '', w: 'today', wstart: '', wend: '', sort: 'window_time' })
+  assert.equal(agentFiltersQuery(parseAgentFilters('?rank=runtime&rt=codex&op=alice')), '')
   assert.equal(parseAgentFilters('?sort=today').sort, 'window_time')
   assert.equal(parseAgentFilters('?sort=week').sort, 'window_days')
 })
@@ -72,22 +70,19 @@ test('agent issue signals respect quality and quiet boundaries', () => {
 test('agent filtering searches task and signal-specific attention', () => {
   const a = agent({ agent: 'builder', task: 'release dashboard', quality: { runs: 4, success: 2 } })
   const b = agent({ operator: 'bob', runtime: 'claude-code', agent: 'reviewer', active_days: [...Array(89).fill(0), 4] })
-  const base: AgentFilters = { q: '', status: 'all', signal: '', rank: 'runtime', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' }
+  const base: AgentFilters = { q: '', status: 'all', signal: '', w: 'today', wstart: '', wend: '', sort: 'window_time' }
   assert.deepEqual(filterAgents([a, b], { ...base, q: 'dashboard' }), [a])
   assert.deepEqual(filterAgents([a, b], { ...base, status: 'attention', signal: 'quality' }), [a])
-  assert.deepEqual(filterAgents([a, b], { ...base, rt: 'claude-code' }), [b])
+  assert.deepEqual(filterAgents([a, b], { ...base, q: 'claude-code' }), [])
+  assert.deepEqual(filterAgents([a, b], { ...base, q: 'bob' }), [])
 })
 
-test('unassigned runtime and operator filters use the same sentinel as rankings', () => {
-  const assigned = agent({ operator: 'alice', runtime: 'codex' })
-  const missingOperator = agent({ operator: '', runtime: 'claude-code', agent: 'reviewer' })
-  const missingRuntime = agent({ operator: 'bob', runtime: '', agent: 'helper' })
-  const base: AgentFilters = { q: '', status: 'all', signal: '', rank: 'operator', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' }
-
-  assert.deepEqual(filterAgents([assigned, missingOperator, missingRuntime], { ...base, op: AGENT_UNASSIGNED }), [missingOperator])
-  assert.deepEqual(filterAgents([assigned, missingOperator, missingRuntime], { ...base, rt: AGENT_UNASSIGNED }), [missingRuntime])
-  assert.equal(agentFiltersQuery({ ...base, op: AGENT_UNASSIGNED }), `?op=${AGENT_UNASSIGNED}`)
-  assert.equal(parseAgentFilters(`?op=${AGENT_UNASSIGNED}`).op, AGENT_UNASSIGNED)
+test('agent labels keep same-name identities separate without exposing operator or runtime', () => {
+  const first = agent({ operator: 'alice', runtime: 'codex', agent: 'builder' })
+  const second = agent({ operator: 'bob', runtime: 'claude-code', agent: 'builder' })
+  const labels = buildAgentDisplayLabels([second, first])
+  assert.deepEqual(Object.values(labels).sort(), ['builder · 1', 'builder · 2'])
+  assert.equal(Object.values(labels).some((label) => label.includes('alice') || label.includes('codex')), false)
 })
 
 test('agent windows use the service day and compare adjacent equal ranges', () => {
@@ -150,14 +145,16 @@ test('agent KPI model preserves eight facts and maps actions without erasing unr
     attention: 1,
     t: (key) => key,
   })
-  assert.deepEqual(cards.map((card) => card.key), ['active-agents', 'active-time', 'total', 'operators', 'live', 'week', 'quality', 'attention'])
-  assert.equal(cards[0].value, '3')
+  assert.deepEqual(cards.map((card) => card.key), ['active-time', 'average-time', 'active-agents', 'total', 'live', 'week', 'quality', 'attention'])
+  assert.equal(cards[0].value, '9m')
   assert.equal(cards[0].delta, '+50%')
-  assert.equal(cards[2].detail, '1/5 agentVisibleTotal')
+  assert.equal(cards[1].value, '3m')
+  assert.equal(cards[1].delta, '+0%')
+  assert.equal(cards[2].value, '3')
+  assert.equal(cards[3].detail, '1/5 agentVisibleTotal')
   assert.equal(cards[4].value, '1')
   assert.equal(cards[6].value, '75%')
   assert.equal(cards[7].detail, '1 agentErrors · 2 agentBlocked')
-  assert.deepEqual(agentKpiActionPatch('operator-rank'), { rank: 'operator' })
   assert.deepEqual(agentKpiActionPatch('live'), { status: 'live', signal: '' })
   assert.deepEqual(agentKpiActionPatch('week'), { sort: 'window_time' })
   assert.deepEqual(agentKpiActionPatch('quality'), { sort: 'success' })
@@ -165,12 +162,12 @@ test('agent KPI model preserves eight facts and maps actions without erasing unr
   assert.equal(agentKpiActionPatch('trend'), null)
 })
 
-test('agent chart mode uses the selected metric and roving focus stays in bounds', () => {
+test('agent chart mode is fixed to active time and roving focus stays in bounds', () => {
   const today = [{ day: '2026-07-13', active_agents: 2, active_seconds: 0 }]
   const series = [...today, { day: '2026-07-14', active_agents: 1, active_seconds: 60 }]
-  assert.equal(resolveAgentChartMode(today, 'agents'), 'today')
-  assert.equal(resolveAgentChartMode(today, 'seconds'), 'empty')
-  assert.equal(resolveAgentChartMode(series, 'agents'), 'series')
+  assert.equal(resolveAgentChartMode(today), 'empty')
+  assert.equal(resolveAgentChartMode([{ ...today[0], active_seconds: 20 }]), 'today')
+  assert.equal(resolveAgentChartMode(series), 'series')
   assert.equal(moveAgentChartIndex(1, 'ArrowLeft', 3), 0)
   assert.equal(moveAgentChartIndex(1, 'ArrowRight', 3), 2)
   assert.equal(moveAgentChartIndex(0, 'ArrowLeft', 3), 0)
@@ -178,15 +175,14 @@ test('agent chart mode uses the selected metric and roving focus stays in bounds
   assert.equal(moveAgentChartIndex(1, 'Escape', 3), 1)
 })
 
-test('agent chart anchor and long-window scroll follow the latest non-zero metric value', () => {
+test('agent chart anchor and long-window scroll follow the latest non-zero active time', () => {
   const daily = Array.from({ length: 90 }, (_, index) => ({
     day: `day-${index}`,
     active_agents: index === 40 ? 2 : 0,
     active_seconds: index === 62 ? 120 : 0,
   }))
-  assert.equal(resolveAgentChartAnchorIndex(daily, 'agents'), 40)
-  assert.equal(resolveAgentChartAnchorIndex(daily, 'seconds'), 62)
-  assert.equal(resolveAgentChartAnchorIndex(daily.map((row) => ({ ...row, active_agents: 0, active_seconds: 0 })), 'agents'), 89)
+  assert.equal(resolveAgentChartAnchorIndex(daily), 62)
+  assert.equal(resolveAgentChartAnchorIndex(daily.map((row) => ({ ...row, active_agents: 0, active_seconds: 0 }))), 89)
 
   const dataScroll = resolveAgentChartScrollLeft(90, 40, 2574, 715, 2606)
   const latestScroll = resolveAgentChartScrollLeft(90, 89, 2574, 715, 2606)
@@ -253,7 +249,7 @@ test('agent directory rows calculate and sort by the selected window', () => {
   assert.deepEqual(today.map((row) => [row.agent.agent, row.active_seconds]), [['first', 90], ['second', 0]])
 })
 
-test('agent daily breakdown follows runtime or operator view without losing daily totals', () => {
+test('agent daily breakdown uses agent identities without losing daily totals', () => {
   const codexDays = Array(90).fill(0)
   codexDays[89] = 120
   const claudeDays = Array(90).fill(0)
@@ -263,18 +259,16 @@ test('agent daily breakdown follows runtime or operator view without losing dail
     agent({ runtime: 'claude-code', operator: '', agent: 'reviewer', active_days: claudeDays }),
   ]
   const overview = buildAgentOverview(items, undefined, '2026-07-13')
-  const runtimeRows = buildAgentDailyBreakdown(items, overview.days, ['2026-07-13'], 'runtime')
-  assert.deepEqual(runtimeRows, [
-    { day: '2026-07-13', segment: 'codex', active_agents: 1, active_seconds: 120 },
-    { day: '2026-07-13', segment: 'claude-code', active_agents: 1, active_seconds: 60 },
+  const rows = buildAgentDailyBreakdown(items, overview.days, ['2026-07-13'])
+  assert.deepEqual(rows, [
+    { day: '2026-07-13', segment: 'code', active_agents: 1, active_seconds: 120 },
+    { day: '2026-07-13', segment: 'reviewer', active_agents: 1, active_seconds: 60 },
   ])
-  const operatorRows = buildAgentDailyBreakdown(items, overview.days, ['2026-07-13'], 'operator')
-  assert.equal(operatorRows.find((row) => row.segment === AGENT_UNASSIGNED)?.active_seconds, 60)
   const window = resolveAgentWindow({ w: 'today', wstart: '', wend: '' }, overview.today)
   const windowOverview = buildAgentWindowOverview(items, overview, window)
   assert.equal(windowOverview.operator.find((row) => row.operator === AGENT_UNASSIGNED)?.today_active, 60)
   assert.equal(windowOverview.operator.some((row) => row.operator === 'claude-code'), false)
-  const model = buildAgentTrendModel(operatorRows, ['2026-07-13'], 'seconds')
+  const model = buildAgentTrendModel(rows, ['2026-07-13'])
   assert.equal(model.days[0].active_seconds, 180)
   assert.equal(model.days[0].active_agents, 2)
 })
@@ -282,18 +276,18 @@ test('agent daily breakdown follows runtime or operator view without losing dail
 test('agent trend model keeps top eight segments and folds the rest into other', () => {
   const rows = Array.from({ length: 10 }, (_, index) => ({
     day: '2026-07-13',
-    segment: `operator-${index}`,
+    segment: `agent-${index}`,
     active_agents: 1,
     active_seconds: 100 - index,
   }))
-  const model = buildAgentTrendModel(rows, ['2026-07-13'], 'seconds', 8)
+  const model = buildAgentTrendModel(rows, ['2026-07-13'], 8)
   assert.equal(model.legend.length, 9)
   assert.equal(model.legend.at(-1), '__other')
   assert.equal(model.days[0].segments.find((item) => item.name === '__other')?.active_agents, 2)
   assert.equal(model.days[0].segments.reduce((sum, item) => sum + item.active_seconds, 0), rows.reduce((sum, item) => sum + item.active_seconds, 0))
 })
 
-test('agent donut segments preserve legend order and calculate metric-specific shares', () => {
+test('agent donut segments preserve legend order and calculate active-time shares', () => {
   const day = {
     day: '2026-07-14',
     active_agents: 4,
@@ -304,13 +298,10 @@ test('agent donut segments preserve legend order and calculate metric-specific s
       { name: 'idle', active_agents: 0, active_seconds: 0 },
     ],
   }
-  const agentSlices = buildAgentDonutSegments(day, 'agents')
-  assert.deepEqual(agentSlices.map((slice) => [slice.name, slice.value]), [['alice', 3], ['bob', 1]])
-  assert.deepEqual(agentSlices.map((slice) => slice.offset), [0, 0.75])
-  assert.equal(agentSlices.reduce((sum, slice) => sum + slice.share, 0), 1)
-
-  const secondSlices = buildAgentDonutSegments(day, 'seconds')
-  assert.deepEqual(secondSlices.map((slice) => [slice.name, slice.value]), [['alice', 60], ['bob', 120]])
-  assert.equal(secondSlices[0].share, 1 / 3)
-  assert.equal(secondSlices[1].offset, 1 / 3)
+  const slices = buildAgentDonutSegments(day)
+  assert.deepEqual(slices.map((slice) => [slice.name, slice.value]), [['alice', 60], ['bob', 120]])
+  assert.equal(slices[0].share, 1 / 3)
+  assert.equal(slices[1].offset, 1 / 3)
+  assert.equal(slices.reduce((sum, slice) => sum + slice.share, 0), 1)
+  assert.equal(slices.reduce((sum, slice) => sum + slice.value, 0), day.active_seconds)
 })
