@@ -1,6 +1,7 @@
 # SKILLS 记录页 · 线框图
 
 > 路由：`/skills/evidence`（`frontend/src/views/SkillsEvidence.tsx`）。从 `/skills` 摘要格、问题线索或排行记录入口进入；保留当前 `w/wstart/wend/q/rt/src/view/topn` 等筛选语义。待处理线索三类治理详情走 `pages/skills-clues.md`。
+> 名称规则：records、Top Skills、名单与筛选 chip 使用当前语言 display name，API/URL 继续携带 slug。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 手机 375×812（31 列）

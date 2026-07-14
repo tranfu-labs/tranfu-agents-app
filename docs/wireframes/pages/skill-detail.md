@@ -1,6 +1,7 @@
 # Skill 详情 · 线框图
 
 > 路由：`/skill/:name`（frontend/src/views/SkillDetail.tsx）。画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
+> 名称规则：`:name` 是稳定 slug；页头与抽屉按界面语言显示 `display_name_zh/display_name`。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 平板 768×1024（64 列）｜ 手机 375×812（31 列）

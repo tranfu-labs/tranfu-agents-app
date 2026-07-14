@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { GovernanceBucketSkill, GovernanceUntrackedSkill, OperatorTableRow, SkillsEvidenceKind, SkillsOverview } from '../../lib/types'
 import { evidencePath } from '../../lib/skillsEvidence'
 import { windowZeroUsageLabel } from '../../lib/skillsPresentation'
+import { skillDisplayName } from '../../lib/skillNames'
+import type { Lang } from '../../lib/types'
 
 type TodoItem = {
   id: string
@@ -118,14 +120,14 @@ function operatorGroups(rows: OperatorTableRow[], t: (key: string) => string) {
   return { heavy, sleeping, narrow, untracked: [], idle: [], missing: [] }
 }
 
-export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; t: (key: string) => string }) {
+export function GovernanceTodo({ data, view = 'skill', lang, t }: { data: SkillsOverview | null; view?: 'skill' | 'operator'; lang: Lang; t: (key: string) => string }) {
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const windowKey = data?.window?.key || `${data?.days || 7}d`
   const groups = useMemo(() => {
     if (view === 'operator') return operatorGroups(data?.operator_table || [], t)
     const untracked = (data?.governance?.untracked_usage?.top || []).map((row: GovernanceUntrackedSkill, index) => ({
       id: `untracked:${row.name}`,
-      title: row.name,
+      title: skillDisplayName(row, lang, data?.skill_names),
       detail: `${row.sessions} ${t('records')} · ${row.users_30d || 0} ${t('operatorsUnit')} · ${t('lastUsed')} ${shortDay(row.last_day) || '—'}`,
       severity: index < 3 ? 'bad' as const : 'warn' as const,
       evidenceKind: 'untracked' as const,
@@ -133,7 +135,7 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
     }))
     const idle = (data?.governance?.idle_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `idle:${row.name}`,
-      title: row.name,
+      title: skillDisplayName(row, lang, data?.skill_names),
       detail: `${row.installers || 0} ${t('peopleInstalled')} · ${windowZeroUsageLabel(windowKey, t)} · ${t('lastUsed')} ${shortDay(row.last_day) || t('neverUsed')}`,
       severity: 'warn' as const,
       evidenceKind: 'idle' as const,
@@ -141,7 +143,7 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
     }))
     const missing = (data?.governance?.cataloged_not_installed?.top || []).map((row: GovernanceBucketSkill) => ({
       id: `missing:${row.name}`,
-      title: row.name,
+      title: skillDisplayName(row, lang, data?.skill_names),
       detail: row.cataloged_at ? `0 ${t('peopleInstalled')} · ${t('cataloged')} ${shortDay(row.cataloged_at) || String(row.cataloged_at).slice(0, 10)}` : `0 ${t('peopleInstalled')} · ${t('cataloged')}`,
       severity: 'info' as const,
       evidenceKind: 'zero_install' as const,
@@ -149,7 +151,7 @@ export function GovernanceTodo({ data, view = 'skill', t }: { data: SkillsOvervi
       openable: false,
     }))
     return { untracked, idle, missing, heavy: [], sleeping: [], narrow: [] }
-  }, [data, view, windowKey, t])
+  }, [data, view, windowKey, lang, t])
   const ignore = (id: string) => setIgnored((old) => new Set([...old, id]))
   if (view === 'operator') {
     return (

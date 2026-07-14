@@ -55,6 +55,9 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
   服务端按身份 sticky(独立表 `agent_shim_versions`),profile 全量替换不得清掉它;前端三态判定
   `current` / `outdated` / `unknown`(字段缺失 = unknown,**不能**误判为 outdated)。
 - Skill 统计口径:事件可选 `skill`(仅 Skill 名)+ 可选 `skill_mode ∈ {used,equipped}`;服务端写 `skill_uses`(一行=会话×Skill×mode,`(session_id, skill, mode)` 幂等,长期保留)。端点:`/api/state.skills`(兼容排行)、`/api/skills?days={7|30|90}`(旧兼容总览)、`/api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}`(新版总览,skill/operator 两套 used-only 聚合,含 `Asia/Shanghai` `today`;按人聚合可用 `rt/src` 继承观察范围;`scope=new` 进入当前窗口历史首次 used 的可行动名单;`published_skills[]`/`current_published_skill_count` 使用 catalog `published_at` 统计当前窗口 `own|meta` 新发布 skill,发布但未使用也计入,`external` 不计入)、`/api/skills/evidence?kind=...`(当前窗口证据页 payload,used-only,支持 total/untracked/coverage/operators/avg_per_session/idle/unused_ratio/zero_install/top3/runtime/source)、`/api/skill/{name}`(used/equipped 分列,含 `Asia/Shanghai` `today`)、`/api/operator/{name}`(按人 used-only,空 operator 与 equipped 不计入)。`/api/state.leverage.assets` 与顶部 `N Skill 资产` 使用 used-only distinct skill;`skills_week` 与顶部 `+N 7天新发现` 使用当前 7 天窗口内历史首次 used skill;installed/profile-only/equipped-only 不计入 nav 数字。`skills_seen` 只保留为内部发现/安装痕迹,不得作为 nav 展示事实源。默认上报,本机 `TF_REPORT_SKILLS=0` 关闭;不得上报 Skill 参数/prompt/代码/输出。
+  Skill slug 始终作为数据库、URL、筛选和治理 identity;所有含 Skill 的读侧对象同时返回
+  `display_name/display_name_zh`,批量 payload 另返回 `skill_names`。公司库名称取 catalog 中由 `SKILL.md`
+  导出的字段,非公司库由 profile 上报补充;中文按 `display_name_zh→display_name→slug`,英文反向回退。
   Claude Code 斜杠 skill 只从 transcript 中 `type=user` 且 `message.content` 起头斜杠命令三件套里的 `<command-name>` 标记采集,并过滤 `/clear`、`/usage` 等 Claude Code 内置 UI 命令;fixture、tool_result、assistant 文本中的同名标记不得采集。
   Codex Skill 使用在 `Stop` / `SessionEnd` 从 rollout 补采:旧格式只取 `function_call + exec_command` 的
   `arguments.cmd`,Desktop 新格式只取 `custom_tool_call + exec` 中代码态真实 `tools.exec_command(...)`

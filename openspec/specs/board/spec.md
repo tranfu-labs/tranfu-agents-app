@@ -504,3 +504,21 @@
 - 1440×900 下八卡一行，排行在左、趋势在右且底边差值不超过 4px；768×1024 下八卡四列且分析区单列；375×812 下八卡两列，问题线索之后先出现 Agent 明细。
 - 当前选择指标全窗为 0 时趋势无 SVG 坐标轴；有效单日正值显示 160px 紧凑 plot；7 日正值图无根横滚且柱宽不超过 30px；30 日正值图默认滚到容器末端且根 `scrollWidth <= clientWidth`。
 - 图表顺序 Tab 只有一个日期停靠点；方向键切换后 tooltip 显示分组分布并同时保留总人数与总时长，Escape 关闭。KPI、问题线索、排行和 Agent 明细行均保留既定 URL 或下钻语义。
+
+## Skill 双语显示名称（2026-07-14）
+
+### Requirement: Skill slug 与本地化显示名称分离
+
+所有 Skill 统计与治理 API MUST 继续使用 slug 作为稳定 identity。每个含 Skill 的响应对象 MUST 同时提供来自 catalog 或 profile `SKILL.md` 的 `display_name/display_name_zh`；包含多个 Skill 的 payload MUST 另提供以 slug 为键的 `skill_names` 双语映射。服务端不得只返回随 locale 变化的单一 label。中文界面 MUST 按 `display_name_zh → display_name → slug` 显示，英文界面 MUST 按 `display_name → display_name_zh → slug` 显示。显示名不得改变数据库聚合、source 归因、URL、query、颜色、选择器或删除目标。
+
+- catalog 元数据优先于 profile；profile 只补 catalog 缺失字段。
+- `/skills` 总览、图表、抽屉、线索、漏斗、CSV 及 `/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name`、`/operator/:name` MUST 使用同一显示规则。
+- Agent profile Skill 与 Admin Skill 清理视图 MUST 使用同一显示规则。
+- 名称搜索 MUST 同时匹配 slug、`display_name` 与 `display_name_zh`，包括服务端分页 evidence/clue 查询。
+- 可访问名称与 tooltip MUST 不得残留已有可解析显示名对应的 slug。
+
+### Skill 名称可验证行为
+
+- catalog 为 `openspec-driven-development` 返回 `display_name=OpenSpec-Driven Development`、`display_name_zh=OpenSpec 驱动开发` 时，中文界面显示中文名、英文界面显示英文名，但 URL 和 API identity 仍使用 slug。
+- 英文名缺失时英文界面回退中文名；两者均缺失时回退 slug，页面与操作仍可用。
+- 以 slug、英文名或中文名搜索同一 Skill 均命中；显示名冲突时返回所有匹配 Skill，选择与操作仍按 slug 区分。

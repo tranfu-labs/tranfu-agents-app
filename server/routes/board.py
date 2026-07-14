@@ -18,7 +18,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from server.catalog import _catalog_context, _catalog_list, _installed_skill_names, _skill_source
+from server.catalog import (
+    _annotate_profile_skill_names, _catalog_context, _catalog_list,
+    _installed_skill_names, _skill_display_fields, _skill_name_map, _skill_source,
+)
 from server.config import (
     ACTIVE_ST, CATALOG_COMPANY_TYPES, CATALOG_SOURCE_UNKNOWN, CLOUD_RUNTIMES, LIVE_ST,
     PROFILE_KEYS, SKILL_MODES, STALE_SECONDS, WINDOW_DAYS,
@@ -167,7 +170,15 @@ def leverage(conn):
     return {"assets": assets, "skills_week": week}
 
 
-def skill_usage(conn):
+def _named_skill(name, skill_names, values=None, **extra):
+    return {"name": name, **_skill_display_fields(name, skill_names), **(values or {}), **extra}
+
+
+def _skill_record(skill, skill_names, values=None, **extra):
+    return {"skill": skill, **_skill_display_fields(skill, skill_names), **(values or {}), **extra}
+
+
+def skill_usage(conn, skill_names=None):
     today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
@@ -182,15 +193,14 @@ def skill_usage(conn):
       GROUP BY skill, mode
       ORDER BY sessions_30d DESC, sessions_total DESC, skill ASC, mode ASC
     """, (d7, d30, d30)).fetchall()
-    return [{
-        "name": r["skill"],
+    return [_named_skill(r["skill"], skill_names, {
         "mode": r["mode"] or "used",
         "sessions_7d": int(r["sessions_7d"] or 0),
         "sessions_30d": int(r["sessions_30d"] or 0),
         "sessions_total": int(r["sessions_total"] or 0),
         "users_30d": int(r["users_30d"] or 0),
         "last_day": r["last_day"],
-    } for r in rows]
+    }) for r in rows]
 
 
 def _agent_rate(success, runs):
@@ -314,8 +324,9 @@ def _new_used_skill_names(conn, window_start, window_end):
     }
 
 
-def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by, skill_names=None):
-    scope_sql, scope_params = _skill_scope_sql(skill_names)
+def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by,
+                                 scoped_names=None, display_names=None):
+    scope_sql, scope_params = _skill_scope_sql(scoped_names)
     total = conn.execute(f"""
       SELECT COUNT(*) c FROM skill_uses
       WHERE mode='used' AND day >= ? AND day <= ?{scope_sql}
@@ -339,7 +350,7 @@ def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days
         runtime_counts.setdefault(r["skill"], {})[r["runtime"] or "unknown"] = int(r["sessions"] or 0)
     trend = {}
     if trend_days:
-        trend_scope_sql, trend_scope_params = _skill_scope_sql(skill_names)
+        trend_scope_sql, trend_scope_params = _skill_scope_sql(scoped_names)
         for r in conn.execute(f"""
           SELECT skill, day, COUNT(*) sessions
           FROM skill_uses
@@ -356,8 +367,7 @@ def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days
             continue
         sessions = int(r["sessions"] or 0)
         used_sessions += sessions
-        top.append({
-            "name": skill,
+        top.append(_named_skill(skill, display_names, {
             "source": CATALOG_SOURCE_UNKNOWN,
             "sessions": sessions,
             "share": (sessions / total) if total else 0,
@@ -366,7 +376,7 @@ def _skills_governance_untracked(conn, window_start, window_end, d30, trend_days
             "trend_14d": [trend.get(skill, {}).get(day, 0) for day in trend_days],
             "trend_days": trend_days,
             "last_day": r["last_day"],
-        })
+        }))
 
     def _day_num(item):
         return int((item.get("last_day") or "0000-00-00").replace("-", ""))
@@ -561,7 +571,8 @@ def _skills_attribution(conn, window_start, window_end, catalog_by, skill_names=
     }
 
 
-def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names, installed_names, used_names):
+def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names,
+                        installed_names, used_names, skill_names=None):
     install_counts = _installed_skill_counts(conn)
     first_seen = {r["name"]: r["first_day"] for r in conn.execute("SELECT name,first_day FROM skills_seen")}
     last_days = {r["skill"]: r["last_day"] for r in conn.execute("""
@@ -572,21 +583,19 @@ def _governance_buckets(conn, window_start, catalog_by, catalog_meta, company_na
     """)}
     idle = []
     for name in installed_names - used_names:
-        idle.append({
-            "name": name,
+        idle.append(_named_skill(name, skill_names, {
             "source": catalog_by.get(name),
             "installed_at": first_seen.get(name),
             "installers": int(install_counts.get(name, 0)),
             "last_day": last_days.get(name),
-        })
+        }))
     idle.sort(key=lambda item: (item.get("installed_at") or "", item["name"]), reverse=True)
     missing = []
     for name in company_names - installed_names:
-        missing.append({
-            "name": name,
+        missing.append(_named_skill(name, skill_names, {
             "source": catalog_by.get(name),
             "cataloged_at": catalog_meta.get("fetched_at"),
-        })
+        }))
     missing.sort(key=lambda item: (item.get("cataloged_at") or "", item["name"]))
     return {
         "idle_installed": {"count": len(idle), "top": idle[:50]},
@@ -606,7 +615,7 @@ def _catalog_published_day(value):
     return dt.astimezone(STATS_TZ).date().isoformat()
 
 
-def _published_skill_summary(conn, catalog_items, catalog_by, window):
+def _published_skill_summary(conn, catalog_items, catalog_by, window, skill_names=None):
     install_counts = _installed_skill_counts(conn)
     usage = {
         r["skill"]: {
@@ -641,8 +650,7 @@ def _published_skill_summary(conn, catalog_items, catalog_by, window):
             continue
         name = item["name"]
         stat = usage.get(name, {})
-        current.append({
-            "name": name,
+        current.append(_named_skill(name, skill_names, {
             "source": _skill_source(name, catalog_by),
             "version": item.get("version") or "",
             "author": item.get("author") or "",
@@ -654,7 +662,7 @@ def _published_skill_summary(conn, catalog_items, catalog_by, window):
             "installers": int(install_counts.get(name, 0)),
             "window_sessions": int(stat.get("window_sessions") or 0),
             "last_day": stat.get("last_day"),
-        })
+        }))
     current.sort(key=lambda x: x["name"])
     current.sort(key=lambda x: x.get("published_at") or "", reverse=True)
     return {
@@ -726,7 +734,18 @@ def _source_filter(kind, src, ignored):
     return forced, "non_catalog" if forced == {"non_catalog"} else ",".join(sorted(forced))
 
 
-def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", operator=""):
+def _matching_skill_names(q, skill_names):
+    needle = (q or "").strip().casefold()
+    if not needle:
+        return []
+    return sorted(name for name, labels in (skill_names or {}).items() if any(
+        needle in str(value or "").casefold()
+        for value in (name, labels.get("display_name"), labels.get("display_name_zh"))
+    ))
+
+
+def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", operator="",
+                         display_names=None):
     clauses = ["mode='used'", "day >= ?", "day <= ?"]
     params = [window_start, window_end]
     if rt:
@@ -740,8 +759,11 @@ def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", 
         params.append(operator)
     if q:
         needle = f"%{q.casefold()}%"
-        clauses.append("(lower(skill) LIKE ? OR lower(COALESCE(operator,'')) LIKE ?)")
+        matched = _matching_skill_names(q, display_names)
+        extra = f" OR skill IN ({','.join('?' for _ in matched)})" if matched else ""
+        clauses.append(f"(lower(skill) LIKE ? OR lower(COALESCE(operator,'')) LIKE ?{extra})")
         params.extend([needle, needle])
+        params.extend(matched)
     return [dict(r) for r in conn.execute(f"""
       SELECT day, first_seen, skill, COALESCE(operator,'') operator,
         COALESCE(runtime,'') runtime, session_id
@@ -750,12 +772,13 @@ def _evidence_fetch_rows(conn, window_start, window_end, q="", rt="", skill="", 
     """, params)]
 
 
-def _annotate_evidence_rows(rows, catalog_by):
+def _annotate_evidence_rows(rows, catalog_by, skill_names=None):
     out = []
     for row in rows:
         item = dict(row)
         item["runtime"] = item.get("runtime") or "unknown"
         source = _skill_source(item["skill"], catalog_by)
+        item.update(_skill_display_fields(item["skill"], skill_names))
         item["source"] = source
         item["_source_key"] = _skill_source_key(source)
         out.append(item)
@@ -773,6 +796,8 @@ def _evidence_top_skills(rows):
     for row in rows:
         item = stats.setdefault(row["skill"], {
             "name": row["skill"],
+            "display_name": row.get("display_name") or row["skill"],
+            "display_name_zh": row.get("display_name_zh") or row["skill"],
             "source": row.get("source"),
             "records": 0,
             "operators": set(),
@@ -787,6 +812,8 @@ def _evidence_top_skills(rows):
     for item in stats.values():
         out.append({
             "name": item["name"],
+            "display_name": item["display_name"],
+            "display_name_zh": item["display_name_zh"],
             "source": item.get("source"),
             "records": item["records"],
             "operators": len(item["operators"]),
@@ -851,12 +878,14 @@ def _evidence_record_summary(rows, items=None, installed=0):
     return summary
 
 
-def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q="", skill="", rt="", operator="", catalog_by=None):
+def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q="", skill="", rt="",
+                         operator="", catalog_by=None, skill_names=None):
     catalog_by = catalog_by or {}
     company_names = {n for n, src in catalog_by.items() if src in CATALOG_COMPANY_TYPES}
     installed_names = _installed_skill_names(conn) & company_names
-    used_rows = _evidence_fetch_rows(conn, window_start, window_end, q="", rt=rt, skill="", operator=operator)
-    used_rows = _annotate_evidence_rows(used_rows, catalog_by)
+    used_rows = _evidence_fetch_rows(conn, window_start, window_end, q="", rt=rt, skill="",
+                                     operator=operator, display_names=skill_names)
+    used_rows = _annotate_evidence_rows(used_rows, catalog_by, skill_names)
     used_rows = _filter_evidence_rows(used_rows, source_keys)
     used_names = {row["skill"] for row in used_rows if row["skill"] in company_names}
     if kind == "zero_install":
@@ -870,8 +899,8 @@ def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q=""
     if skill:
         names = [name for name in names if name == skill]
     if q:
-        needle = q.casefold()
-        names = [name for name in names if needle in name.casefold()]
+        matched = set(_matching_skill_names(q, skill_names))
+        names = [name for name in names if name in matched]
     installer_details = _installed_skill_details(conn)
     last_days = {r["skill"]: r["last_day"] for r in conn.execute("""
       SELECT skill, MAX(day) last_day
@@ -882,13 +911,12 @@ def _evidence_list_items(conn, kind, window_start, window_end, source_keys, q=""
     items = []
     for name in names:
         details = [] if kind == "zero_install" else installer_details.get(name, [])
-        items.append({
-            "name": name,
+        items.append(_named_skill(name, skill_names, {
             "source": _skill_source(name, catalog_by),
             "installers": len(details),
             "installers_detail": details,
             "last_day": last_days.get(name),
-        })
+        }))
     items.sort(key=lambda x: x["name"])
     items.sort(key=lambda x: x.get("last_day") or "", reverse=True)
     items.sort(key=lambda x: x["installers"] or 0, reverse=True)
@@ -904,7 +932,8 @@ def skills_evidence_payload(conn, days=30, w=None, wstart=None, wend=None, kind=
     window = _skills_window(days, w, wstart, wend)
     window_start = window["start"]
     window_end = window["end"]
-    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    catalog_items, catalog_by, catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
     q = (q or "").strip()
     rt = (rt or "").strip()
     skill = _skill_use_name(skill) if skill else ""
@@ -925,7 +954,7 @@ def skills_evidence_payload(conn, days=30, w=None, wstart=None, wend=None, kind=
     if kind in {"idle", "unused_ratio", "zero_install"}:
         items, installed = _evidence_list_items(
             conn, kind, window_start, window_end, source_keys, q=q, skill=skill,
-            rt=rt, operator=operator, catalog_by=catalog_by,
+            rt=rt, operator=operator, catalog_by=catalog_by, skill_names=skill_names,
         )
         page_items = items[offset:offset + limit]
         return {
@@ -941,11 +970,13 @@ def skills_evidence_payload(conn, days=30, w=None, wstart=None, wend=None, kind=
             "daily": [],
             "records": [],
             "items": page_items,
+            "skill_names": skill_names,
             "catalog": catalog_meta,
         }
 
-    rows = _evidence_fetch_rows(conn, window_start, window_end, q=q, rt=rt, skill=skill, operator=operator)
-    rows = _annotate_evidence_rows(rows, catalog_by)
+    rows = _evidence_fetch_rows(conn, window_start, window_end, q=q, rt=rt, skill=skill,
+                                operator=operator, display_names=skill_names)
+    rows = _annotate_evidence_rows(rows, catalog_by, skill_names)
     rows = _filter_evidence_rows(rows, source_keys)
     if kind == "operators":
         rows = [row for row in rows if row.get("operator")]
@@ -955,7 +986,9 @@ def skills_evidence_payload(conn, days=30, w=None, wstart=None, wend=None, kind=
     rows.sort(key=lambda row: (row.get("first_seen") or row.get("day") or "", row.get("skill") or ""), reverse=True)
     public_rows = []
     for row in rows[offset:offset + limit]:
-        item = {k: row.get(k) for k in ("day", "first_seen", "skill", "operator", "runtime", "source", "session_id")}
+        item = {k: row.get(k) for k in (
+            "day", "first_seen", "skill", "display_name", "display_name_zh",
+            "operator", "runtime", "source", "session_id")}
         public_rows.append(item)
     return {
         "kind": kind,
@@ -970,6 +1003,7 @@ def skills_evidence_payload(conn, days=30, w=None, wstart=None, wend=None, kind=
         "daily": _evidence_daily(rows),
         "records": public_rows,
         "items": [],
+        "skill_names": skill_names,
         "catalog": catalog_meta,
     }
 
@@ -999,6 +1033,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     previous_start = window["previous_start"]
     previous_end = window["previous_end"]
     catalog_items, catalog_by, catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
     scope = (scope or "all").strip().lower()
     if scope not in ("", "all", "new"):
         raise HTTPException(400, "scope must be all or new")
@@ -1021,13 +1056,12 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
       GROUP BY day, skill, runtime
       ORDER BY day ASC, skill ASC, runtime ASC
     """, daily_params).fetchall()
-    daily = [{
+    daily = [_skill_record(r["skill"], skill_names, {
         "day": r["day"],
-        "skill": r["skill"],
         "runtime": r["runtime"] or "unknown",
         "sessions": int(r["sessions"] or 0),
         "source": _skill_source(r["skill"], catalog_by),
-    } for r in daily_rows]
+    }) for r in daily_rows]
 
     base_rows = conn.execute(f"""
       SELECT skill,
@@ -1071,8 +1105,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     table = []
     for r in base_rows:
         skill = r["skill"]
-        table.append({
-            "name": skill,
+        table.append(_named_skill(skill, skill_names, {
             "source": _skill_source(skill, catalog_by),
             "sessions_7d": int(r["sessions_7d"] or 0),
             "sessions_30d": int(r["sessions_30d"] or 0),
@@ -1084,7 +1117,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
             "trend_14d": [trend.get(skill, {}).get(day, 0) for day in trend_days],
             "trend_days": trend_days,
             "last_day": r["last_day"],
-        })
+        }))
     table.sort(key=lambda x: (-x["sessions_window"], -x["sessions_total"], x["name"]))
 
     operator_stats = {}
@@ -1237,16 +1270,20 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     """, (window_start, window_end)) if r["skill"] in company_names}
     funnel = {
         "available": bool(company_names),
-        "catalog": _catalog_list(company_names, catalog_by),
-        "installed": _catalog_list(installed_names, catalog_by),
-        "used_30d": _catalog_list(used_window_names, catalog_by),
-        "idle": _catalog_list(installed_names - used_window_names, catalog_by),
+        "catalog": _catalog_list(company_names, catalog_by, skill_names),
+        "installed": _catalog_list(installed_names, catalog_by, skill_names),
+        "used_30d": _catalog_list(used_window_names, catalog_by, skill_names),
+        "idle": _catalog_list(installed_names - used_window_names, catalog_by, skill_names),
     }
     governance = {
-        "untracked_usage": _skills_governance_untracked(conn, window_start, window_end, d30, trend_days, catalog_by, scoped_skill_names),
+        "untracked_usage": _skills_governance_untracked(
+            conn, window_start, window_end, d30, trend_days, catalog_by,
+            scoped_names=scoped_skill_names, display_names=skill_names),
     }
-    governance.update(_governance_buckets(conn, window_start, catalog_by, catalog_meta, company_names, installed_names, used_window_names))
-    published = _published_skill_summary(conn, catalog_items, catalog_by, window)
+    governance.update(_governance_buckets(
+        conn, window_start, catalog_by, catalog_meta, company_names,
+        installed_names, used_window_names, skill_names))
+    published = _published_skill_summary(conn, catalog_items, catalog_by, window, skill_names)
     period = _period_comparison(conn, window, catalog_by, scoped_skill_names)
     period.update({
         "current_published_skill_count": published["current_count"],
@@ -1267,6 +1304,7 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
         "period_comparison": period,
         "attribution": _skills_attribution(conn, window_start, window_end, catalog_by, scoped_skill_names),
         "funnel": funnel,
+        "skill_names": skill_names,
         "catalog": catalog_meta,
     }
 
@@ -1287,7 +1325,8 @@ def operator_detail_payload(conn, name):
     today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
-    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    catalog_items, catalog_by, catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
     m = conn.execute("""
       SELECT
         SUM(CASE WHEN day >= ? THEN 1 ELSE 0 END) sessions_7d,
@@ -1300,7 +1339,9 @@ def operator_detail_payload(conn, name):
       FROM skill_uses
       WHERE operator=? AND mode='used'
     """, (d7, d30, operator)).fetchone()
-    daily = [dict(r) for r in conn.execute("""
+    daily = [_skill_record(r["skill"], skill_names, {
+        "day": r["day"], "sessions": int(r["sessions"] or 0),
+    }) for r in conn.execute("""
       SELECT day, skill, COUNT(*) sessions
       FROM skill_uses
       WHERE operator=? AND mode='used' AND day IS NOT NULL
@@ -1328,15 +1369,14 @@ def operator_detail_payload(conn, name):
     skill_table = []
     for r in skill_rows:
         skill = r["skill"]
-        skill_table.append({
-            "name": skill,
+        skill_table.append(_named_skill(skill, skill_names, {
             "source": _skill_source(skill, catalog_by),
             "sessions_7d": int(r["sessions_7d"] or 0),
             "sessions_30d": int(r["sessions_30d"] or 0),
             "sessions_total": int(r["sessions_total"] or 0),
             "runtime_counts": skill_runtime_counts.get(skill, {}),
             "last_day": r["last_day"],
-        })
+        }))
     skill_table.sort(key=lambda x: (-x["sessions_30d"], -x["sessions_total"], x["name"]))
     runtime = [{
         "runtime": r["runtime"] or "unknown",
@@ -1348,7 +1388,10 @@ def operator_detail_payload(conn, name):
       GROUP BY runtime
       ORDER BY sessions DESC, runtime ASC
     """, (operator,))]
-    records = [dict(r) for r in conn.execute("""
+    records = [_skill_record(r["skill"], skill_names, {
+        "day": r["day"], "runtime": r["runtime"], "session_id": r["session_id"],
+        "first_seen": r["first_seen"],
+    }) for r in conn.execute("""
       SELECT day, skill, runtime, session_id, first_seen
       FROM skill_uses
       WHERE operator=? AND mode='used'
@@ -1371,6 +1414,7 @@ def operator_detail_payload(conn, name):
         "skills": skill_table,
         "runtime": runtime,
         "records": records,
+        "skill_names": skill_names,
         "catalog": catalog_meta,
     }
 
@@ -1385,7 +1429,8 @@ def skill_detail_payload(conn, name):
     today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
-    _items, catalog_by, catalog_meta = _catalog_context(conn)
+    catalog_items, catalog_by, catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
     installed_count = _installed_skill_counts(conn).get(name, 0)
     m = conn.execute("""
       SELECT
@@ -1439,6 +1484,7 @@ def skill_detail_payload(conn, name):
     """, (name,))]
     return {
         "name": name,
+        **_skill_display_fields(name, skill_names),
         "today": today.isoformat(),
         "source": _skill_source(name, catalog_by),
         "metrics": {
@@ -1458,6 +1504,7 @@ def skill_detail_payload(conn, name):
         "runtime": sorted(runtime_map.values(), key=lambda x: (-(x["used"] + x["equipped"]), x["runtime"])),
         "operators": sorted(operator_map.values(), key=lambda x: (-(x["used"] + x["equipped"]), x["operator"])),
         "records": records,
+        "skill_names": {name: skill_names.get(name, _skill_display_fields(name, skill_names))},
         "catalog": catalog_meta,
     }
 
@@ -1472,7 +1519,11 @@ def _snapshot(conn):
     feed = conn.execute("""SELECT * FROM events WHERE source='heartbeat'
       ORDER BY id DESC LIMIT 40""").fetchall()
     dur, qual = metrics(conn)
+    catalog_items, _catalog_by, _catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
     profiles = load_profiles(conn)
+    for profile in profiles.values():
+        _annotate_profile_skill_names(profile, skill_names)
     shim_versions = load_shim_versions(conn)
     reuse = reuse_map(profiles)
 
@@ -1531,7 +1582,8 @@ def _snapshot(conn):
                   "status": r["status"], "current_step": r["current_step"],
                   "task": r["task"], "ts": r["ts"]} for r in feed],
         "leverage": leverage(conn),
-        "skills": skill_usage(conn),
+        "skills": skill_usage(conn, skill_names),
+        "skill_names": skill_names,
         "shim": {"version": _SHIM_MANIFEST["version"], "files": len(_SHIM_MANIFEST["files"])},
         "agent_overview": agent_overview,
         "totals": {

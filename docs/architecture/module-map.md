@@ -19,7 +19,8 @@ agent 机器                         中心服务器(单容器)                 
 ### M1 — 服务端 collector (`server/app.py`)
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Agents 运营 overview 与 Skill 使用/公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 与 `/api/state/stream` 快照必须经进程内 TTL 缓存和 single-flight 复用,
-  `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL,
+  `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL;
+  Skill 读模型保留 slug identity,并从 catalog/profile 统一附加 `display_name/display_name_zh` 与批量名称映射,
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
@@ -59,7 +60,8 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M3 — 采集 shim (`shims/`)
 - **职责**:在使用者机器上把状态/档案上报给 M1。
-  - `tf_profile.py` 自动探测 profile(版本/终端/位置/IM/MCP/技能/集成);
+  - `tf_profile.py` 自动探测 profile(版本/终端/位置/IM/MCP/技能/集成),Skill 项从本机 `SKILL.md`
+    best-effort 读取 `display_name/display_name_zh`;
   - `tf_selfupdate.py` 在会话开始后台检查 `/shims/manifest`,经 staging + sha256 + py_compile 后原子更新本地 shim,
     并在版本一致但文件缺失/哈希不符时补齐目标文件;
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;

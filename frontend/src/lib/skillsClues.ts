@@ -1,5 +1,6 @@
-import type { SkillsEvidencePayload } from './types'
+import type { Lang, SkillsEvidencePayload } from './types'
 import type { SkillsClueKind } from './skillsEvidence'
+import { skillDisplayName } from './skillNames.ts'
 
 type T = (key: string) => string
 
@@ -45,7 +46,7 @@ function sourceChip(value: string, t: T) {
   return `${t('sourceFilter')}：${value}`
 }
 
-export function humanFilterChips(data: SkillsEvidencePayload | null, t: T) {
+export function humanFilterChips(data: SkillsEvidencePayload | null, t: T, lang: Lang = 'zh') {
   const filters = data?.applied_filters || {}
   const chips: string[] = []
   const w = filters.w ? String(filters.w) : data?.window?.key || ''
@@ -58,7 +59,7 @@ export function humanFilterChips(data: SkillsEvidencePayload | null, t: T) {
   const rt = filters.rt ? String(filters.rt) : ''
   if (rt) chips.push(`${t('runtimeFilter')}：${rt}`)
   const skill = filters.skill ? String(filters.skill) : ''
-  if (skill) chips.push(`skill：${skill}`)
+  if (skill) chips.push(`skill：${skillDisplayName(skill, lang, data?.skill_names)}`)
   const operator = filters.operator ? String(filters.operator) : ''
   if (operator) chips.push(`${t('operatorName')}：${operator}`)
   const q = filters.q ? String(filters.q) : ''

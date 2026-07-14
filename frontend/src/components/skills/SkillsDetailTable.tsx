@@ -5,6 +5,8 @@ import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import type { SkillTableRow } from '../../lib/types'
 import { sourceLabel } from '../../lib/utils'
 import { windowPeriodLabel } from '../../lib/skillsPresentation'
+import { skillDisplayName } from '../../lib/skillNames'
+import type { Lang, SkillNamesMap } from '../../lib/types'
 
 function rowKey(event: KeyboardEvent<HTMLTableRowElement>, go: () => void) {
   if (event.key !== 'Enter' && event.key !== ' ') return
@@ -16,11 +18,14 @@ function csvCell(value: unknown) {
   return `"${String(value ?? '').replaceAll('"', '""')}"`
 }
 
-function exportRows(rows: SkillTableRow[], suffix: string) {
+function exportRows(rows: SkillTableRow[], suffix: string, lang: Lang, names?: SkillNamesMap) {
   const csv = [
-    ['skill', 'source', 'window_sessions', 'previous_sessions', 'delta', 'users_30d', 'runtime_counts', 'last_day'].map(csvCell).join(','),
+    ['skill_name', 'skill_slug', 'display_name', 'display_name_zh', 'source', 'window_sessions', 'previous_sessions', 'delta', 'users_30d', 'runtime_counts', 'last_day'].map(csvCell).join(','),
     ...rows.map((row) => [
+      skillDisplayName(row, lang, names),
       row.name,
+      row.display_name || names?.[row.name]?.display_name || row.name,
+      row.display_name_zh || names?.[row.name]?.display_name_zh || row.name,
       row.source || '',
       row.sessions_window ?? row.sessions_30d,
       row.previous_sessions ?? '',
@@ -41,7 +46,7 @@ function exportRows(rows: SkillTableRow[], suffix: string) {
   URL.revokeObjectURL(url)
 }
 
-export function SkillsDetailTable({ rows, allRows, params, setParams, selected, onOpen, t }: { rows: SkillTableRow[]; allRows: SkillTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; selected: string; onOpen: (name: string) => void; t: (key: string) => string }) {
+export function SkillsDetailTable({ rows, allRows, params, setParams, selected, onOpen, lang, names, t }: { rows: SkillTableRow[]; allRows: SkillTableRow[]; params: SkillQueryState; setParams: SetSkillQueryState; selected: string; onOpen: (name: string) => void; lang: Lang; names?: SkillNamesMap; t: (key: string) => string }) {
   const windowLabel = windowPeriodLabel(params.w || `${params.win || 7}d`, t)
   const updateSort = (key: string) => {
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
@@ -61,8 +66,8 @@ export function SkillsDetailTable({ rows, allRows, params, setParams, selected, 
       <div className="skills-table-head">
         <h2><span><span className="sl">//</span>明细 · 排行完整视图</span><span className="cnt">{rows.length}</span></h2>
         <div className="token-table-actions">
-          <button type="button" onClick={() => exportRows(rows, 'filtered')}>导出当前筛选</button>
-          <button type="button" onClick={() => exportRows(allRows, 'all')}>导出全量</button>
+          <button type="button" onClick={() => exportRows(rows, 'filtered', lang, names)}>导出当前筛选</button>
+          <button type="button" onClick={() => exportRows(allRows, 'all', lang, names)}>导出全量</button>
         </div>
       </div>
       <div className="skills-wrap">
@@ -87,7 +92,7 @@ export function SkillsDetailTable({ rows, allRows, params, setParams, selected, 
               const open = () => onOpen(row.name)
               return (
                 <tr key={row.name} className={selected === row.name ? 'selected' : ''} role="button" tabIndex={0} onClick={open} onKeyDown={(event) => rowKey(event, open)}>
-                  <td className="mobile-main" data-label={t('skillName')}><b>{row.name}</b></td>
+                  <td className="mobile-main" data-label={t('skillName')}><b>{skillDisplayName(row, lang, names)}</b></td>
                   <td data-label={t('sourceFilter')}><span className="source-pill">{sourceLabel(row.source, t)}</span></td>
                   <td className="num" data-label={windowLabel}>{current}</td>
                   <td className="num" data-label={t('previousWindow')}>{previous || '—'}</td>

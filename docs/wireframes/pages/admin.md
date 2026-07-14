@@ -3,6 +3,7 @@
 > 路由：`/admin`（frontend/src/views/Admin.tsx，本变更新增；不进顶栏导航，直链进入）。
 > 画法与硬规则见 [../AGENTS.md](../AGENTS.md)，控件画法见 [../legend.md](../legend.md)。
 > 配套设计：`openspec/changes/admin-data-cleanup/`（proposal/design/tasks/spec）。
+> 名称规则：Skills 清单与 first_day 影响预览显示当前语言 display name；勾选、预览 token 与删除目标继续使用 slug。
 
 比例尺：1 显示列 = 12px（横，全角字符占 2 列）｜ 1 行 = 24px（纵）
 断点：桌面 1440×900（120 列）｜ 平板 768×1024（64 列）｜ 手机 375×812（31 列）

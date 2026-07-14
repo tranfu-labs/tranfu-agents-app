@@ -5,7 +5,16 @@ export type Status = 'started' | 'running' | 'waiting' | 'blocked' | 'done' | 'e
 export type SkillRef = {
   name: string
   desc?: string
+  display_name?: string
+  display_name_zh?: string
 }
+
+export type SkillDisplayNames = {
+  display_name: string
+  display_name_zh: string
+}
+
+export type SkillNamesMap = Record<string, SkillDisplayNames>
 
 export type SkillsProfile = {
   local?: SkillRef[]
@@ -133,12 +142,15 @@ export type StatePayload = {
   }
   agent_overview?: AgentOverview
   skills?: StateSkillRank[]
+  skill_names?: SkillNamesMap
   sessions: AgentSession[]
   feed: FeedItem[]
 }
 
 export type StateSkillRank = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   mode?: 'used' | 'equipped'
   sessions_7d?: number
   sessions_30d?: number
@@ -150,6 +162,8 @@ export type StateSkillRank = {
 export type SkillDailyRow = {
   day: string
   skill: string
+  display_name?: string
+  display_name_zh?: string
   runtime?: string
   source?: string
   sessions: number
@@ -165,6 +179,8 @@ export type OperatorDailyRow = {
 
 export type SkillTableRow = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   source?: string
   sessions_7d: number
   sessions_30d: number
@@ -179,6 +195,8 @@ export type SkillTableRow = {
 
 export type GovernanceUntrackedSkill = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   source?: string
   sessions: number
   share: number
@@ -209,12 +227,16 @@ export type OperatorTableRow = {
 
 export type CatalogSkill = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   source?: string
   type?: string
 }
 
 export type GovernanceBucketSkill = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   source?: string
   sessions?: number
   installed_at?: string | null
@@ -225,6 +247,8 @@ export type GovernanceBucketSkill = {
 
 export type PublishedSkill = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   source?: string
   version?: string
   author?: string
@@ -272,6 +296,7 @@ export type SkillsOverview = {
   scope?: 'all' | 'new' | string
   new_skill_count?: number
   published_skills?: PublishedSkill[]
+  skill_names?: SkillNamesMap
   window?: {
     key?: string
     days?: number
@@ -337,6 +362,8 @@ export type SkillsEvidenceRecord = {
   day?: string
   first_seen?: string
   skill?: string
+  display_name?: string
+  display_name_zh?: string
   operator?: string
   runtime?: string
   source?: string
@@ -345,6 +372,8 @@ export type SkillsEvidenceRecord = {
 
 export type SkillsEvidenceItem = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   source?: string
   installers?: number
   installers_detail?: Array<{
@@ -364,11 +393,12 @@ export type SkillsEvidencePayload = {
   actions?: Array<{ id: string; label: string }>
   applied_filters?: Record<string, string | number | undefined>
   ignored_filters?: Array<{ name: string; value?: string; reason?: string }>
-  top_skills?: Array<{ name: string; source?: string; records?: number; operators?: number; last_day?: string }>
+  top_skills?: Array<{ name: string; display_name?: string; display_name_zh?: string; source?: string; records?: number; operators?: number; last_day?: string }>
   top_operators?: Array<{ operator: string; records?: number; skills?: number; last_day?: string }>
   daily?: Array<{ day: string; records: number }>
   records?: SkillsEvidenceRecord[]
   items?: SkillsEvidenceItem[]
+  skill_names?: SkillNamesMap
   catalog?: Record<string, unknown>
 }
 
@@ -384,9 +414,11 @@ export type OperatorDetail = {
     first_day?: string
     last_day?: string
   }
-  daily?: Array<{ day: string; skill: string; sessions: number }>
+  daily?: Array<{ day: string; skill: string; display_name?: string; display_name_zh?: string; sessions: number }>
   skills?: Array<{
     name: string
+    display_name?: string
+    display_name_zh?: string
     source?: string
     sessions_7d?: number
     sessions_30d?: number
@@ -398,15 +430,20 @@ export type OperatorDetail = {
   records?: Array<{
     day?: string
     skill?: string
+    display_name?: string
+    display_name_zh?: string
     runtime?: string
     session_id?: string
     first_seen?: string
   }>
+  skill_names?: SkillNamesMap
   catalog?: Record<string, unknown>
 }
 
 export type SkillDetail = {
   name: string
+  display_name?: string
+  display_name_zh?: string
   today: string
   source?: string
   metrics?: {
@@ -432,6 +469,7 @@ export type SkillDetail = {
     first_seen?: string
   }>
   catalog?: Record<string, unknown>
+  skill_names?: SkillNamesMap
 }
 
 export type Loadable<T> = {
@@ -545,6 +583,8 @@ export type AdminInventoryRow = {
   runtime?: string
   session_id?: string
   skill?: string
+  display_name?: string
+  display_name_zh?: string
   events?: number
   skill_uses?: number
   profiles?: number
@@ -563,6 +603,7 @@ export type AdminInventory = {
   identities: AdminInventoryRow[]
   sessions: AdminInventoryRow[]
   skills: AdminInventoryRow[]
+  skill_names?: SkillNamesMap
   limit: number
   offset: number
 }
@@ -578,10 +619,11 @@ export type AdminPreview = {
   requires_confirm: boolean
   max_rows: number
   effects?: {
-    first_day_changes?: Array<{ skill: string; from?: string | null; to?: string | null }>
+    first_day_changes?: Array<{ skill: string; display_name?: string; display_name_zh?: string; from?: string | null; to?: string | null }>
     identities_cleared?: string[]
     profiles_cleared?: Array<{ operator: string; agent: string; runtime: string }>
   }
+  skill_names?: SkillNamesMap
 }
 
 export type AdminTrashBatch = {

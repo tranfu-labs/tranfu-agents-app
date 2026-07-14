@@ -28,6 +28,12 @@ def _catalog_source(value):
     return value if value in ("own", "meta", "external") else "external"
 
 
+def _display_name(value):
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:240]
+
+
 def _parse_catalog_payload(raw):
     from server.profile import _skill_use_name
     if isinstance(raw, bytes):
@@ -49,6 +55,10 @@ def _parse_catalog_payload(raw):
             "type": _catalog_source(item.get("type")),
             "description": item.get("description") or "",
         }
+        for key in ("display_name", "display_name_zh"):
+            value = _display_name(item.get(key))
+            if value:
+                parsed[key] = value
         for key in ("version", "author", "updated_at", "published_at", "path", "sha"):
             value = item.get(key)
             if value is not None:
@@ -183,6 +193,86 @@ def _skill_source(name, catalog_by_name):
     return catalog_by_name.get(name) or CATALOG_SOURCE_UNKNOWN
 
 
+def _profile_skill_items(skills):
+    if not isinstance(skills, dict):
+        return
+    for group in ("local", "cross"):
+        items = skills.get(group)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                yield item
+
+
+def _skill_name_map(conn, catalog_items=None):
+    """Return stable slug -> bilingual display names.
+
+    Profile metadata fills non-catalog/legacy gaps; the catalog wins whenever it
+    carries a non-empty field. Both output fields are always usable strings so
+    API consumers can choose a locale without reimplementing fallback rules.
+    """
+    from server.profile import _skill_use_name
+
+    labels = {}
+    for row in conn.execute("SELECT json FROM profiles"):
+        try:
+            profile = json.loads(row["json"])
+        except Exception:  # pragma: no cover - corrupt profile JSON fallback
+            continue
+        for item in _profile_skill_items(profile.get("skills")):
+            name = _skill_use_name(item.get("name"))
+            if not name:
+                continue
+            target = labels.setdefault(name, {})
+            for key in ("display_name", "display_name_zh"):
+                value = _display_name(item.get(key))
+                if value and not target.get(key):
+                    target[key] = value
+
+    if catalog_items is None:
+        catalog_items = _load_catalog_cache(conn).get("items") or []
+    for item in catalog_items or []:
+        name = _skill_use_name(item.get("name")) if isinstance(item, dict) else ""
+        if not name:
+            continue
+        target = labels.setdefault(name, {})
+        for key in ("display_name", "display_name_zh"):
+            value = _display_name(item.get(key))
+            if value:
+                target[key] = value
+
+    names = set(labels)
+    names.update(r["skill"] for r in conn.execute(
+        "SELECT DISTINCT skill FROM skill_uses WHERE trim(COALESCE(skill,'')) <> ''"))
+    names.update(r["name"] for r in conn.execute(
+        "SELECT name FROM skills_seen WHERE trim(COALESCE(name,'')) <> ''"))
+    out = {}
+    for name in sorted(names):
+        item = labels.get(name, {})
+        english = item.get("display_name") or item.get("display_name_zh") or name
+        chinese = item.get("display_name_zh") or item.get("display_name") or name
+        out[name] = {"display_name": english, "display_name_zh": chinese}
+    return out
+
+
+def _skill_display_fields(name, skill_names):
+    item = (skill_names or {}).get(name) or {}
+    return {
+        "display_name": item.get("display_name") or item.get("display_name_zh") or name,
+        "display_name_zh": item.get("display_name_zh") or item.get("display_name") or name,
+    }
+
+
+def _annotate_profile_skill_names(profile, skill_names):
+    skills = profile.get("skills") if isinstance(profile, dict) else None
+    for item in _profile_skill_items(skills):
+        name = item.get("name")
+        if isinstance(name, str) and name:
+            item.update(_skill_display_fields(name, skill_names))
+    return profile
+
+
 def _installed_skill_names(conn):
     from server.profile import _skill_names, _skill_use_name
     names = set()
@@ -198,5 +288,9 @@ def _installed_skill_names(conn):
     return names
 
 
-def _catalog_list(names, catalog_by_name):
-    return [{"name": n, "source": catalog_by_name[n]} for n in sorted(names)]
+def _catalog_list(names, catalog_by_name, skill_names=None):
+    return [{
+        "name": n,
+        **_skill_display_fields(n, skill_names),
+        "source": catalog_by_name[n],
+    } for n in sorted(names)]

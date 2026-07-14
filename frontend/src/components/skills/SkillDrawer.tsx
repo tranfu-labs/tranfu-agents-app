@@ -4,6 +4,8 @@ import { deltaRatio, formatDelta } from '../../lib/skillsDashboard'
 import type { SkillDetail, SkillTableRow } from '../../lib/types'
 import { encodePathParam, sourceLabel } from '../../lib/utils'
 import { windowTriggersLabel } from '../../lib/skillsPresentation'
+import { skillDisplayName } from '../../lib/skillNames'
+import type { Lang, SkillNamesMap } from '../../lib/types'
 
 async function fetchSkill(name: string) {
   const response = await fetch(`/api/skill/${encodeURIComponent(name)}`, { cache: 'no-store' })
@@ -11,7 +13,7 @@ async function fetchSkill(name: string) {
   return (await response.json()) as SkillDetail
 }
 
-export function SkillDrawer({ name, row, search, onClose, t }: { name: string; row?: SkillTableRow; search: string; onClose: () => void; t: (key: string) => string }) {
+export function SkillDrawer({ name, row, search, onClose, lang, names, t }: { name: string; row?: SkillTableRow; search: string; onClose: () => void; lang: Lang; names?: SkillNamesMap; t: (key: string) => string }) {
   const cache = useRef(new Map<string, SkillDetail>())
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [error, setError] = useState('')
@@ -36,7 +38,7 @@ export function SkillDrawer({ name, row, search, onClose, t }: { name: string; r
     <div className="skills-drawer-backdrop" onMouseDown={onClose}>
       <aside className="skills-drawer" onMouseDown={(event) => event.stopPropagation()}>
         <div className="skills-drawer-head">
-          <div><b>{name}</b>{detail?.source ? <span className="source-pill">{sourceLabel(detail.source, t)}</span> : null}</div>
+          <div><b>{skillDisplayName(detail || row || name, lang, names)}</b>{detail?.source ? <span className="source-pill">{sourceLabel(detail.source, t)}</span> : null}</div>
           <div>
             <a className="token-link-btn" href={`/skill/${encodePathParam(name)}${search}`}>前往详情页 →</a>
             <button type="button" className="token-link-btn" onClick={onClose}>×</button>

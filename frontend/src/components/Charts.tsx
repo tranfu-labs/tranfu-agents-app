@@ -1,13 +1,14 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react'
 import { resolveSkillsChartLayout } from '../lib/skillsChartLayout'
-import type { SkillDetail, SkillsOverview } from '../lib/types'
+import type { Lang, SkillDetail, SkillNamesMap, SkillsOverview } from '../lib/types'
 import { apiToday, daySeries, RT, skillColor } from '../lib/utils'
+import { skillDisplayName } from '../lib/skillNames'
 
-type TipItem = { name: string; value: number; color: string }
+type TipItem = { id?: string; name: string; value: number; color: string }
 type TipAnchor = { left: number; right: number; chartTop: number }
 type Tip = { day: string; today?: boolean; items: TipItem[]; total?: number; anchor: TipAnchor }
-type StackRow = { day: string; sessions: number; skill?: string; operator?: string }
+type StackRow = { day: string; sessions: number; skill?: string; operator?: string; display_name?: string; display_name_zh?: string }
 type SegmentKey = 'skill' | 'operator'
 
 const PLOT_TOP = 24
@@ -105,7 +106,7 @@ function ChartTip({ tip, t }: { tip: Tip | null; t: (key: string) => string }) {
         tip.items
           .filter((x) => x.value > 0)
           .map((x) => (
-            <div className="tip-row" key={x.name}>
+            <div className="tip-row" key={x.id || x.name}>
               <span className="tip-dot" style={{ background: x.color }} />
               <span className="tip-name">{x.name}</span>
               <span className="tip-val">{x.value}</span>
@@ -129,6 +130,8 @@ export function StackedSkillChart({
   overview,
   days,
   t,
+  lang = 'en',
+  skillNames,
   segmentKey = 'skill',
   today,
   currentDay,
@@ -142,6 +145,8 @@ export function StackedSkillChart({
   overview?: SkillsOverview | null
   days: number
   t: (key: string) => string
+  lang?: Lang
+  skillNames?: SkillNamesMap
   segmentKey?: SegmentKey
   today?: string
   currentDay?: string
@@ -155,6 +160,15 @@ export function StackedSkillChart({
   const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<Tip | null>(null)
   const chartBoxWidth = useContentWidth(chartBoxRef)
+  const segmentLabels = useMemo(() => {
+    const labels = new Map<string, string>()
+    if (segmentKey !== 'skill') return labels
+    rows.forEach((row) => {
+      if (row.skill) labels.set(row.skill, skillDisplayName(row, lang, skillNames))
+    })
+    return labels
+  }, [lang, rows, segmentKey, skillNames])
+  const segmentLabel = (name: string) => segmentKey === 'skill' ? segmentLabels.get(name) || skillDisplayName(name, lang, skillNames) : name
   const showTip = (event: ReactMouseEvent<SVGRectElement>, next: Omit<Tip, 'anchor'>) => {
     setTip({ ...next, anchor: anchorFromBar(event) })
   }
@@ -246,7 +260,7 @@ export function StackedSkillChart({
           const items = vals
             .filter(([, value]) => value > 0)
             .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-            .map(([name, value]) => ({ name: name === '__other' ? t('other') : name, value, color: skillColor(name) }))
+            .map(([name, value]) => ({ id: name, name: name === '__other' ? t('other') : segmentLabel(name), value, color: skillColor(name) }))
           const totalHeight = total ? Math.max(2, Math.round((total / max) * bh)) : 0
           const isCurrent = day === currentMarkerDay
           return (
@@ -271,7 +285,7 @@ export function StackedSkillChart({
         {model.legend.map((name) => (
           <button key={name} className={hoverSegment === name ? 'on' : ''} onMouseEnter={() => setHoverSegment(name)} onFocus={() => setHoverSegment(name)} onMouseLeave={() => setHoverSegment(null)} onBlur={() => setHoverSegment(null)} onClick={() => setHoverSegment(name)}>
             <span className="sw" style={{ background: skillColor(name) }} />
-            {name === '__other' ? t('other') : name}
+            {name === '__other' ? t('other') : segmentLabel(name)}
           </button>
         ))}
       </div>

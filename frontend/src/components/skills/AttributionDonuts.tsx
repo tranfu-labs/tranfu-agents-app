@@ -1,6 +1,7 @@
-import type { SkillsOverview, SkillTableRow } from '../../lib/types'
+import type { Lang, SkillsOverview, SkillTableRow } from '../../lib/types'
 import type { ReactNode } from 'react'
 import { buildDonutSegments, buildSourceDonutSegments, type DonutSegment } from '../../lib/skillsAttribution'
+import { skillDisplayName } from '../../lib/skillNames'
 import { RT, skillColor, sourceLabel, sourceKey } from '../../lib/utils'
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -33,8 +34,9 @@ function DonutShell({ title, total, children }: { title: string; total: number; 
   )
 }
 
-export function AttributionDonuts({ data, selected, rows, setSource, t }: { data: SkillsOverview | null; selected: string; rows: SkillTableRow[]; setSource: (source: string) => void; t: (key: string) => string }) {
+export function AttributionDonuts({ data, selected, rows, lang, setSource, t }: { data: SkillsOverview | null; selected: string; rows: SkillTableRow[]; lang: Lang; setSource: (source: string) => void; t: (key: string) => string }) {
   const selectedRow = selected ? rows.find((row) => row.name === selected) : undefined
+  const selectedLabel = selectedRow ? skillDisplayName(selectedRow, lang, data?.skill_names) : selected
   const sourceCounts = Object.fromEntries((data?.attribution?.by_source || []).map((row) => [sourceKey(row.source), Number(row.sessions || 0)]))
   const runtimeCounts = selectedRow?.runtime_counts || Object.fromEntries((data?.attribution?.by_runtime || []).map((row) => [row.runtime, Number(row.sessions || 0)]))
   const totalSource = Object.values(sourceCounts).reduce((sum, value) => sum + Number(value || 0), 0)
@@ -44,7 +46,7 @@ export function AttributionDonuts({ data, selected, rows, setSource, t }: { data
   const untrackedRatio = totalSource ? Number(sourceCounts.non_catalog || 0) / totalSource : 0
   return (
     <section className="skills-attribution">
-      <DonutShell title={selectedRow ? `${selected} · runtime` : '按来源占比'} total={selectedRow ? totalRuntime : totalSource}>
+      <DonutShell title={selectedRow ? `${selectedLabel} · runtime` : '按来源占比'} total={selectedRow ? totalRuntime : totalSource}>
         <svg viewBox="0 0 100 100" role="img" aria-label="source attribution">
           {selectedRow ? runtimeSegments.map((segment) => <path key={segment.key} d={arcPath(segment, 30, 45)} fill={skillColor(segment.key)} />) : (
             <>
@@ -61,7 +63,7 @@ export function AttributionDonuts({ data, selected, rows, setSource, t }: { data
           ))}
         </div>
       </DonutShell>
-      <DonutShell title={selectedRow ? `${selected} · runtime` : '按 runtime 占比'} total={totalRuntime}>
+      <DonutShell title={selectedRow ? `${selectedLabel} · runtime` : '按 runtime 占比'} total={totalRuntime}>
         <svg viewBox="0 0 100 100" role="img" aria-label="runtime attribution">
           {runtimeSegments.map((segment) => <path key={segment.key} d={arcPath(segment, 28, 44)} fill={skillColor(segment.key)} />)}
           <text x="50" y="52" textAnchor="middle" fill="var(--text)" fontSize="10" fontWeight="700">{totalRuntime}</text>

@@ -5,6 +5,7 @@ import { Empty } from '../components/Common'
 import { formatRecentRecordTime } from '../lib/timeFormat'
 import type { Lang, OperatorDetail } from '../lib/types'
 import { encodePathParam, RT, sourceLabel } from '../lib/utils'
+import { skillDisplayName } from '../lib/skillNames'
 
 function operatorBack(search: string) {
   const params = new URLSearchParams(search)
@@ -95,7 +96,7 @@ export function OperatorDetailView({ data, loading, error, lang, t }: { data: Op
             {t('dailyBySkill')}
           </span>
         </h2>
-        <StackedSkillChart rows={data.daily || []} days={30} t={t} today={data.today} segmentKey="skill" emptyTitle={t('noSkills')} emptyHint={t('noSkillsH')} />
+        <StackedSkillChart rows={data.daily || []} days={30} t={t} lang={lang} skillNames={data.skill_names} today={data.today} segmentKey="skill" emptyTitle={t('noSkills')} emptyHint={t('noSkillsH')} />
       </section>
       <div className="dist-mirror" style={{ marginTop: 16 }}>
         <section className="frame">
@@ -133,7 +134,7 @@ export function OperatorDetailView({ data, loading, error, lang, t }: { data: Op
                 {skillRows.map((row) => (
                   <tr key={row.name} role="link" tabIndex={0} onClick={() => openSkill(row.name)} onKeyDown={(event) => rowKey(event, () => openSkill(row.name))}>
                     <td className="mobile-main" data-label={t('skillName')}>
-                      <b>{row.name}</b>
+                      <b>{skillDisplayName(row, lang, data.skill_names)}</b>
                     </td>
                     <td data-label={t('sourceFilter')}>
                       <span className="source-pill">{sourceLabel(row.source, t)}</span>
@@ -174,7 +175,7 @@ export function OperatorDetailView({ data, loading, error, lang, t }: { data: Op
               return (
                 <tr key={`${record.session_id}-${record.skill}-${record.day}`}>
                   <td className="q mobile-main" data-label={t('skillLast')} title={time.title}>{time.label}</td>
-                  <td data-label={t('skillName')}>{record.skill || ''}</td>
+                  <td data-label={t('skillName')}>{skillDisplayName(record, lang, data.skill_names)}</td>
                   <td data-label={t('th_rt')}>{RT[record.runtime || ''] || record.runtime || ''}</td>
                   <td className="q" data-label={t('session')}>{(record.session_id || '').slice(0, 12)}</td>
                 </tr>

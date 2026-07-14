@@ -23,11 +23,11 @@ import { OperatorDetailView } from './views/OperatorDetail'
 import { AdminView } from './views/Admin'
 import { TokenUsageView } from './views/TokenUsage'
 
-function SkillsRoute({ t }: { t: (key: string) => string }) {
+function SkillsRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const [params] = useSkillQueryState()
   const skillsWindow = resolveSkillsWindow(params)
   const overview = useSkillsOverview(true, skillsWindow.days, skillsWindowQuery(params))
-  return <SkillsView data={overview.data} loading={overview.loading} error={overview.error} t={t} />
+  return <SkillsView data={overview.data} loading={overview.loading} error={overview.error} lang={lang} t={t} />
 }
 
 function SkillsNewRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
@@ -158,14 +158,14 @@ export default function App() {
           <Route path="/" element={<StateRoute state={state.data} t={t}>{(data) => <Board data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/agents" element={<StateRoute state={state.data} t={t}>{(data) => <Agents data={data} lang={lang} t={t} />}</StateRoute>} />
           <Route path="/agent/:key" element={<StateRoute state={state.data} t={t}>{(data) => <AgentDetail data={data} lang={lang} t={t} />}</StateRoute>} />
-          <Route path="/skills" element={<SkillsRoute t={t} />} />
+          <Route path="/skills" element={<SkillsRoute lang={lang} t={t} />} />
           <Route path="/skills/new" element={<SkillsNewRoute lang={lang} t={t} />} />
           <Route path="/skills/evidence" element={<SkillsEvidenceRoute lang={lang} t={t} />} />
           <Route path="/skills/clues/:clueKind" element={<SkillsClueRoute lang={lang} t={t} />} />
           <Route path="/token-usage" element={<TokenUsageRoute t={t} />} />
           <Route path="/skill/:name" element={<SkillDetailRoute lang={lang} t={t} />} />
           <Route path="/operator/:name" element={<OperatorDetailRoute lang={lang} t={t} />} />
-          <Route path="/admin" element={<AdminView t={t} />} />
+          <Route path="/admin" element={<AdminView lang={lang} t={t} />} />
           <Route path="*" element={<StateRoute state={state.data} t={t}>{(data) => <Board data={data} lang={lang} t={t} />}</StateRoute>} />
         </Routes>
       </main>

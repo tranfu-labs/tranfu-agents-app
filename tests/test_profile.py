@@ -9,9 +9,29 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shims"))
 import tf_profile
 
 
-def _mk_skill(d, name):
+def _mk_skill(d, name, display_name="", display_name_zh=""):
     d.mkdir(parents=True, exist_ok=True)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: x\n---\n", encoding="utf-8")
+    labels = ""
+    if display_name:
+        labels += f"display_name: {display_name}\n"
+    if display_name_zh:
+        labels += f"display_name_zh: {display_name_zh}\n"
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\n{labels}description: x\n---\n", encoding="utf-8")
+
+
+def test_detect_skills_reports_bilingual_display_names(tmp_path, monkeypatch):
+    monkeypatch.setattr(tf_profile, "HOME", tmp_path)
+    _mk_skill(
+        tmp_path / ".codex" / "skills" / "openspec-driven-development",
+        "openspec-driven-development",
+        "OpenSpec-Driven Development",
+        "OpenSpec 驱动开发",
+    )
+    item = tf_profile.detect_skills(str(tmp_path), "codex")["local"][0]
+    assert item["name"] == "openspec-driven-development"
+    assert item["display_name"] == "OpenSpec-Driven Development"
+    assert item["display_name_zh"] == "OpenSpec 驱动开发"
 
 
 def test_hermes_counts_symlinked_core_skills(tmp_path, monkeypatch):

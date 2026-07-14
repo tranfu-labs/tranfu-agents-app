@@ -154,7 +154,10 @@ def test_skills_seen_first_day_recomputed_after_deleting_first_use(client, app_m
 
     targets = [{"session_ids": ["old"]}]
     p = preview(client, targets)
-    assert p["effects"]["first_day_changes"] == [{"skill": "alpha", "from": old_day, "to": new_day}]
+    assert p["effects"]["first_day_changes"] == [{
+        "skill": "alpha", "display_name": "alpha", "display_name_zh": "alpha",
+        "from": old_day, "to": new_day,
+    }]
     r = delete_from_preview(client, targets, p)
     assert r.status_code == 200, r.text
     assert skill_first_day(app_mod, "alpha") == new_day

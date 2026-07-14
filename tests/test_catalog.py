@@ -58,6 +58,18 @@ def test_parse_payload_unknown_type_falls_back_external(app_mod):
     assert parsed["skills"][0]["type"] == "external"
 
 
+def test_parse_payload_preserves_and_cleans_bilingual_display_names(app_mod):
+    payload = {"skills": [{
+        "name": "openspec-driven-development",
+        "type": "own",
+        "display_name": "  OpenSpec-Driven Development  ",
+        "display_name_zh": " OpenSpec 驱动开发 ",
+    }]}
+    item = app_mod._parse_catalog_payload(payload)["skills"][0]
+    assert item["display_name"] == "OpenSpec-Driven Development"
+    assert item["display_name_zh"] == "OpenSpec 驱动开发"
+
+
 def test_parse_payload_raises_when_skills_is_not_a_list(app_mod):
     with pytest.raises(ValueError):
         app_mod._parse_catalog_payload(json.dumps({"skills": "oops"}))
@@ -136,6 +148,26 @@ def test_catalog_context_returns_items_and_map(app_mod):
     assert by_name["a"] == "own"
     assert by_name["b"] == "external"
     assert meta["available"] is True
+
+
+def test_skill_name_map_catalog_wins_profile_and_falls_back_to_slug(app_mod):
+    from server.catalog import _skill_name_map
+    with closing(app_mod.db()) as conn:
+        conn.execute("""INSERT INTO profiles(operator,ak,runtime,json,updated)
+          VALUES(?,?,?,?,?)""", ("alice", "codex", "codex", json.dumps({
+            "skills": {"local": [
+                {"name": "alpha", "display_name": "Profile Alpha", "display_name_zh": "本机 Alpha"},
+                {"name": "local-only", "display_name_zh": "本机专用"},
+            ]},
+        }), "2026-07-14T00:00:00+00:00"))
+        conn.execute("""INSERT INTO skills_seen(name,first_day) VALUES(?,?)""", ("slug-only", "2026-07-14"))
+        labels = _skill_name_map(conn, [{
+            "name": "alpha", "type": "own",
+            "display_name": "Catalog Alpha", "display_name_zh": "公司 Alpha",
+        }])
+    assert labels["alpha"] == {"display_name": "Catalog Alpha", "display_name_zh": "公司 Alpha"}
+    assert labels["local-only"] == {"display_name": "本机专用", "display_name_zh": "本机专用"}
+    assert labels["slug-only"] == {"display_name": "slug-only", "display_name_zh": "slug-only"}
 
 
 # ---- skills 公司库口径(由 catalog 驱动) --------------------------------

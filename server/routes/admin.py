@@ -19,6 +19,7 @@ from contextlib import closing
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from server.catalog import _catalog_context, _skill_display_fields, _skill_name_map
 from server.config import ACTIVE_ST, STALE_SECONDS
 from server.db import (
     _age, _audit, _clip, _json, _maybe_prune_trash, db,
@@ -465,6 +466,11 @@ def _preview_admin_resolution(conn, resolved, revoke=False):
     }
     total_rows = counts["events"] + counts["skill_uses"] + counts["profiles"] + counts["operators"]
     operators = sorted(op for op in affected_ops if op)
+    catalog_items, _catalog_by, _catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
+    first_day_changes = _first_day_changes(conn, resolved["skill_keys"])
+    for item in first_day_changes:
+        item.update(_skill_display_fields(item["skill"], skill_names))
     return {
         "ok": True,
         "preview_token": resolved["preview_token"],
@@ -476,13 +482,14 @@ def _preview_admin_resolution(conn, resolved, revoke=False):
         "requires_confirm": total_rows > app.ADMIN_MAX_ROWS or len(operators) > 1,
         "max_rows": app.ADMIN_MAX_ROWS,
         "effects": {
-            "first_day_changes": _first_day_changes(conn, resolved["skill_keys"]),
+            "first_day_changes": first_day_changes,
             "identities_cleared": _identity_clears(conn, resolved["event_ids"], resolved["skill_keys"], affected_ops),
             "profiles_cleared": [
                 {"operator": r["operator"], "agent": r["ak"], "runtime": r["runtime"]}
                 for r in profile_rows
             ],
         },
+        "skill_names": skill_names,
     }
 
 
@@ -628,6 +635,8 @@ def _admin_inventory(conn, q="", limit=200, offset=0):
     limit = max(1, min(int(limit or 200), 500))
     offset = max(0, int(offset or 0))
     active_by_session = {r["session_id"]: r for r in _active_sessions_all(conn)}
+    catalog_items, _catalog_by, _catalog_meta = _catalog_context(conn)
+    skill_names = _skill_name_map(conn, catalog_items)
     active_identity_keys = {
         (
             r.get("operator") or "",
@@ -783,6 +792,7 @@ def _admin_inventory(conn, q="", limit=200, offset=0):
         sk = r["skill"]
         item = skill_rows.setdefault(sk, {
             "kind": "skill", "skill": sk, "name": sk,
+            **_skill_display_fields(sk, skill_names),
             "events": 0, "skill_uses": 0, "used": 0, "equipped": 0,
             "operators": 0, "first_day": None, "last_seen": None, "active": False,
         })
@@ -811,6 +821,7 @@ def _admin_inventory(conn, q="", limit=200, offset=0):
         "identities": filt(identities.values()),
         "sessions": filt(sessions.values()),
         "skills": filt(skill_rows.values()),
+        "skill_names": skill_names,
         "limit": limit,
         "offset": offset,
     }

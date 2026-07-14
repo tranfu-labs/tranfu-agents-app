@@ -1,8 +1,10 @@
 import { Empty } from '../Common'
 import type { SkillsOverview } from '../../lib/types'
 import { windowUsedLabel } from '../../lib/skillsPresentation'
+import { skillDisplayName } from '../../lib/skillNames'
+import type { Lang } from '../../lib/types'
 
-export function FunnelSection({ data, t }: { data: SkillsOverview | null; t: (key: string) => string }) {
+export function FunnelSection({ data, lang, t }: { data: SkillsOverview | null; lang: Lang; t: (key: string) => string }) {
   const funnel = data?.funnel
   if (!funnel?.available) {
     return (
@@ -37,7 +39,7 @@ export function FunnelSection({ data, t }: { data: SkillsOverview | null; t: (ke
                 <div className="funnel-track"><div className="funnel-fill" style={{ width: `${pct}%` }} /></div>
                 <div className="funnel-num">{list.length}</div>
               </summary>
-              <div className="funnel-list">{list.length ? list.map((item) => <span className="tag" key={item.name}>{item.name}</span>) : <span className="hint">{t('none')}</span>}</div>
+              <div className="funnel-list">{list.length ? list.map((item) => <span className="tag" key={item.name}>{skillDisplayName(item, lang, data?.skill_names)}</span>) : <span className="hint">{t('none')}</span>}</div>
             </details>
           )
         })}

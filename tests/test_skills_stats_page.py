@@ -7,7 +7,8 @@ from server.db import STATS_TZ
 
 
 CATALOG = [
-    {"name": "alpha", "type": "own", "description": "company skill"},
+    {"name": "alpha", "type": "own", "description": "company skill",
+     "display_name": "Alpha Workflow", "display_name_zh": "Alpha 工作流"},
     {"name": "idle-own", "type": "own", "description": "installed but unused"},
     {"name": "meta-tool", "type": "meta", "description": "company meta skill"},
     {"name": "beta", "type": "external", "description": "external catalog skill"},
@@ -125,6 +126,12 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     assert data["today"] == app_mod.stats_day()
     assert data["catalog"]["available"] is True
     alpha = next(r for r in data["table"] if r["name"] == "alpha")
+    assert alpha["display_name"] == "Alpha Workflow"
+    assert alpha["display_name_zh"] == "Alpha 工作流"
+    assert data["skill_names"]["alpha"] == {
+        "display_name": "Alpha Workflow", "display_name_zh": "Alpha 工作流"}
+    alpha_daily = next(r for r in data["daily"] if r["skill"] == "alpha")
+    assert alpha_daily["display_name_zh"] == "Alpha 工作流"
     assert alpha["source"] == "own"
     assert alpha["sessions_7d"] == 2
     assert alpha["sessions_30d"] == 2
@@ -142,6 +149,52 @@ def test_skills_overview_used_only_table_daily_and_funnel(client, app_mod):
     assert {x["name"] for x in data["funnel"]["installed"]} == {"alpha", "idle-own"}
     assert {x["name"] for x in data["funnel"]["used_30d"]} == {"alpha"}
     assert {x["name"] for x in data["funnel"]["idle"]} == {"idle-own"}
+
+
+def test_bilingual_display_names_cover_skill_apis_and_display_name_search(client, app_mod):
+    _seed_skill_stats(client, app_mod)
+
+    evidence = client.get("/api/skills/evidence", params={
+        "kind": "total", "w": "7d", "q": "Alpha 工作流",
+    }).json()
+    assert evidence["records"]
+    assert {row["skill"] for row in evidence["records"]} == {"alpha"}
+    assert all(row["display_name"] == "Alpha Workflow" for row in evidence["records"])
+    assert all(row["display_name_zh"] == "Alpha 工作流" for row in evidence["records"])
+    assert evidence["top_skills"][0]["display_name_zh"] == "Alpha 工作流"
+    assert evidence["skill_names"]["alpha"]["display_name"] == "Alpha Workflow"
+
+    detail = client.get("/api/skill/alpha").json()
+    assert detail["name"] == "alpha"
+    assert detail["display_name"] == "Alpha Workflow"
+    assert detail["display_name_zh"] == "Alpha 工作流"
+
+    operator = client.get("/api/operator/alice").json()
+    assert operator["skills"][0]["display_name_zh"] == "Alpha 工作流"
+    assert operator["daily"][0]["display_name"] == "Alpha Workflow"
+    assert operator["records"][0]["display_name_zh"] == "Alpha 工作流"
+
+    state = client.get("/api/state").json()
+    alpha_rank = next(row for row in state["skills"] if row["name"] == "alpha")
+    assert alpha_rank["display_name_zh"] == "Alpha 工作流"
+    assert state["skill_names"]["alpha"]["display_name"] == "Alpha Workflow"
+
+    app_mod.ADMIN_KEY = "adminkey"
+    inventory = client.get(
+        "/api/admin/inventory", headers={"X-TF-Admin-Key": "adminkey"}).json()
+    alpha_inventory = next(row for row in inventory["skills"] if row["skill"] == "alpha")
+    assert alpha_inventory["display_name_zh"] == "Alpha 工作流"
+    assert inventory["skill_names"]["alpha"]["display_name"] == "Alpha Workflow"
+
+    preview = client.post(
+        "/api/admin/preview",
+        json={"targets": [{"skill": "alpha"}]},
+        headers={"X-TF-Admin-Key": "adminkey"},
+    ).json()
+    change = next(item for item in preview["effects"]["first_day_changes"] if item["skill"] == "alpha")
+    assert change["display_name"] == "Alpha Workflow"
+    assert change["display_name_zh"] == "Alpha 工作流"
+    assert preview["skill_names"]["alpha"]["display_name_zh"] == "Alpha 工作流"
 
 
 def test_skills_overview_published_skills_include_unused_company_catalog(client, app_mod):

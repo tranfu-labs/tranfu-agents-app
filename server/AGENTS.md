@@ -21,7 +21,8 @@
 - `security.py`:CSP / 安全响应头中间件 / 鉴权 / 限流 / `_audit_denied`。
 - `identity.py`:`canon_operator` / `verify_operator` / `_norm_op`。
 - `profile.py`:skill 名规范化 + `load_profiles` / `load_shim_versions` / `reuse_map`。
-- `catalog.py`:tranfu-skills catalog 同步与缓存。
+- `catalog.py`:tranfu-skills catalog 同步与缓存,并集中解析 catalog/profile 的
+  `display_name/display_name_zh`;公司库字段优先,profile 补缺,输出双语可用回退值。
 - `shim.py`:`/shims` 内容版本与文件清单(模块加载即扫盘)。
 
 ## 全局可变状态(集中在 server/app.py)
@@ -48,6 +49,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
   当需要读 `app.X`(可变开关 / 全局状态)时,把 `from server import app` 放在调用它的函数体内。
 - `/api/skills` overview 的重聚合逻辑必须留在 `routes/board.py` 内,优先用 SQLite 组合索引和 SQL
   预聚合减少 Python 侧处理行数;缓存只能作为 SQL/索引达标失败后的有界短 TTL 第二层。
+- 含 Skill 的读侧对象必须同时返回 slug 与 `display_name/display_name_zh`;多 Skill payload 另返回
+  `skill_names`。展示字段不得替代 slug 参与 SQL、URL、选择器、删除或 source 归因。
 - `/api/state` 的 `agent_overview` 必须在最终身份卡片之后聚合,遵守 `operator + agent||runtime` 合并口径;
   其 90 天日序列、Runtime/操作员分组与 summary 必须复用同一 state snapshot,不得新增独立轮询源。
 - `tests/test_module_boundary.py` 守门:
