@@ -31,9 +31,9 @@ export function useAgentChartWidth(ref: RefObject<HTMLElement | null>) {
   return width
 }
 
-export function agentChartAnchor(bar: SVGRectElement): TipAnchor {
-  const rect = bar.getBoundingClientRect()
-  const svg = bar.ownerSVGElement
+export function agentChartAnchor(element: SVGGraphicsElement): TipAnchor {
+  const rect = element.getBoundingClientRect()
+  const svg = element.ownerSVGElement
   const svgRect = svg?.getBoundingClientRect()
   const viewHeight = svg?.viewBox.baseVal.height || svgRect?.height || 1
   const yScale = svgRect ? svgRect.height / viewHeight : 1
