@@ -25,3 +25,11 @@
 - [x] 运行前端 unit 和 build。
 - [x] 验证 `/api/agents?w=7d`、custom 示例及 `/agents` skeleton/筛选行为。
 - [x] 对照 proposal、design、spec delta 和 wireframe 反思代码符合度。
+
+## Review 修复
+
+- [x] 保留 custom 半填写态真实控制条并只 skeleton 数据区。
+- [x] query 切换时 skeleton 数据区，失败时禁止旧 payload 冒充新结果。
+- [x] 修正未来窗口 comparison 完整性、非法时间戳 400 与过滤后 `total_agents`。
+- [x] 补齐真实排序、平手 key、HTTP 非法参数和前端生命周期回归测试。
+- [x] 清理 board spec 中 Agents 仍依赖 `/api/state` gate 的旧事实。

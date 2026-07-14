@@ -10,7 +10,7 @@
 
 - `today`：服务端 `Asia/Shanghai` 统计日。
 - `window`：规范化的 key、起止日、日序列和上一同长窗口。
-- `summary`：筛选集合的 Agent 总数、在线数、窗口活跃 Agent、窗口总时长、平均时长、累计质量、Shim 与待处理数量。
+- `summary`：筛选集合的 Agent 总数、在线数、窗口活跃 Agent、窗口总时长、平均时长、累计质量、Shim 与待处理数量；`total_agents` 同样使用筛选集合，不保留全量例外。
 - `comparison`：当前/上一窗口统计与完整性标记。
 - `daily`：当前窗口逐日总时长、活跃 Agent 数以及按 Agent identity 分段的时长。
 - `ranking`：仅正时长 Agent，固定按 `active_seconds DESC, key ASC` 排序并带 `rank`；每项显式返回 `operator/agent/runtime`。
@@ -23,11 +23,11 @@
 
 ### 2. 时间窗与过滤
 
-服务端实现与当前前端一致的预设窗口：`today/this_week/last_week/7d/14d/30d/90d`。`custom` 的 `wstart/wend` 是 Unix 秒，使用 `datetime.fromtimestamp(..., tz=Asia/Shanghai)` 映射统计日；两端都必填，起日不得晚于止日，含首尾最多 90 天，且起点不得早于当前 90 天 `active_days` 保留序列。终点可以延伸到未来，未来日期按当前时点输出 0。
+服务端实现与当前前端一致的预设窗口：`today/this_week/last_week/7d/14d/30d/90d`。`custom` 的 `wstart/wend` 是 Unix 秒，使用 `datetime.fromtimestamp(..., tz=Asia/Shanghai)` 映射统计日；两端都必填，起日不得晚于止日，含首尾最多 90 天，且起点不得早于当前 90 天 `active_days` 保留序列。终点可以延伸到未来，未来日期按当前时点输出 0；summary/ranking 仍返回截至当前时点的事实值，但 `comparison.current.available=false`，不得用未结束窗口展示环比。
 
 `q/status/signal` 在服务端过滤 Agent 集合；搜索只匹配 Agent 名、任务、当前步骤和 model。问题线索复刻当前页面规则：异常/阻塞、Shim outdated/unknown、最近 14 天无活跃、至少 3 runs 且成功率低于 80%。`sort` 支持现有 `window_time/window_days/recent/success/errors/name`，旧 `today/week` 兼容映射。custom 起点不得早于保留期，终点允许延伸到未来，未来日期按当前时点输出 0，从而支持调用方给出的未来上界。
 
-查询参数非法时明确返回 `400`，不静默降级到今天，避免 API 消费者误读统计窗口。默认 `w=today`、`status=all`、`sort=window_time`。
+查询参数非法时明确返回 `400`，包括无法解析为整数秒的 `wstart/wend`；不得由框架提前变成 `422`，也不静默降级到今天。默认 `w=today`、`status=all`、`sort=window_time`。
 
 ### 3. 快照复用边界
 
@@ -41,9 +41,9 @@
 
 `Agents` 保留 URL 控件和展示组件，但排行、明细、趋势、KPI、signal 计数直接消费服务端字段，不再从全局 `StatePayload.sessions` 重算。页面 query 规范化仍使用 replace，接口请求只发送规范参数。
 
-`w=custom` 的 URL 允许用户分两次填写起止时间。任一端缺失时前端暂不发请求，并显示待填写的中性加载态；两端齐全后才请求严格的 custom API。直接调用 API 时缺少任一端仍返回 `400`。
+`w=custom` 的 URL 允许用户分两次填写起止时间。任一端缺失时前端暂不发请求，真实控制条和日期输入继续挂载，仅数据区显示中性 skeleton；两端齐全后才请求严格的 custom API。直接调用 API 时缺少任一端仍返回 `400`。
 
-加载 skeleton 保留桌面/平板/手机现有区块顺序与大致高度，不制造布局跳变；它是同路由的 transient state，不新增页面或流转节点。
+加载 skeleton 保留桌面/平板/手机现有区块顺序与大致高度，不制造布局跳变；首次加载可显示完整 skeleton，已有控制条后的 query 切换只替换数据区。请求失败必须显示可重试错误态，即使旧 payload 存在也不得把它继续呈现在新 URL 下。它是同路由的 transient state，不新增页面或流转节点。
 
 ## 测试
 
@@ -51,13 +51,13 @@
 
 - `GET /api/agents` 默认今天，返回完整契约且排行/明细来自合并后的身份卡片。
 - `w=7d/14d/30d/90d/this_week/last_week` 的起止日、日数和累计时长正确。
-- `w=custom` 按上海统计日解析 Unix 秒；缺参数、倒序、91 天、起点早于可用 90 天序列均为 `400`；未来终点返回零值日期槽。
+- `w=custom` 按上海统计日解析 Unix 秒；非法类型、缺参数、倒序、91 天、起点早于可用 90 天序列均为 `400`；未来终点返回零值日期槽并标记当前 comparison 不完整。
 - 同一身份多 session 只保留一个 Agent；同名不同 identity 不合并。
 - `ranking[]` 与 `agents[]` 均包含 `operator/agent/runtime/key`，外部消费者无需解析 key 即可组装 Agent + Operator 展示名。
 - Agent 明细表显示 `operator`，但控制条仍没有操作员筛选，搜索仍不匹配 operator/runtime。
-- ranking 排除零时长、按时长降序且平手按 key；agents 按六种 sort 正确。
+- ranking 排除零时长、按时长降序且平手按 key；agents 按六种 sort 的真实首行顺序正确。
 - `q/status/signal` 与页面规则一致，响应 summary/daily/ranking/agents 使用同一可见集合。
-- 前端 query 构造、独立 loading/error/data 生命周期、skeleton 和 AgentsRoute 不依赖 `StateRoute`。
+- 前端 query 构造、独立 loading/error/data 生命周期、custom 半填写控制条、数据区 skeleton 和 AgentsRoute 不依赖 `StateRoute`。
 
 ### AI / 运行验证
 
@@ -92,3 +92,10 @@
 - `ranking[]`、`agents[]` 和逐日 `segments[]` 均显式带 `operator`。页面底部桌面表格新增操作员列，手机摘要也显示操作员；控制条没有重新加入操作员或运行终端筛选，搜索也不匹配这两个字段。
 - 自定义窗口的半填写状态不会请求严格 API，而是显示中性 skeleton；两端齐全后才发送 custom query。直接调用接口仍严格返回 `400`，避免把不完整窗口伪装成今天。
 - 浏览器在 1280、768、375 三档验证了桌面双栏、平板表格盒内横滚、手机摘要和页面根无横向溢出；接口样例验证了操作员及秒级时长。服务端全量测试与覆盖率、前端单测和生产构建均通过。
+
+## Review 后修正
+
+- custom 半填写态改为保留真实控制条和日期输入，只对数据区显示 skeleton，避免用户选择 custom 后失去继续填写入口。
+- query 切换期间不再展示旧统计；失败时无论是否有旧 payload 都进入可重试错误态，避免新 URL 对应旧排行榜。
+- 未来终点仍保留零值日期槽和截至当前的 summary/ranking，但 comparison 明确不可用；非法时间戳统一由业务校验返回 `400`。
+- `summary.total_agents` 改为过滤集合口径，并用真实排序首行、平手 identity、HTTP 非法参数和前端生命周期测试锁定。

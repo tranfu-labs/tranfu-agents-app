@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { TopBar } from './components/TopBar'
 import { Toast } from './components/Toast'
 import { useAgentsOverview, useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
-import { agentsApiQuery, parseAgentFilters } from './lib/agentsDashboard'
+import { agentsApiQuery, parseAgentFilters, resolveAgentsRoutePhase } from './lib/agentsDashboard'
 import { makeT } from './lib/i18n'
 import { useSkillQueryState } from './lib/skillQuery'
 import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
@@ -13,7 +13,7 @@ import type { Lang } from './lib/types'
 import type { StatePayload } from './lib/types'
 import { clueApiSearch, legacyEvidenceCluePath, type SkillsClueKind } from './lib/skillsEvidence'
 import { Board } from './views/Board'
-import { Agents, AgentsLoadError, AgentsSkeleton } from './views/Agents'
+import { Agents, AgentsLoadError, AgentsPendingWindow, AgentsSkeleton } from './views/Agents'
 import { AgentDetail } from './views/AgentDetail'
 import { SkillsView } from './views/Skills'
 import { SkillsNewView } from './views/SkillsNew'
@@ -29,9 +29,10 @@ function AgentsRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const filters = useMemo(() => parseAgentFilters(location.search), [location.search])
   const query = useMemo(() => agentsApiQuery(filters), [filters])
   const overview = useAgentsOverview(query !== null, query || '')
-  if (query === null) return <AgentsSkeleton t={t} />
-  if (!overview.data && overview.loading) return <AgentsSkeleton t={t} />
-  if (!overview.data) return <AgentsLoadError retry={() => { void overview.refresh(true) }} t={t} />
+  const phase = resolveAgentsRoutePhase(query, Boolean(overview.data), overview.loading, overview.error)
+  if (phase === 'pending-window') return <AgentsPendingWindow t={t} />
+  if (phase === 'error') return <AgentsLoadError retry={() => { void overview.refresh(true) }} t={t} />
+  if (phase === 'skeleton' || !overview.data) return <AgentsSkeleton t={t} />
   return <Agents data={overview.data} loading={overview.loading} lang={lang} t={t} />
 }
 

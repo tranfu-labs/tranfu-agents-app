@@ -406,9 +406,7 @@ def _agent_window_values(card, overview_days, selected_days):
 
 
 def _agent_window_stats(cards, overview_days, selected_days):
-    available = bool(overview_days) and all(day >= overview_days[0] for day in selected_days)
-    if not available:
-        return {"active_agents": 0, "active_seconds": 0, "available": False}
+    available = bool(overview_days) and set(selected_days).issubset(overview_days)
     seconds = 0
     active_agents = 0
     for card in cards:
@@ -416,7 +414,7 @@ def _agent_window_stats(cards, overview_days, selected_days):
         seconds += agent_seconds
         if agent_seconds > 0:
             active_agents += 1
-    return {"active_agents": active_agents, "active_seconds": seconds, "available": True}
+    return {"active_agents": active_agents, "active_seconds": seconds, "available": available}
 
 
 def _filter_agent_cards(cards, q, status, signal, latest_shim):
@@ -543,7 +541,7 @@ def agents_overview_payload(cards, latest_shim, w=None, wstart=None, wend=None,
     attention = sum(1 for row in rows if row["signals"])
     summary = {
         **overview_summary,
-        "total_agents": len(cards),
+        "total_agents": len(filtered),
         "active_agents": current["active_agents"],
         "active_seconds": current["active_seconds"],
         "average_active_seconds": (
@@ -1936,7 +1934,7 @@ async def state_stream(request: Request):
 
 
 @router.get("/api/agents")
-async def agents_stats(w: str = "today", wstart: int | None = Query(None), wend: int | None = Query(None),
+async def agents_stats(w: str = "today", wstart: str | None = Query(None), wend: str | None = Query(None),
                        q: str = "", status: str = "all", signal: str = "", sort: str = "window_time"):
     def compute():
         snapshot = _state_compute_or_cache()

@@ -9,11 +9,11 @@
 ## 提案
 
 - 新增 `GET /api/agents`，支持 `w=today|this_week|last_week|7d|14d|30d|90d|custom`、`wstart/wend`、`q/status/signal/sort`。
-- 自定义时间按 `Asia/Shanghai` 统计日解释，最大 90 天；参数缺失、顺序错误、超出 90 天或起点早于服务端 90 天保留序列时返回 `400`。终点可延伸到未来，未来日期按当前时点返回 0。
+- 自定义时间按 `Asia/Shanghai` 统计日解释，最大 90 天；参数缺失、非法时间戳、顺序错误、超出 90 天或起点早于服务端 90 天保留序列时返回 `400`。终点可延伸到未来，未来日期按当前时点返回 0，但该窗口标记为不完整且不展示环比。
 - 返回 `today/window/summary/comparison/daily/ranking/agents/signals/shim`。外部消费者可只读 `ranking`，页面用同一 payload 渲染 KPI、问题线索、趋势、排行和明细。
 - 排行与明细继续遵守 `operator + agent||runtime` 身份合并，窗口时长按 `active_days` 汇总；排行按 `active_seconds` 降序并排除零时长 Agent。`ranking[]` 与 `agents[]` 都显式返回 `operator`、`agent`、`runtime` 和稳定 `key`，方便其它消费者组装 `${agent} - ${operator}` 等展示信息。
 - `/agents` 底部 Agent 明细表新增“操作员”列，帮助页面内直接识别同名 Agent；运行终端仍不显示，操作员仍不作为筛选条件。
-- `/agents` 从全局 `StateRoute` 解耦，独立请求 `/api/agents`；首次加载或切换 query 时显示与页面信息架构对应的 skeleton，失败显示错误态。
+- `/agents` 从全局 `StateRoute` 解耦，独立请求 `/api/agents`；首次加载或切换 query 时显示与页面信息架构对应的 skeleton，失败显示可重试错误态且不得在新 URL 下继续展示旧 payload。custom 尚未填完时保留真实控制条，只将数据区置为 skeleton。
 - 保留 `/api/state.agent_overview`、SSE 和 `/api/agent/{key}` 兼容，不改变采集协议、SQLite schema 或身份规则。
 
 ## 影响

@@ -124,7 +124,7 @@ def test_agents_api_custom_window_uses_shanghai_days_and_rejects_invalid_ranges(
     future = int(datetime(2026, 7, 20, 23, 59, 59, tzinfo=STATS_TZ).timestamp())
     future_body = client.get(f"/api/agents?w=custom&wstart={end}&wend={future}").json()
     assert future_body["window"]["end"] == "2026-07-20"
-    assert future_body["comparison"]["current"]["available"] is True
+    assert future_body["comparison"]["current"]["available"] is False
     assert future_body["daily"][-1]["active_seconds"] == 0
     requested_example = client.get(
         "/api/agents?w=custom&wstart=1783958400&wend=1784563199"
@@ -134,7 +134,16 @@ def test_agents_api_custom_window_uses_shanghai_days_and_rejects_invalid_ranges(
         "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17",
         "2026-07-18", "2026-07-19", "2026-07-20",
     ]
+    partial = board.agents_overview_payload(
+        [_card()], "current", w="custom", wstart="1783958400", wend="1784563199",
+    )
+    assert partial["summary"]["active_seconds"] == 120
+    assert partial["comparison"]["current"]["available"] is False
+    assert partial["daily"][0]["active_seconds"] == 120
+    assert partial["daily"][-1]["active_seconds"] == 0
     assert client.get("/api/agents?w=nope").status_code == 400
+    assert client.get("/api/agents?w=custom&wstart=nope&wend=1784563199").status_code == 400
+    assert client.get("/api/agents?w=custom&wstart=1.5&wend=1784563199").status_code == 400
 
     with pytest.raises(HTTPException):
         board._agents_window("custom", "not-a-timestamp", "also-not")
@@ -185,7 +194,11 @@ def test_agents_payload_filters_signals_and_keeps_operator_out_of_search(app_mod
     assert payload["summary"]["attention"] == 2
     assert payload["comparison"]["current"]["available"] is True
 
-    assert board.agents_overview_payload(cards, "current", q="review")["summary"]["agents"] == 1
+    filtered = board.agents_overview_payload(cards, "current", q="review")
+    assert filtered["summary"]["agents"] == 1
+    assert filtered["summary"]["total_agents"] == 1
+    assert len(filtered["agents"]) == len(filtered["ranking"]) == 1
+    assert filtered["daily"][-1]["active_agents"] == 1
     assert board.agents_overview_payload(cards, "current", q="bob")["summary"]["agents"] == 0
     assert board.agents_overview_payload(cards, "current", q="claude-code")["summary"]["agents"] == 0
     assert board.agents_overview_payload(cards, "current", status="live")["agents"][0]["operator"] == "bob"
@@ -195,12 +208,33 @@ def test_agents_payload_filters_signals_and_keeps_operator_out_of_search(app_mod
     assert board.agents_overview_payload(cards, "current", signal="quiet")["agents"][0]["operator"] == "carol"
 
 
-@pytest.mark.parametrize("sort", ["recent", "window_time", "window_days", "success", "errors", "name", "today", "week"])
-def test_agents_payload_accepts_all_supported_sorts(app_mod, monkeypatch, sort):
+@pytest.mark.parametrize(("sort", "first_operator"), [
+    ("recent", "bob"),
+    ("window_time", "alice"),
+    ("window_days", "bob"),
+    ("success", "bob"),
+    ("errors", "alice"),
+    ("name", "alice"),
+    ("today", "alice"),
+    ("week", "bob"),
+])
+def test_agents_payload_sorts_rows_by_requested_metric(app_mod, monkeypatch, sort, first_operator):
     monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 12, tzinfo=timezone.utc)))
-    cards = [_card(), _card(operator="bob", agent="reviewer", active_days=[0] * 88 + [30, 30])]
+    cards = [
+        _card(),
+        _card(operator="bob", agent="reviewer", active_days=[0] * 88 + [30, 30],
+              quality={"runs": 4, "success": 4, "error": 0, "blocked": 0},
+              last_seen="2026-07-14T09:00:00+00:00"),
+    ]
     payload = board.agents_overview_payload(cards, "current", w="7d", sort=sort)
-    assert len(payload["agents"]) == 2
+    assert payload["agents"][0]["operator"] == first_operator
+
+
+def test_agents_ranking_breaks_equal_duration_ties_by_identity_key(app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 12, tzinfo=timezone.utc)))
+    cards = [_card(), _card(operator="bob", agent="reviewer")]
+    payload = board.agents_overview_payload(cards, "current", w="today")
+    assert [row["key"] for row in payload["ranking"]] == ["alice::builder", "bob::reviewer"]
 
 
 @pytest.mark.parametrize("params", [

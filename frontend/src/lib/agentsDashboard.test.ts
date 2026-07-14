@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import {
   AGENT_UNASSIGNED,
@@ -25,10 +27,22 @@ import {
   resolveAgentChartAnchorIndex,
   resolveAgentChartScrollLeft,
   resolveAgentWindow,
+  resolveAgentsRoutePhase,
   type AgentFilters,
 } from './agentsDashboard.ts'
 import type { AgentSession } from './types.ts'
 import { keyOf } from './utils.ts'
+
+function readSource(relativePath: string) {
+  for (const candidate of [path.join(process.cwd(), relativePath), path.join(process.cwd(), 'frontend', relativePath)]) {
+    try {
+      return readFileSync(candidate, 'utf8')
+    } catch {
+      // npm --prefix and direct node runs use different cwd shapes.
+    }
+  }
+  throw new Error(`missing source file ${relativePath}`)
+}
 
 function agent(overrides: Partial<AgentSession> = {}): AgentSession {
   return {
@@ -56,6 +70,22 @@ test('agent filters normalize unknown URL values and preserve meaningful params'
   assert.equal(agentFiltersQuery(parseAgentFilters('?rank=runtime&rt=codex&op=alice')), '')
   assert.equal(parseAgentFilters('?sort=today').sort, 'window_time')
   assert.equal(parseAgentFilters('?sort=week').sort, 'window_days')
+})
+
+test('agent route lifecycle never presents stale data as a completed failed query', () => {
+  assert.equal(resolveAgentsRoutePhase(null, false, false, ''), 'pending-window')
+  assert.equal(resolveAgentsRoutePhase('w=7d', false, true, ''), 'skeleton')
+  assert.equal(resolveAgentsRoutePhase('w=7d', true, true, ''), 'data')
+  assert.equal(resolveAgentsRoutePhase('w=7d', true, false, '500'), 'error')
+  assert.equal(resolveAgentsRoutePhase('w=7d', false, false, '500'), 'error')
+})
+
+test('agent pending custom window keeps real controls alongside data skeletons', () => {
+  const source = readSource('src/views/Agents.tsx')
+  const pending = source.slice(source.indexOf('export function AgentsPendingWindow'), source.indexOf('export function Agents({'))
+  assert.ok(pending.includes('<AgentsToolbar'))
+  assert.ok(pending.includes('<AgentsSkeletonSections'))
+  assert.ok(pending.includes('windowPeriodLabel(filters.w, t)'))
 })
 
 test('agent issue signals respect quality and quiet boundaries', () => {

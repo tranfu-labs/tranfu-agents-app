@@ -66,6 +66,15 @@ function focusAgentSection(id: string) {
 
 export function AgentsSkeleton({ t }: { t: (key: string) => string }) {
   const mobileLayout = useMobileAgentsLayout()
+  return (
+    <div className="agents-page agents-skeleton" aria-busy="true" aria-label={t('loading')}>
+      <section className="frame agents-skeleton-toolbar"><span /></section>
+      <AgentsSkeletonSections mobileLayout={mobileLayout} />
+    </div>
+  )
+}
+
+function AgentsSkeletonSections({ mobileLayout }: { mobileLayout: boolean }) {
   const sections: Record<AgentSectionKey, ReactNode> = {
     kpis: <section className="frame agents-skeleton-kpis">{Array.from({ length: 8 }, (_, index) => <span key={index} />)}</section>,
     signals: <section className="frame agents-skeleton-signals"><span /><span /><span /><span /></section>,
@@ -78,8 +87,7 @@ export function AgentsSkeleton({ t }: { t: (key: string) => string }) {
     directory: <section className="frame agents-skeleton-directory"><span /><span /><span /></section>,
   }
   return (
-    <div className="agents-page agents-skeleton" aria-busy="true" aria-label={t('loading')}>
-      <section className="frame agents-skeleton-toolbar"><span /></section>
+    <div className="agents-skeleton agents-skeleton-sections">
       {agentSectionOrder(mobileLayout).map((key) => <Fragment key={key}>{sections[key]}</Fragment>)}
     </div>
   )
@@ -91,6 +99,80 @@ export function AgentsLoadError({ retry, t }: { retry: () => void; t: (key: stri
       <Empty title={t('loadError')} />
       <button type="button" onClick={retry}>{t('refresh')}</button>
     </section>
+  )
+}
+
+function AgentsToolbar({ filters, filtersOpen, visibleCount, activeSeconds, windowLabel, onToggleFilters, updateFilters, clearFilters, t }: {
+  filters: AgentFilters
+  filtersOpen: boolean
+  visibleCount: number
+  activeSeconds: number
+  windowLabel: string
+  onToggleFilters: () => void
+  updateFilters: (patch: Partial<AgentFilters>) => void
+  clearFilters: () => void
+  t: (key: string) => string
+}) {
+  const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal)
+  return (
+    <section className="frame agents-toolbar-frame">
+      <h2>
+        <span><span className="sl">//</span>{t('skillsControls')}</span>
+        <span className="cnt">{t('agentScopeDuration')}</span>
+      </h2>
+      <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={onToggleFilters}>
+        <span>{filters.q || `${windowLabel} · ${visibleCount} Agent · ${dur(activeSeconds)}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
+      </button>
+      <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
+        <span className="agent-scope-chip">{t('agentScopeAgent')}</span>
+        <label className="field agents-search-field"><span>{t('agentSearch')}</span><input value={filters.q} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t('agentSearchAgentsHint')} /></label>
+        <label className="field"><span>{t('agentStatusFilter')}</span><select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as AgentFilters['status'], signal: '' })}>
+          <option value="all">{t('all')}</option><option value="live">{t('agentStatusLive')}</option><option value="attention">{t('agentStatusAttention')}</option><option value="idle">{t('agentStatusIdle')}</option><option value="done">{t('agentStatusDone')}</option>
+        </select></label>
+        <label className="field"><span>{t('windowFilter')}</span><select value={filters.w} onChange={(event) => updateFilters({ w: event.target.value as AgentFilters['w'], wstart: '', wend: '' })}>
+          {WINDOW_OPTIONS.map((key) => <option value={key} key={key}>{windowDisplayLabel(key, t)}</option>)}
+        </select></label>
+        {filters.w === 'custom' ? (
+          <>
+            <label className="field"><span>{t('customStart')}</span><input type="datetime-local" value={unixToInput(filters.wstart)} onChange={(event) => updateFilters({ w: 'custom', wstart: inputToUnix(event.target.value) })} /></label>
+            <label className="field"><span>{t('customEnd')}</span><input type="datetime-local" value={unixToInput(filters.wend)} onChange={(event) => updateFilters({ w: 'custom', wend: inputToUnix(event.target.value) })} /></label>
+          </>
+        ) : null}
+        <label className="field"><span>{t('agentSort')}</span><select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as AgentFilters['sort'] })}>
+          <option value="window_time">{t('agentSortWindowTime')}</option><option value="window_days">{t('agentSortWindowDays')}</option><option value="recent">{t('agentSortRecent')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>
+        </select></label>
+        {hasFilters ? <button className="agent-clear-filters" type="button" onClick={clearFilters}>{t('agentFiltersClear')}</button> : null}
+      </div>
+    </section>
+  )
+}
+
+export function AgentsPendingWindow({ t }: { t: (key: string) => string }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const filters = useMemo(() => parseAgentFilters(location.search), [location.search])
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const mobileLayout = useMobileAgentsLayout()
+  useEffect(() => {
+    const canonicalSearch = agentFiltersQuery(filters)
+    if (location.search !== canonicalSearch) navigate(`/agents${canonicalSearch}`, { replace: true })
+  }, [filters, location.search, navigate])
+  const updateFilters = (patch: Partial<AgentFilters>) => navigate(`/agents${agentFiltersQuery({ ...filters, ...patch })}`, { replace: true })
+  return (
+    <div className="agents-page agents-pending-window" aria-busy="true" aria-label={t('loading')}>
+      <AgentsToolbar
+        filters={filters}
+        filtersOpen={filtersOpen}
+        visibleCount={0}
+        activeSeconds={0}
+        windowLabel={windowPeriodLabel(filters.w, t)}
+        onToggleFilters={() => setFiltersOpen((value) => !value)}
+        updateFilters={updateFilters}
+        clearFilters={() => navigate('/agents', { replace: true })}
+        t={t}
+      />
+      <AgentsSkeletonSections mobileLayout={mobileLayout} />
+    </div>
   )
 }
 
@@ -134,7 +216,6 @@ export function Agents({ data, loading, lang, t }: { data: AgentsPayload; loadin
     currentAvailable: data.comparison.current.available,
     previousAvailable: data.comparison.previous.available,
   }), [data.comparison])
-  const hasFilters = Boolean(filters.q || filters.status !== 'all' || filters.signal)
   const windowLabel = windowPeriodLabel(data.window.key, t)
   const summary = data.summary
   const attention = data.summary.attention
@@ -198,36 +279,20 @@ export function Agents({ data, loading, lang, t }: { data: AgentsPayload; loadin
 
   return (
     <div className={`agents-page ${loading ? 'is-loading' : ''}`} aria-busy={loading || undefined}>
-      <section className="frame agents-toolbar-frame">
-        <h2>
-          <span><span className="sl">//</span>{t('skillsControls')}</span>
-          <span className="cnt">{t('agentScopeDuration')}</span>
-        </h2>
-        <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} Agent · ${dur(data.summary.active_seconds)}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
-        </button>
-        <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
-          <span className="agent-scope-chip">{t('agentScopeAgent')}</span>
-          <label className="field agents-search-field"><span>{t('agentSearch')}</span><input value={filters.q} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t('agentSearchAgentsHint')} /></label>
-          <label className="field"><span>{t('agentStatusFilter')}</span><select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as AgentFilters['status'], signal: '' })}>
-            <option value="all">{t('all')}</option><option value="live">{t('agentStatusLive')}</option><option value="attention">{t('agentStatusAttention')}</option><option value="idle">{t('agentStatusIdle')}</option><option value="done">{t('agentStatusDone')}</option>
-          </select></label>
-          <label className="field"><span>{t('windowFilter')}</span><select value={filters.w} onChange={(event) => updateFilters({ w: event.target.value as AgentFilters['w'], wstart: '', wend: '' })}>
-            {WINDOW_OPTIONS.map((key) => <option value={key} key={key}>{windowDisplayLabel(key, t)}</option>)}
-          </select></label>
-          {filters.w === 'custom' ? (
-            <>
-              <label className="field"><span>{t('customStart')}</span><input type="datetime-local" value={unixToInput(filters.wstart)} onChange={(event) => updateFilters({ w: 'custom', wstart: inputToUnix(event.target.value) })} /></label>
-              <label className="field"><span>{t('customEnd')}</span><input type="datetime-local" value={unixToInput(filters.wend)} onChange={(event) => updateFilters({ w: 'custom', wend: inputToUnix(event.target.value) })} /></label>
-            </>
-          ) : null}
-          <label className="field"><span>{t('agentSort')}</span><select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as AgentFilters['sort'] })}>
-            <option value="window_time">{t('agentSortWindowTime')}</option><option value="window_days">{t('agentSortWindowDays')}</option><option value="recent">{t('agentSortRecent')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>
-          </select></label>
-          {hasFilters ? <button className="agent-clear-filters" type="button" onClick={clearFilters}>{t('agentFiltersClear')}</button> : null}
-        </div>
-      </section>
-      {agentSectionOrder(mobileLayout).map((key) => <Fragment key={key}>{sections[key]}</Fragment>)}
+      <AgentsToolbar
+        filters={filters}
+        filtersOpen={filtersOpen}
+        visibleCount={visibleAgents.length}
+        activeSeconds={data.summary.active_seconds}
+        windowLabel={windowLabel}
+        onToggleFilters={() => setFiltersOpen((value) => !value)}
+        updateFilters={updateFilters}
+        clearFilters={clearFilters}
+        t={t}
+      />
+      {loading
+        ? <AgentsSkeletonSections mobileLayout={mobileLayout} />
+        : agentSectionOrder(mobileLayout).map((key) => <Fragment key={key}>{sections[key]}</Fragment>)}
     </div>
   )
 }
