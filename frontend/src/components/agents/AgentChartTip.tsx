@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
-import { dur } from '../../lib/utils'
+import { dur, RT } from '../../lib/utils'
 import type { AgentChartTipModel } from './agentChartSupport'
 
 const TIP_GAP = 10
@@ -31,6 +31,8 @@ export function AgentChartTip({ tip, t }: { tip: AgentChartTipModel | null; t: (
   }, [tip])
 
   if (!tip) return null
+  const valueOf = (item: AgentChartTipModel['row']['segments'][number]) => tip.metric === 'agents' ? String(item.active_agents) : dur(item.active_seconds)
+  const nameOf = (name: string) => name === '__other' ? t('other') : name === '__unassigned' ? t('agentUnassigned') : tip.view === 'runtime' ? (RT[name] || name) : name
   const style: CSSProperties = { display: 'block', left: 0, top: 0, visibility: 'hidden' }
   return (
     <div ref={ref} className="chart-tip agent-chart-tip" style={style}>
@@ -38,15 +40,19 @@ export function AgentChartTip({ tip, t }: { tip: AgentChartTipModel | null; t: (
         <span>{tip.row.day}</span>
         {tip.current ? <span className="tip-live">{t('inProgress')}</span> : null}
       </div>
-      <div className="tip-row">
-        <span className="tip-dot" style={{ background: 'var(--info)' }} />
-        <span className="tip-name">{t('agentActiveCount')}</span>
-        <span className="tip-val">{tip.row.active_agents}</span>
-      </div>
-      <div className="tip-row">
-        <span className="tip-dot" style={{ background: 'var(--brand)' }} />
-        <span className="tip-name">{t('agentActiveTime')}</span>
-        <span className="tip-val">{dur(tip.row.active_seconds)}</span>
+      {tip.row.segments
+        .slice()
+        .sort((a, b) => Number(tip.metric === 'agents' ? b.active_agents - a.active_agents : b.active_seconds - a.active_seconds) || a.name.localeCompare(b.name))
+        .map((item) => (
+          <div className="tip-row" key={item.name}>
+            <span className="tip-dot" style={{ background: `var(--agent-segment-${Math.max(0, tip.legend.indexOf(item.name)) % 9})` }} />
+            <span className="tip-name">{nameOf(item.name)}</span>
+            <span className="tip-val">{valueOf(item)}</span>
+          </div>
+        ))}
+      <div className="tip-total">
+        <span>{t('agentActiveCount')} / {t('agentActiveTime')}</span>
+        <b>{tip.row.active_agents} / {dur(tip.row.active_seconds)}</b>
       </div>
     </div>
   )

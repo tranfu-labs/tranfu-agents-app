@@ -1,15 +1,19 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
   moveAgentChartIndex,
+  buildAgentTrendModel,
   resolveAgentChartAnchorIndex,
   resolveAgentChartMode,
   resolveAgentChartScrollLeft,
   type AgentChartMetric,
+  type AgentDailyBreakdownRow,
+  type AgentRankView,
+  type AgentTrendDay,
 } from '../../lib/agentsDashboard'
 import { resolveSkillsChartLayout } from '../../lib/skillsChartLayout'
 import type { AgentOverview } from '../../lib/types'
-import { dur } from '../../lib/utils'
+import { dur, RT } from '../../lib/utils'
 import { AgentChartTip } from './AgentChartTip'
 import {
   agentChartAnchor,
@@ -17,10 +21,10 @@ import {
   useAgentChartWidth,
 } from './agentChartSupport'
 
-type DailyRow = AgentOverview['daily'][number]
-
-export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
+export function AgentActivityChart({ overview, breakdown, view, currentDay, windowLabel, t }: {
   overview: AgentOverview
+  breakdown: AgentDailyBreakdownRow[]
+  view: AgentRankView
   currentDay?: string
   windowLabel: string
   t: (key: string) => string
@@ -28,15 +32,17 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const hitRefs = useRef<Array<SVGRectElement | null>>([])
   const [metric, setMetric] = useState<AgentChartMetric>('agents')
+  const [hoverSegment, setHoverSegment] = useState<string | null>(null)
   const [tip, setTip] = useState<AgentChartTipModel | null>(null)
   const [activeIndex, setActiveIndex] = useState(() => resolveAgentChartAnchorIndex(overview.daily, 'agents'))
   const chartBoxWidth = useAgentChartWidth(boxRef)
   const mode = resolveAgentChartMode(overview.daily, metric)
+  const model = useMemo(() => buildAgentTrendModel(breakdown, overview.days, metric), [breakdown, overview.days, metric])
   const layout = resolveSkillsChartLayout(overview.daily.length, chartBoxWidth)
   const chartAnchorIndex = resolveAgentChartAnchorIndex(overview.daily, metric)
   const windowIdentity = `${overview.days[0] || ''}:${overview.days.at(-1) || ''}:${overview.days.length}`
   const safeActiveIndex = Math.min(activeIndex, Math.max(0, overview.daily.length - 1))
-  const visibleTip = tip && overview.daily.includes(tip.row) ? tip : null
+  const visibleTip = tip && model.days.includes(tip.row) ? tip : null
 
   useLayoutEffect(() => {
     hitRefs.current = hitRefs.current.slice(0, overview.daily.length)
@@ -53,9 +59,9 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
     setActiveIndex(resolveAgentChartAnchorIndex(overview.daily, nextMetric))
   }
 
-  const showTip = (row: DailyRow, index: number, bar: SVGRectElement) => {
+  const showTip = (row: AgentTrendDay, index: number, bar: SVGRectElement) => {
     setActiveIndex(index)
-    setTip({ row, current: row.day === currentDay, anchor: agentChartAnchor(bar) })
+    setTip({ row, current: row.day === currentDay, anchor: agentChartAnchor(bar), metric, view, legend: model.legend })
   }
 
   const onBarKeyDown = (event: KeyboardEvent<SVGRectElement>, index: number) => {
@@ -104,6 +110,8 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
   const barWidth = layout.barWidth
   const patternId = `agentStripe-${metric}-${overview.daily.length}`
   const labelEvery = Math.max(1, Math.ceil(overview.daily.length / 8))
+  const colorOf = (name: string) => `var(--agent-segment-${Math.max(0, model.legend.indexOf(name)) % 9})`
+  const nameOf = (name: string) => name === '__other' ? t('other') : name === '__unassigned' ? t('agentUnassigned') : view === 'runtime' ? (RT[name] || name) : name
 
   return (
     <section id="agents-trend" tabIndex={-1} className="frame agents-trend-panel">
@@ -133,7 +141,7 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
           <line x1="34" y1={base} x2={width - 12} y2={base} stroke="var(--line2)" />
           <line x1="34" y1="24" x2="34" y2={base} stroke="var(--line2)" />
           <text x="4" y="30" fill="var(--muted)" fontSize="10">{t(metric === 'agents' ? 'agents' : 'agentSeconds')}</text>
-          {overview.daily.map((row, index) => {
+          {model.days.map((row, index) => {
             const value = Number(metric === 'agents' ? row.active_agents : row.active_seconds)
             const barHeight = value ? Math.max(3, Math.round((value / max) * plotHeight)) : 0
             const slotX = 38 + index * step
@@ -141,9 +149,16 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
             const hitX = 38 + index * step
             const current = row.day === currentDay
             const label = `${row.day} · ${t('agentActiveCount')} ${row.active_agents} · ${t('agentActiveTime')} ${dur(row.active_seconds)}`
+            let y = base
             return (
               <g key={row.day} className={`day-col ${visibleTip?.row.day === row.day ? 'hovered' : ''}`}>
-                {barHeight ? <rect className="agent-trend-bar" x={x} y={base - barHeight} width={barWidth} height={barHeight} rx="2" /> : null}
+                {row.segments.map((segment) => {
+                  const segmentValue = Number(metric === 'agents' ? segment.active_agents : segment.active_seconds)
+                  if (!segmentValue) return null
+                  const height = Math.max(1, Math.round((segmentValue / max) * plotHeight))
+                  y -= height
+                  return <rect key={segment.name} className="agent-trend-bar agent-trend-segment" x={x} y={y} width={barWidth} height={height} rx="1" fill={colorOf(segment.name)} opacity={hoverSegment && hoverSegment !== segment.name ? 0.28 : 0.9} />
+                })}
                 {current && barHeight ? <rect x={x} y={base - barHeight} width={barWidth} height={barHeight} rx="2" fill={`url(#${patternId})`} stroke="var(--text)" strokeOpacity=".42" pointerEvents="none" /> : null}
                 <rect
                   ref={(node) => { hitRefs.current[index] = node }}
@@ -167,6 +182,13 @@ export function AgentActivityChart({ overview, currentDay, windowLabel, t }: {
             )
           })}
         </svg>
+        <div className="legend2 agent-trend-legend" aria-label={t(view === 'runtime' ? 'agentRankRuntime' : 'agentRankOperator')}>
+          {model.legend.map((name) => (
+            <button key={name} type="button" className={hoverSegment === name ? 'on' : ''} onMouseEnter={() => setHoverSegment(name)} onMouseLeave={() => setHoverSegment(null)} onFocus={() => setHoverSegment(name)} onBlur={() => setHoverSegment(null)}>
+              <span className="sw" style={{ background: colorOf(name) }} />{nameOf(name)}
+            </button>
+          ))}
+        </div>
         <AgentChartTip tip={visibleTip} t={t} />
       </div>
     </section>
