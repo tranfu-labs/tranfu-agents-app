@@ -7,6 +7,7 @@ import { AgentKpiGrid } from '../components/agents/AgentKpiGrid'
 import { AgentRankPanel } from '../components/agents/AgentRankPanel'
 import { Empty } from '../components/Common'
 import {
+  AGENT_UNASSIGNED,
   buildAgentDailyBreakdown,
   buildAgentDirectoryRows,
   agentKpiActionPatch,
@@ -93,6 +94,9 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
   const rankView = filters.rank
   const summary = overview.summary
   const attention = attentionCount(visibleAgents, latestShim)
+  const runtimeOptions = [...new Set(data.sessions.map((agent) => String(agent.runtime || '').trim() || AGENT_UNASSIGNED))].sort()
+  const operatorOptions = [...new Set(data.sessions.map((agent) => String(agent.operator || '').trim() || AGENT_UNASSIGNED))].sort()
+  const filterLabel = (value: string, runtime = false) => value === AGENT_UNASSIGNED ? t('agentUnassigned') : runtime ? (RT[value] || value) : value
   const updateFilters = (patch: Partial<AgentFilters>) => {
     const next = { ...filters, ...patch }
     navigate(`/agents${agentFiltersQuery(next)}`, { replace: true })
@@ -161,7 +165,7 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
           <span className="cnt">{t(rankView === 'runtime' ? 'agentRankRuntimeHint' : 'agentRankOperatorHint')}</span>
         </h2>
         <button type="button" className="agents-mobile-filter-summary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} · ${summary.live} ${t('agentLiveShort')} · ${filters.rt ? (RT[filters.rt] || filters.rt) : t('all')}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
+          <span>{filters.q || `${windowLabel} · ${visibleAgents.length} · ${summary.live} ${t('agentLiveShort')} · ${filters.rt ? filterLabel(filters.rt, true) : t('all')}`}</span><b>{filtersOpen ? '⌃' : '⌄'}</b>
         </button>
         <div className={`toolbar agents-toolbar ${filtersOpen ? 'mobile-open' : ''}`}>
           <div className="seg agents-view-seg" role="group" aria-label={t('agentRank')}>
@@ -183,11 +187,11 @@ export function Agents({ data, lang, t }: { data: StatePayload; lang: Lang; t: (
           ) : null}
           <label className="field"><span>{t('agentRuntimeFilter')}</span><select value={filters.rt} onChange={(event) => updateFilters({ rt: event.target.value })}>
             <option value="">{t('all')}</option>
-            {[...new Set(data.sessions.map((agent) => agent.runtime).filter(Boolean))].sort().map((runtime) => <option value={runtime} key={runtime}>{RT[runtime] || runtime}</option>)}
+            {runtimeOptions.map((runtime) => <option value={runtime} key={runtime}>{filterLabel(runtime, true)}</option>)}
           </select></label>
           <label className="field"><span>{t('agentOperatorFilter')}</span><select value={filters.op} onChange={(event) => updateFilters({ op: event.target.value })}>
             <option value="">{t('all')}</option>
-            {[...new Set(data.sessions.map((agent) => agent.operator).filter(Boolean))].sort().map((operator) => <option value={operator} key={operator}>{operator}</option>)}
+            {operatorOptions.map((operator) => <option value={operator} key={operator}>{filterLabel(operator)}</option>)}
           </select></label>
           <label className="field"><span>{t('agentSort')}</span><select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as AgentFilters['sort'] })}>
             <option value="recent">{t('agentSortRecent')}</option><option value="window_time">{t('agentSortWindowTime')}</option><option value="window_days">{t('agentSortWindowDays')}</option><option value="success">{t('agentSortSuccess')}</option><option value="errors">{t('agentSortErrors')}</option><option value="name">{t('agentSortName')}</option>

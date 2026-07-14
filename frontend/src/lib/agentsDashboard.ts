@@ -4,6 +4,7 @@ import { daySeries, dur, isoDay, LIVE, shimState } from './utils.ts'
 export const AGENT_LOW_SUCCESS_RATE = 0.8
 export const AGENT_MIN_QUALITY_RUNS = 3
 export const AGENT_QUIET_DAYS = 14
+export const AGENT_UNASSIGNED = '__unassigned'
 
 export type AgentSignal = 'error' | 'shim' | 'quiet' | 'quality'
 export type AgentStatusFilter = 'all' | 'live' | 'attention' | 'idle' | 'done'
@@ -94,6 +95,10 @@ const SORTS = new Set<AgentSort>(['recent', 'window_time', 'window_days', 'succe
 const SIGNALS = new Set<AgentSignal>(['error', 'shim', 'quiet', 'quality'])
 const RANK_VIEWS = new Set<AgentRankView>(['runtime', 'operator'])
 const WINDOWS = new Set<AgentWindowKey>(['today', 'this_week', 'last_week', '7d', '14d', '30d', '90d', 'custom'])
+
+function agentGroupName(agent: AgentSession, field: 'runtime' | 'operator') {
+  return String(agent[field] || '').trim() || AGENT_UNASSIGNED
+}
 
 export function parseAgentFilters(search: string): AgentFilters {
   const params = new URLSearchParams(search)
@@ -400,8 +405,8 @@ export function filterAgents(agents: AgentSession[], filters: AgentFilters, late
   const filtered = agents.filter((agent) => {
     const searchable = [agent.agent, agent.operator, agent.runtime, agent.task, agent.current_step, ...(agent.models || [])].filter(Boolean).join(' ').toLowerCase()
     if (query && !searchable.includes(query)) return false
-    if (filters.rt && agent.runtime !== filters.rt) return false
-    if (filters.op && agent.operator !== filters.op) return false
+    if (filters.rt && agentGroupName(agent, 'runtime') !== filters.rt) return false
+    if (filters.op && agentGroupName(agent, 'operator') !== filters.op) return false
     if (filters.status === 'live' && !LIVE.includes(agent.status)) return false
     if (filters.status === 'attention' && !agentSignals(agent, latestShim).length) return false
     if (filters.signal && !agentSignals(agent, latestShim).includes(filters.signal)) return false
@@ -445,7 +450,7 @@ export function buildAgentDailyBreakdown(
 ): AgentDailyBreakdownRow[] {
   const byDay = new Map(days.map((day) => [day, new Map<string, { active_agents: number; active_seconds: number }>()]))
   agents.forEach((item) => {
-    const segment = view === 'runtime' ? String(item.runtime || '__unassigned') : String(item.operator || '__unassigned')
+    const segment = agentGroupName(item, view)
     const series = agentSeriesByDay(item, overviewDays)
     days.forEach((day) => {
       const seconds = Number(series.get(day) || 0)
@@ -514,7 +519,7 @@ export function attentionCount(agents: AgentSession[], latestShim?: string) {
 function groupStats(agents: AgentSession[], field: 'runtime' | 'operator'): AgentOverviewGroup[] {
   const groups = new Map<string, AgentOverviewGroup>()
   agents.forEach((agent) => {
-    const name = String(agent[field] || agent.runtime || 'unknown')
+    const name = agentGroupName(agent, field)
     const group = groups.get(name) || {
       [field]: name,
       agents: 0,
@@ -546,7 +551,7 @@ function groupWindowStats(agents: AgentSession[], field: 'runtime' | 'operator',
   agents.forEach((agent) => {
     const stats = statsForDays([agent], overviewDays, window.days)
     if (!stats.activeSeconds) return
-    const name = String(agent[field] || agent.runtime || 'unknown')
+    const name = agentGroupName(agent, field)
     const group = groups.get(name) || {
       [field]: name,
       agents: 0,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  AGENT_UNASSIGNED,
   agentKpiActionPatch,
   agentFiltersQuery,
   agentSectionOrder,
@@ -74,6 +75,18 @@ test('agent filtering searches task and signal-specific attention', () => {
   assert.deepEqual(filterAgents([a, b], { ...base, q: 'dashboard' }), [a])
   assert.deepEqual(filterAgents([a, b], { ...base, status: 'attention', signal: 'quality' }), [a])
   assert.deepEqual(filterAgents([a, b], { ...base, rt: 'claude-code' }), [b])
+})
+
+test('unassigned runtime and operator filters use the same sentinel as rankings', () => {
+  const assigned = agent({ operator: 'alice', runtime: 'codex' })
+  const missingOperator = agent({ operator: '', runtime: 'claude-code', agent: 'reviewer' })
+  const missingRuntime = agent({ operator: 'bob', runtime: '', agent: 'helper' })
+  const base: AgentFilters = { q: '', status: 'all', signal: '', rank: 'operator', w: 'today', wstart: '', wend: '', rt: '', op: '', sort: 'recent' }
+
+  assert.deepEqual(filterAgents([assigned, missingOperator, missingRuntime], { ...base, op: AGENT_UNASSIGNED }), [missingOperator])
+  assert.deepEqual(filterAgents([assigned, missingOperator, missingRuntime], { ...base, rt: AGENT_UNASSIGNED }), [missingRuntime])
+  assert.equal(agentFiltersQuery({ ...base, op: AGENT_UNASSIGNED }), `?op=${AGENT_UNASSIGNED}`)
+  assert.equal(parseAgentFilters(`?op=${AGENT_UNASSIGNED}`).op, AGENT_UNASSIGNED)
 })
 
 test('agent windows use the service day and compare adjacent equal ranges', () => {
@@ -255,7 +268,11 @@ test('agent daily breakdown follows runtime or operator view without losing dail
     { day: '2026-07-13', segment: 'claude-code', active_agents: 1, active_seconds: 60 },
   ])
   const operatorRows = buildAgentDailyBreakdown(items, overview.days, ['2026-07-13'], 'operator')
-  assert.equal(operatorRows.find((row) => row.segment === '__unassigned')?.active_seconds, 60)
+  assert.equal(operatorRows.find((row) => row.segment === AGENT_UNASSIGNED)?.active_seconds, 60)
+  const window = resolveAgentWindow({ w: 'today', wstart: '', wend: '' }, overview.today)
+  const windowOverview = buildAgentWindowOverview(items, overview, window)
+  assert.equal(windowOverview.operator.find((row) => row.operator === AGENT_UNASSIGNED)?.today_active, 60)
+  assert.equal(windowOverview.operator.some((row) => row.operator === 'claude-code'), false)
   const model = buildAgentTrendModel(operatorRows, ['2026-07-13'], 'seconds')
   assert.equal(model.days[0].active_seconds, 180)
   assert.equal(model.days[0].active_agents, 2)
