@@ -12,6 +12,10 @@
 - [x] 路由从 URL 派生时间范围和图表粒度 API query。
 - [x] 顶部筛选、明细快捷筛选、隐藏零消耗和排序统一改为 URL 状态。
 - [x] 补齐 Token Usage URL 行为相关文档事实。
+- [x] 用 nuqs 共享 parsers 补真实序列化/解析往返测试，移除源码字符串伪集成测试。
+- [x] 失效模型在当前范围 payload 到达后回退全部模型并清理 URL。
+- [x] custom 无效范围显示提示、禁用刷新，离开 custom 时移除起止参数。
+- [x] 澄清 ADR-0002 与既有只读外部 Token Usage 模块的边界。
 
 ## 验证
 
@@ -19,3 +23,4 @@
 - [x] 运行 `npm --prefix frontend run build`。
 - [x] 在 1440、768、375 三档验证筛选、刷新/复制/历史导航与 custom URL；主题变量和既有布局未改变。
 - [x] 对照 proposal、design、spec delta 和 wireframe 逐条反思代码符合度。
+- [x] 重新运行单测、构建和定向浏览器验证，并更新实现后反思。

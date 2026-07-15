@@ -1,19 +1,16 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import test from 'node:test'
-import { normalizeTokenUsageFilters, resolveTokenUsageApiQuery } from './tokenUsageQuery.ts'
-
-function readSource(relativePath: string) {
-  for (const candidate of [path.join(process.cwd(), relativePath), path.join(process.cwd(), 'frontend', relativePath)]) {
-    try {
-      return readFileSync(candidate, 'utf8')
-    } catch {
-      // npm --prefix and direct node runs use different cwd shapes.
-    }
-  }
-  throw new Error(`missing source file ${relativePath}`)
-}
+import {
+  loadTokenUsageQueryState,
+  normalizeTokenUsageFilters,
+  resolveTokenUsageApiQuery,
+  resolveTokenUsageModel,
+  serializeTokenUsageQueryState,
+  tokenUsageCustomRangeIssue,
+  tokenUsagePayloadMatchesQuery,
+  tokenUsagePresetPatch,
+  tokenUsageQueryOptions,
+} from './tokenUsageQuery.ts'
 
 test('token usage URL filters keep current defaults compact and deterministic', () => {
   assert.deepEqual(normalizeTokenUsageFilters({}), {
@@ -32,7 +29,20 @@ test('token usage URL filters keep current defaults compact and deterministic', 
 })
 
 test('token usage URL filters preserve every shareable control', () => {
-  assert.deepEqual(normalizeTokenUsageFilters({
+  const expected = {
+    w: '30d',
+    wstart: '1783900800',
+    wend: '1783987200',
+    granularity: 'day',
+    kind: 'dapp',
+    model: 'gpt-5 codex/专用',
+    risk: 'high_error',
+    topLimit: 20,
+    q: ' Alice 团队 ',
+    hideZero: true,
+    sort: { field: 'request_count', dir: 'asc' },
+  }
+  const serialized = serializeTokenUsageQueryState({
     w: '30d',
     wstart: '1783900800',
     wend: '1783987200',
@@ -45,19 +55,20 @@ test('token usage URL filters preserve every shareable control', () => {
     hz: '1',
     sort: 'request_count',
     dir: 'asc',
-  }), {
-    w: '30d',
-    wstart: '1783900800',
-    wend: '1783987200',
-    granularity: 'day',
-    kind: 'dapp',
-    model: 'gpt-5 codex/专用',
-    risk: 'high_error',
-    topLimit: 20,
-    q: ' Alice 团队 ',
-    hideZero: true,
-    sort: { field: 'request_count', dir: 'asc' },
   })
+  assert.equal(new URLSearchParams(serialized).get('q'), ' Alice 团队 ')
+  assert.equal(new URLSearchParams(serialized).get('model'), 'gpt-5 codex/专用')
+  assert.deepEqual(normalizeTokenUsageFilters(loadTokenUsageQueryState(serialized)), expected)
+})
+
+test('token usage nuqs serializer removes defaults and stale custom endpoints', () => {
+  assert.equal(serializeTokenUsageQueryState({
+    w: 'today', wstart: '', wend: '', g: 'hour', kind: 'all', model: 'all', risk: 'all',
+    topn: 10, q: '', hz: '0', sort: 'quota', dir: 'desc',
+  }), '')
+  assert.equal(serializeTokenUsageQueryState('?w=custom&wstart=1&wend=2', tokenUsagePresetPatch('30d')), '?w=30d')
+  assert.deepEqual(tokenUsagePresetPatch('custom'), { w: 'custom' })
+  assert.equal(tokenUsageQueryOptions.history, 'replace')
 })
 
 test('token usage custom URL range waits for two valid endpoints', () => {
@@ -70,6 +81,22 @@ test('token usage custom URL range waits for two valid endpoints', () => {
     endTimestamp: 1783987200,
     timeGranularity: 'day',
   })
+})
+
+test('token usage custom range reports incomplete and reversed drafts', () => {
+  assert.equal(tokenUsageCustomRangeIssue({ w: 'custom', wstart: '1783900800', wend: '' }), 'incomplete')
+  assert.equal(tokenUsageCustomRangeIssue({ w: 'custom', wstart: '1783987200', wend: '1783900800' }), 'order')
+  assert.equal(tokenUsageCustomRangeIssue({ w: 'custom', wstart: '1783900800', wend: '1783987200' }), null)
+  assert.equal(tokenUsageCustomRangeIssue({ w: '30d', wstart: '', wend: '' }), null)
+})
+
+test('token usage model waits for payload before falling back from stale URLs', () => {
+  assert.equal(resolveTokenUsageModel('retired-model', [], false), 'retired-model')
+  assert.equal(resolveTokenUsageModel('retired-model', ['gpt-5'], true), 'all')
+  assert.equal(resolveTokenUsageModel('gpt-5', ['gpt-5'], true), 'gpt-5')
+  const query = { preset: '30d', startTimestamp: 10, endTimestamp: 20, timeGranularity: 'day' as const }
+  assert.equal(tokenUsagePayloadMatchesQuery({ start_timestamp: 10, end_timestamp: 20, time_granularity: 'day' }, query), true)
+  assert.equal(tokenUsagePayloadMatchesQuery({ start_timestamp: 1, end_timestamp: 2, time_granularity: 'day' }, query), false)
 })
 
 test('token usage URL filters reject invalid enum and numeric values', () => {
@@ -108,16 +135,4 @@ test('token usage preset and granularity map to a stable API query', () => {
     endTimestamp: 1784089800,
     timeGranularity: 'hour',
   })
-})
-
-test('token usage route and view share nuqs URL state while transient state stays local', () => {
-  const app = readSource('src/App.tsx')
-  const view = readSource('src/views/TokenUsage.tsx')
-  assert.ok(app.includes('useTokenUsageQueryState'))
-  assert.ok(app.includes('resolveTokenUsageApiQuery'))
-  assert.ok(view.includes("update({ kind: 'all' })"))
-  assert.ok(view.includes("update({ hz: event.target.checked ? '1' : '0' })"))
-  assert.ok(view.includes('update({ sort: next.field, dir: next.dir })'))
-  assert.ok(view.includes('useState<number | null>(null)'))
-  assert.ok(view.includes('useState<Set<string>>'))
 })

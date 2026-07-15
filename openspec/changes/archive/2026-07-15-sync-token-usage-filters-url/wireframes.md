@@ -1,6 +1,6 @@
 # Token Usage URL 筛选同步 · 变更线框
 
-> 目标基线：`docs/wireframes/pages/token-usage.md`。该真实路由当前缺少页面线框，本 change 归档时补齐；本次不调整版式，只明确筛选与 URL 的状态流。
+> 目标基线：`docs/wireframes/pages/token-usage.md`。该真实路由在首轮变更前缺少页面线框，本 change 归档时补齐；除 custom 无效范围的一行提示外，不调整版式。
 
 ## pages/token-usage.md
 
@@ -8,6 +8,7 @@
 ┌─ ① Token Usage 控制条 ───────────────────────────────────────────────────────────────────────────────┐
 │ 时间范围[今天▾] 图表维度[小时▾] KEY类型[全部▾] 模型[全部▾] 风险[全部▾] Top[10▾] 搜索[________] │
 │ 自定义时展开：开始[YYYY-MM-DD HH:mm] 结束[YYYY-MM-DD HH:mm]                                         │
+│ ⚠ 缺少起止值 / 结束早于开始（仅无效时显示；暂停请求与刷新）                                        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                             │ replace 当前 URL
                                             ▼
@@ -30,7 +31,7 @@
 
 | 编号 | 元素 | 状态/交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
-| ① | 控制条 | 全部可见筛选 replace 写 URL；custom 展开起止输入 | 当前 URL + Token Usage payload | Skills 控制条 query state |
+| ① | 控制条 | 全部可见筛选 replace 写 URL；custom 展开起止输入；无效时提示并暂停请求/刷新 | 当前 URL + Token Usage payload | Skills 控制条 query state |
 | ② | 同页 URL 状态 | 默认值省略；刷新、复制、历史导航恢复；半填写 custom 保留 | `nuqs/useQueryStates` | Skills `history: replace` |
 | ③ | KEY 明细 | 快捷类型、隐藏零消耗和表头排序写同一 URL | 当前 payload 前端派生 | Skills 明细排序/隐藏零使用 |
 | ④ | KEY 详情抽屉 | 点击行打开，关闭或刷新恢复默认，不写 URL | 当前选中 KEY | 现有 Token Usage drawer |

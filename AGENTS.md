@@ -72,7 +72,7 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - 具体时间戳(`recv`/`last_seen`/`first_seen`)统一保存 **UTC instant**;默认日级统计窗口统一 `Asia/Shanghai`(活跃时长按上海日/周;90 天窗口;SKILLS `day`/`today`/`first_day`/`last_day` 均为上海统计日)。前端展示具体 ISO 时刻时按浏览器本地时区格式化,date-only 统计字段保持服务端统计日语义。
 - **安全响应头 / CSP**:所有响应经 `server/security.py` 的 `_security_headers` 中间件注入 `nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy` / 锁定本源的 CSP(`_CSP`),HTTPS 部署另发 HSTS;同一中间件负责 `/assets/*` 长缓存与 SPA HTML `no-cache`。前端**新接任何外部域名**(脚本、`fetch`/WebSocket、字体、图片、iframe)时,必须把该来源加进 `_CSP` 的对应指令(脚本→`script-src`、请求→`connect-src`、字体→`font-src`、图片→`img-src`),否则浏览器会静默拦截。能放同源就别引外部源;CSP 越窄越好。
 - **管理接口认证**:管理钥匙与写侧 `TF_KEY` 均用常量时间比较(`_key_eq`);`/api/admin/*`、`/api/admin/export`、兼容 `DELETE /v1/events`、`/v1/enroll` 经 IP 限流 + 指数退避(`TF_ADMIN_RATE_*`/`TF_ADMIN_LOCK_*`,反代须开 `TF_TRUST_PROXY`);整库导出走 `POST` 且需 `confirm=EXPORT`。
-- 不追踪 token / 成本(已彻底移除);写凭证只有 `TF_KEY`,请求头 `X-TF-Key`。
+- 核心 Agent 遥测不追踪 token / 成本；shim、事件/身份/会话数据模型与 Pods/Agents/SKILLS UI 不得加入相关字段。既有可选 `/token-usage` 只读镜像管理员配置的外部分发平台数据，不写回 Agent 遥测、不要求 shim 上报；Agent 遥测写凭证只有 `TF_KEY`,请求头 `X-TF-Key`。边界见 ADR-0002。
 - 仓库 owner/库名统一 `tranfu-labs/tranfu-agents-app`;raw/clone/install 链接都指它。
 
 ## 修改前检查
@@ -87,7 +87,7 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 4. 文档:涉及端口/链接/字段时同步 `DEPLOY/UPDATE/QUICKSTART/USAGE/PROTOCOL`、`docs/architecture/module-map.md` 与本文件;若影响 agent 自助安装,同步 `SKILL.md`。
 
 ## 禁止事项(硬约束)
-- ❌ 不得加入 token/费用统计,或把"成本"概念带回数据模型/协议/UI。
+- ❌ 不得把 token/费用带回 Agent 上报协议、shim、事件/身份/会话数据模型或核心 Pods/Agents/SKILLS UI；可选 `/token-usage` 只能只读展示外部分发平台已有数据，不得写回或扩成项目计费系统。
 - ❌ 不得让 shim 在探测/上报失败时抛错或阻塞使用者 agent;不得默认上报 prompt/代码/输出/记忆(均为 opt-in)。
 - ❌ 不得在 Claude Code 钩子里依赖 `$CLAUDE_SESSION_ID` 等环境变量取上下文——必须从 stdin 的事件 JSON 解析(见 ADR-0009)。
 - ❌ 不得为看板引入外部数据库/消息队列/独立前端运行服务或运行期 node 依赖(保持单运行容器;前端只允许 Docker/CI 构建产物)。

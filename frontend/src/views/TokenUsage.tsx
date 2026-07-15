@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Empty, SectionTitle } from '../components/Common'
 import { MiniTrend } from '../components/Charts'
 import { unix } from '../lib/tokenUsageRange'
-import { normalizeTokenUsageFilters } from '../lib/tokenUsageQuery'
+import { normalizeTokenUsageFilters, resolveTokenUsageModel, tokenUsageCustomRangeIssue, tokenUsagePayloadMatchesQuery, tokenUsagePresetPatch } from '../lib/tokenUsageQuery'
 import type { SetTokenUsageQueryState, TokenUsageQueryState, TokenUsageSortField } from '../lib/tokenUsageQuery'
 import type { TokenModelUsage, TokenUsagePayload, TokenUsageQuery, TokenUsageSummary, TokenUsageTrend } from '../lib/types'
 
@@ -853,7 +853,7 @@ export function TokenUsageView({
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null)
   const [ignoredRisks, setIgnoredRisks] = useState<Set<string>>(() => new Set())
   const filters = useMemo(() => normalizeTokenUsageFilters(params), [params])
-  const { kind, model, risk, q, topLimit, hideZero, sort } = filters
+  const { kind, model: requestedModel, risk, q, topLimit, hideZero, sort } = filters
   const update = (patch: Partial<TokenUsageQueryState>) => void setParams(patch)
   const updateSort = (next: SortState) => update({ sort: next.field, dir: next.dir })
   const payload = data?.data
@@ -861,6 +861,11 @@ export function TokenUsageView({
   const enriched = useMemo(() => enrichRows(payload?.summary || [], payload?.trend || [], payload?.models || []), [payload])
   const comparisonEnriched = useMemo(() => enrichRows(comparisonPayload?.summary || [], comparisonPayload?.trend || [], comparisonPayload?.models || []), [comparisonPayload])
   const models = useMemo(() => [...new Set((payload?.models || []).map((row) => row.model_name).filter(Boolean))].sort(), [payload])
+  const model = resolveTokenUsageModel(requestedModel, models, Boolean(payload) && tokenUsagePayloadMatchesQuery(data?.range, query))
+  const customRangeIssue = tokenUsageCustomRangeIssue(filters)
+  useEffect(() => {
+    if (payload && model !== requestedModel) void setParams({ model: 'all' })
+  }, [model, payload, requestedModel, setParams])
   const filterControls = useMemo(() => ({ kind, model, risk, q, hideZero }), [hideZero, kind, model, q, risk])
   const filteredBaseRows = useMemo(() => filterTokenRows(enriched, payload?.models || [], filterControls), [enriched, filterControls, payload])
   const filteredRows = useMemo(() => sortTokenRows(filteredBaseRows, sort), [filteredBaseRows, sort])
@@ -891,7 +896,7 @@ export function TokenUsageView({
       .forEach((row) => map.set(row.model_name, (map.get(row.model_name) || 0) + Number(row.quota || 0)))
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([label, value], index) => ({ label, value, color: COLORS[(index + 4) % COLORS.length] }))
   }, [activeSelectedTokenId, filteredModels])
-  const applyPreset = (preset: string) => update({ w: preset })
+  const applyPreset = (preset: string) => update(tokenUsagePresetPatch(preset))
   const updateCustom = (field: 'wstart' | 'wend', value: string) => update({ w: 'custom', [field]: fromInputValue(value) })
   const ignoreRisk = (alertId: string) => {
     setIgnoredRisks((old) => {
@@ -917,7 +922,7 @@ export function TokenUsageView({
       <section className="frame">
         <div className="token-headline">
           <SectionTitle title={t('tokenUsageTitle')} count={statusLabel} />
-          <button className="btn mini token-refresh-live" type="button" disabled={loading} onClick={() => void refresh(true)}>{loading ? t('loading') : t('refresh')}</button>
+          <button className="btn mini token-refresh-live" type="button" disabled={loading || customRangeIssue !== null} onClick={() => void refresh(true)}>{loading ? t('loading') : t('refresh')}</button>
         </div>
         <div className="usage-note">
           {data?.source === 'demo' ? t('tokenUsageDemo') : data?.configured ? t('tokenUsageConfigured') : t('tokenUsageHint')}
@@ -956,6 +961,7 @@ export function TokenUsageView({
             {t('models')}
             <select value={model} onChange={(event) => update({ model: event.target.value })}>
               <option value="all">{t('tokenAllModels')}</option>
+              {model !== 'all' && !models.includes(model) ? <option value={model}>{model}</option> : null}
               {models.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
           </label>
@@ -981,6 +987,7 @@ export function TokenUsageView({
           </label>
           <label className="field token-search">{t('adminSearch')}<input value={q} onChange={(event) => update({ q: event.target.value })} placeholder={t('tokenSearch')} /></label>
         </div>
+        {customRangeIssue ? <div className="token-range-warning" role="alert">{t(customRangeIssue === 'order' ? 'tokenCustomRangeOrder' : 'tokenCustomRangeIncomplete')}</div> : null}
       </section>
 
       {error ? <div className="note-warn">{t(error)}</div> : null}

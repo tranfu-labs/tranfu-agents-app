@@ -1,6 +1,6 @@
-import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
+import { createLoader, createSerializer, parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
 import { makeTokenUsageRange } from './tokenUsageRange.ts'
-import type { TokenUsageQuery } from './types.ts'
+import type { TokenUsageQuery, TokenUsageRangeMeta } from './types.ts'
 
 export type TokenUsageKindFilter = 'all' | 'personal' | 'dapp' | 'other'
 export type TokenUsageRiskFilter = 'all' | 'normal' | 'low_quota' | 'exhausted' | 'high_error' | 'disabled' | 'spike' | 'high_latency' | 'restricted_model'
@@ -51,6 +51,10 @@ const queryParsers = {
   dir: parseAsString.withDefault('desc'),
 }
 
+export const tokenUsageQueryOptions = { history: 'replace' as const }
+export const loadTokenUsageQueryState = createLoader(queryParsers)
+export const serializeTokenUsageQueryState = createSerializer(queryParsers)
+
 const PRESETS = new Set(['today', 'yesterday', 'this_week', 'last_week', '7d', '14d', '30d', 'custom'])
 const GRANULARITIES = new Set<TokenUsageQuery['timeGranularity']>(['hour', 'four_hour', 'day', 'week', 'month'])
 const KINDS = new Set<TokenUsageKindFilter>(['all', 'personal', 'dapp', 'other'])
@@ -95,14 +99,38 @@ export function normalizeTokenUsageFilters(params: Partial<TokenUsageQueryState>
 export function resolveTokenUsageApiQuery(params: Partial<TokenUsageQueryState>, now = new Date()): TokenUsageQuery | null {
   const filters = normalizeTokenUsageFilters(params)
   if (filters.w !== 'custom') return makeTokenUsageRange(filters.w, filters.granularity, now)
+  if (tokenUsageCustomRangeIssue(filters)) return null
   const startTimestamp = Number(filters.wstart)
   const endTimestamp = Number(filters.wend)
-  if (!startTimestamp || !endTimestamp || endTimestamp < startTimestamp) return null
   return { preset: 'custom', startTimestamp, endTimestamp, timeGranularity: filters.granularity }
 }
 
+export type TokenUsageCustomRangeIssue = 'incomplete' | 'order' | null
+
+export function tokenUsageCustomRangeIssue(params: Partial<TokenUsageQueryState> | TokenUsageFilters): TokenUsageCustomRangeIssue {
+  const filters = 'granularity' in params ? params : normalizeTokenUsageFilters(params)
+  if (filters.w !== 'custom') return null
+  if (!filters.wstart || !filters.wend) return 'incomplete'
+  return Number(filters.wend) < Number(filters.wstart) ? 'order' : null
+}
+
+export function resolveTokenUsageModel(model: string, availableModels: string[], payloadReady: boolean) {
+  if (!payloadReady || model === 'all' || availableModels.includes(model)) return model
+  return 'all'
+}
+
+export function tokenUsagePayloadMatchesQuery(range: TokenUsageRangeMeta | undefined, query: TokenUsageQuery) {
+  return Number(range?.start_timestamp) === query.startTimestamp
+    && Number(range?.end_timestamp) === query.endTimestamp
+    && range?.time_granularity === query.timeGranularity
+}
+
+export function tokenUsagePresetPatch(preset: string): Partial<TokenUsageQueryState> {
+  return preset === 'custom' ? { w: preset } : { w: preset, wstart: '', wend: '' }
+}
+
 export function useTokenUsageQueryState() {
-  return useQueryStates(queryParsers, { history: 'replace' })
+  return useQueryStates(queryParsers, tokenUsageQueryOptions)
 }
 
 export type SetTokenUsageQueryState = ReturnType<typeof useTokenUsageQueryState>[1]

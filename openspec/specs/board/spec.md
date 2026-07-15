@@ -545,13 +545,17 @@
 - 无 query 时保持 `today/hour/全部类型/全部模型/全部风险/Top 10/不隐藏零消耗/quota desc` 默认语义。
 - 刷新、复制链接、在新标签打开或浏览器历史导航到含 query 的 `/token-usage` 时，页面从 URL 恢复全部可见筛选与排序。
 - `w=custom` 时 `wstart/wend` 使用 Unix 秒并允许逐项保留；只有两端均为有效范围时才驱动新的 API 时间查询，半填写不得形成错误请求或清除已填写值。
+- custom 缺少任一端或结束早于开始时显示明确提示并禁用刷新；切换到非 custom 预设时移除 `wstart/wend`。
 - `w/wstart/wend/g` 映射到 `/api/token-usage` 的 `start_timestamp/end_timestamp/time_granularity`；其它筛选与排序只影响当前 payload 的前端派生，不改变 API 时间范围。
 - 顶部 KEY 类型控件和明细区快捷类型按钮读写同一 `kind` 参数；隐藏零消耗使用 `hz`；可排序表头使用 `sort/dir`。
 - 详情抽屉、选中 KEY 与忽略风险属于临时页面状态，不写入 URL、localStorage 或 sessionStorage。
+- 模型参数在 payload 到达前保留；payload 到达后若模型已不存在，页面立即按全部模型展示，并以 replace 清理失效参数。
 
 ### Token Usage URL 可验证行为
 
 - 打开 `/token-usage` 时页面按默认语义展示，URL 无需自动变成长参数链接。
 - 打开 `/token-usage?w=30d&g=day&kind=dapp&model=gpt-5.5&q=alice&risk=high_error&topn=20&hz=1&sort=request_count&dir=asc` 时，对应控件、图表、排行与表格排序恢复。
 - 自定义开始时间写入后 URL 保留 `w=custom&wstart=...`；补齐 `wend` 后 API 请求使用两端原值。
+- custom 半填写或倒序时不请求 API、显示范围提示且刷新不可用；切回普通预设后 URL 不含旧 `wstart/wend`。
+- 打开包含已失效 `model` 的链接时，payload 到达后回退到全部模型且 URL 清除该参数，不显示空选择或误导性空结果。
 - 从含筛选 query 的 Token Usage URL 刷新、复制到新标签或从其它页面后退返回时，筛选结果不得回到组件默认值。
