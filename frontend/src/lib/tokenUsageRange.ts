@@ -21,8 +21,8 @@ export function unix(date: Date) {
   return Math.floor(date.getTime() / 1000)
 }
 
-export function makeTokenUsageRange(preset: string, granularity: TokenUsageQuery['timeGranularity'] = 'day'): TokenUsageQuery {
-  const now = new Date()
+export function makeTokenUsageRange(preset: string, granularity: TokenUsageQuery['timeGranularity'] = 'day', reference = new Date()): TokenUsageQuery {
+  const now = new Date(reference)
   now.setSeconds(0, 0)
   const today = startOfDay(now)
   const thisWeek = startOfWeek(now)
@@ -77,6 +77,6 @@ export function makeTokenUsageComparisonRange(query: TokenUsageQuery): { label: 
   }
 }
 
-export function initialTokenUsageQuery() {
-  return makeTokenUsageRange('today', 'hour')
+export function initialTokenUsageQuery(reference = new Date()) {
+  return makeTokenUsageRange('today', 'hour', reference)
 }

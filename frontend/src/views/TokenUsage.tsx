@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Empty, SectionTitle } from '../components/Common'
 import { MiniTrend } from '../components/Charts'
-import { makeTokenUsageRange, unix } from '../lib/tokenUsageRange'
+import { unix } from '../lib/tokenUsageRange'
+import { normalizeTokenUsageFilters } from '../lib/tokenUsageQuery'
+import type { SetTokenUsageQueryState, TokenUsageQueryState, TokenUsageSortField } from '../lib/tokenUsageQuery'
 import type { TokenModelUsage, TokenUsagePayload, TokenUsageQuery, TokenUsageSummary, TokenUsageTrend } from '../lib/types'
 
 type TokenKind = 'personal' | 'dapp' | 'other'
@@ -10,8 +12,7 @@ type RiskState = 'normal' | 'low_quota' | 'exhausted' | 'high_error' | 'disabled
 type RiskSeverity = 'info' | 'warn' | 'bad'
 type RiskAlert = { id: string; token_id: number; token_name: string; state: RiskState; severity: RiskSeverity; title: string; detail: string; quota: number }
 type EnrichedTokenRow = TokenUsageSummary & { kind: TokenKind; owner: string; risk: RiskState; riskReasons: RiskAlert[]; trendValues: number[] }
-type SortField = 'quota' | 'request_count' | 'token_name' | 'owner' | 'kind' | 'risk' | 'last_used_at' | 'remain_quota'
-type SortState = { field: SortField; dir: 'asc' | 'desc' }
+type SortState = { field: TokenUsageSortField; dir: 'asc' | 'desc' }
 type Tooltip = { x: number; y: number; title: string; rows: Array<{ label: string; value: string; color?: string }> }
 type IconName = 'alert' | 'dollar' | 'health' | 'key' | 'model' | 'pie' | 'rank' | 'trend'
 
@@ -99,15 +100,17 @@ function normalized(text?: string) {
   return String(text || '').trim().toLowerCase()
 }
 
-function toInputValue(timestamp: number) {
-  const date = new Date(timestamp * 1000)
+function toInputValue(timestamp: string) {
+  if (!timestamp || !/^\d+$/.test(timestamp)) return ''
+  const date = new Date(Number(timestamp) * 1000)
+  if (Number.isNaN(date.getTime())) return ''
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   return local.toISOString().slice(0, 16)
 }
 
-function fromInputValue(value: string, fallback: number) {
+function fromInputValue(value: string) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? fallback : unix(date)
+  return Number.isNaN(date.getTime()) ? '' : String(unix(date))
 }
 
 function inferKind(row: TokenUsageSummary): TokenKind {
@@ -656,7 +659,7 @@ function ModelRows({ rows, t }: { rows: TokenModelUsage[]; t: (key: string) => s
   )
 }
 
-function rowSortValue(row: EnrichedTokenRow, field: SortField) {
+function rowSortValue(row: EnrichedTokenRow, field: TokenUsageSortField) {
   if (field === 'token_name') return normalized(row.token_name)
   if (field === 'owner') return normalized(row.owner)
   if (field === 'kind') return row.kind
@@ -734,7 +737,7 @@ function exportTokenRows(rows: EnrichedTokenRow[]) {
   URL.revokeObjectURL(url)
 }
 
-function SortButton({ field, sort, setSort, children }: { field: SortField; sort: SortState; setSort: (sort: SortState) => void; children: ReactNode }) {
+function SortButton({ field, sort, setSort, children }: { field: TokenUsageSortField; sort: SortState; setSort: (sort: SortState) => void; children: ReactNode }) {
   const active = sort.field === field
   return (
     <button className={`token-sort ${active ? 'on' : ''}`} type="button" onClick={() => setSort(active ? { field, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: field === 'token_name' || field === 'owner' || field === 'kind' ? 'asc' : 'desc' })}>
@@ -833,7 +836,8 @@ export function TokenUsageView({
   loading,
   error,
   query,
-  setQuery,
+  params,
+  setParams,
   refresh,
   t,
 }: {
@@ -841,19 +845,17 @@ export function TokenUsageView({
   loading: boolean
   error: string
   query: TokenUsageQuery
-  setQuery: (query: TokenUsageQuery) => void
+  params: TokenUsageQueryState
+  setParams: SetTokenUsageQueryState
   refresh: (force?: boolean) => Promise<void>
   t: (key: string) => string
 }) {
-  const [kind, setKind] = useState<'all' | TokenKind>('all')
-  const [model, setModel] = useState('all')
-  const [risk, setRisk] = useState<'all' | RiskState>('all')
-  const [q, setQ] = useState('')
-  const [topLimit, setTopLimit] = useState(10)
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null)
-  const [hideZero, setHideZero] = useState(false)
-  const [sort, setSort] = useState<SortState>({ field: 'quota', dir: 'desc' })
   const [ignoredRisks, setIgnoredRisks] = useState<Set<string>>(() => new Set())
+  const filters = useMemo(() => normalizeTokenUsageFilters(params), [params])
+  const { kind, model, risk, q, topLimit, hideZero, sort } = filters
+  const update = (patch: Partial<TokenUsageQueryState>) => void setParams(patch)
+  const updateSort = (next: SortState) => update({ sort: next.field, dir: next.dir })
   const payload = data?.data
   const comparisonPayload = data?.comparison?.data
   const enriched = useMemo(() => enrichRows(payload?.summary || [], payload?.trend || [], payload?.models || []), [payload])
@@ -889,8 +891,8 @@ export function TokenUsageView({
       .forEach((row) => map.set(row.model_name, (map.get(row.model_name) || 0) + Number(row.quota || 0)))
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([label, value], index) => ({ label, value, color: COLORS[(index + 4) % COLORS.length] }))
   }, [activeSelectedTokenId, filteredModels])
-  const applyPreset = (preset: string) => setQuery(makeTokenUsageRange(preset, query.timeGranularity))
-  const updateCustom = (field: 'startTimestamp' | 'endTimestamp', value: string) => setQuery({ ...query, preset: 'custom', [field]: fromInputValue(value, query[field]) })
+  const applyPreset = (preset: string) => update({ w: preset })
+  const updateCustom = (field: 'wstart' | 'wend', value: string) => update({ w: 'custom', [field]: fromInputValue(value) })
   const ignoreRisk = (alertId: string) => {
     setIgnoredRisks((old) => {
       const next = new Set(old)
@@ -925,25 +927,25 @@ export function TokenUsageView({
         <div className="toolbar token-toolbar">
           <label className="field">
             时间范围
-            <select value={query.preset} onChange={(event) => applyPreset(event.target.value)}>
+            <select value={filters.w} onChange={(event) => applyPreset(event.target.value)}>
               {PRESETS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
             </select>
           </label>
           <label className="field">
             图表维度
-            <select value={query.timeGranularity} onChange={(event) => setQuery({ ...query, timeGranularity: event.target.value as TokenUsageQuery['timeGranularity'] })}>
+            <select value={filters.granularity} onChange={(event) => update({ g: event.target.value })}>
               {GRANULARITIES.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
             </select>
           </label>
-          {query.preset === 'custom' ? (
+          {filters.w === 'custom' ? (
             <>
-              <label className="field token-datetime">开始<input type="datetime-local" value={toInputValue(query.startTimestamp)} onChange={(event) => updateCustom('startTimestamp', event.target.value)} /></label>
-              <label className="field token-datetime">结束<input type="datetime-local" value={toInputValue(query.endTimestamp)} onChange={(event) => updateCustom('endTimestamp', event.target.value)} /></label>
+              <label className="field token-datetime">开始<input type="datetime-local" value={toInputValue(filters.wstart)} onChange={(event) => updateCustom('wstart', event.target.value)} /></label>
+              <label className="field token-datetime">结束<input type="datetime-local" value={toInputValue(filters.wend)} onChange={(event) => updateCustom('wend', event.target.value)} /></label>
             </>
           ) : null}
           <label className="field">
             {t('tokenKind')}
-            <select value={kind} onChange={(event) => setKind(event.target.value as 'all' | TokenKind)}>
+            <select value={kind} onChange={(event) => update({ kind: event.target.value })}>
               <option value="all">{t('tokenAllKinds')}</option>
               <option value="personal">{t('tokenPersonal')}</option>
               <option value="dapp">{t('tokenDapp')}</option>
@@ -952,14 +954,14 @@ export function TokenUsageView({
           </label>
           <label className="field">
             {t('models')}
-            <select value={model} onChange={(event) => setModel(event.target.value)}>
+            <select value={model} onChange={(event) => update({ model: event.target.value })}>
               <option value="all">{t('tokenAllModels')}</option>
               {models.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
           </label>
           <label className="field">
             {t('tokenStatus')}
-            <select value={risk} onChange={(event) => setRisk(event.target.value as 'all' | RiskState)}>
+            <select value={risk} onChange={(event) => update({ risk: event.target.value })}>
               <option value="all">{t('all')}</option>
               <option value="normal">{t('tokenNormal')}</option>
               <option value="low_quota">{t('tokenLowQuota')}</option>
@@ -973,11 +975,11 @@ export function TokenUsageView({
           </label>
           <label className="field token-topn">
             Top N
-            <select value={topLimit} onChange={(event) => setTopLimit(Number(event.target.value))}>
+            <select value={topLimit} onChange={(event) => update({ topn: Number(event.target.value) })}>
               {[5, 10, 20].map((value) => <option value={value} key={value}>Top {value}</option>)}
             </select>
           </label>
-          <label className="field token-search">{t('adminSearch')}<input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t('tokenSearch')} /></label>
+          <label className="field token-search">{t('adminSearch')}<input value={q} onChange={(event) => update({ q: event.target.value })} placeholder={t('tokenSearch')} /></label>
         </div>
       </section>
 
@@ -1044,17 +1046,17 @@ export function TokenUsageView({
         <div className="token-table-head">
           <SectionTitle title={t('tokenKeys')} count={filteredRows.length} />
           <div className="token-table-actions">
-            <button className={kind === 'all' ? 'on' : ''} type="button" onClick={() => setKind('all')}>全部</button>
-            <button className={kind === 'personal' ? 'on' : ''} type="button" onClick={() => setKind('personal')}>只看个人</button>
-            <button className={kind === 'dapp' ? 'on' : ''} type="button" onClick={() => setKind('dapp')}>只看 Dapp</button>
-            <label><input type="checkbox" checked={hideZero} onChange={(event) => setHideZero(event.target.checked)} /> 隐藏 0 消耗</label>
+            <button className={kind === 'all' ? 'on' : ''} type="button" onClick={() => update({ kind: 'all' })}>全部</button>
+            <button className={kind === 'personal' ? 'on' : ''} type="button" onClick={() => update({ kind: 'personal' })}>只看个人</button>
+            <button className={kind === 'dapp' ? 'on' : ''} type="button" onClick={() => update({ kind: 'dapp' })}>只看 Dapp</button>
+            <label><input type="checkbox" checked={hideZero} onChange={(event) => update({ hz: event.target.checked ? '1' : '0' })} /> 隐藏 0 消耗</label>
             <button type="button" onClick={() => exportTokenRows(filteredRows)}>导出 CSV</button>
           </div>
         </div>
         {filteredRows.length ? (
           <div className="skills-wrap">
             <table className="token-table">
-              <thead><tr><th><SortButton field="token_name" sort={sort} setSort={setSort}>{t('tokenKeyName')}</SortButton></th><th><SortButton field="kind" sort={sort} setSort={setSort}>{t('tokenKind')}</SortButton></th><th><SortButton field="owner" sort={sort} setSort={setSort}>{t('tokenOwner')}</SortButton></th><th className="num"><SortButton field="quota" sort={sort} setSort={setSort}>消耗金额</SortButton></th><th className="num"><SortButton field="request_count" sort={sort} setSort={setSort}>{t('tokenRequests')}</SortButton></th><th>{t('tokenTopModel')}</th><th><SortButton field="remain_quota" sort={sort} setSort={setSort}>{t('tokenRemain')}</SortButton></th><th>{t('trend')}</th><th><SortButton field="risk" sort={sort} setSort={setSort}>{t('tokenStatus')}</SortButton></th><th><SortButton field="last_used_at" sort={sort} setSort={setSort}>{t('tokenLastUsed')}</SortButton></th></tr></thead>
+              <thead><tr><th><SortButton field="token_name" sort={sort} setSort={updateSort}>{t('tokenKeyName')}</SortButton></th><th><SortButton field="kind" sort={sort} setSort={updateSort}>{t('tokenKind')}</SortButton></th><th><SortButton field="owner" sort={sort} setSort={updateSort}>{t('tokenOwner')}</SortButton></th><th className="num"><SortButton field="quota" sort={sort} setSort={updateSort}>消耗金额</SortButton></th><th className="num"><SortButton field="request_count" sort={sort} setSort={updateSort}>{t('tokenRequests')}</SortButton></th><th>{t('tokenTopModel')}</th><th><SortButton field="remain_quota" sort={sort} setSort={updateSort}>{t('tokenRemain')}</SortButton></th><th>{t('trend')}</th><th><SortButton field="risk" sort={sort} setSort={updateSort}>{t('tokenStatus')}</SortButton></th><th><SortButton field="last_used_at" sort={sort} setSort={updateSort}>{t('tokenLastUsed')}</SortButton></th></tr></thead>
               <tbody>
                 {filteredRows.map((row) => (
                   <tr key={row.token_id} className={activeSelectedTokenId === row.token_id ? 'selected' : ''} onClick={() => setSelectedTokenId(row.token_id)}>

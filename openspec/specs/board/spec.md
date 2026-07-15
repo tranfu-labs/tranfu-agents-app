@@ -537,3 +537,21 @@
 - catalog 为 `openspec-driven-development` 返回 `display_name=OpenSpec-Driven Development`、`display_name_zh=OpenSpec 驱动开发` 时，中文界面显示中文名、英文界面显示英文名，但 URL 和 API identity 仍使用 slug。
 - 英文名缺失时英文界面回退中文名；两者均缺失时回退 slug，页面与操作仍可用。
 - 以 slug、英文名或中文名搜索同一 Skill 均命中；显示名冲突时返回所有匹配 Skill，选择与操作仍按 slug 区分。
+
+## Token Usage 页面 URL 状态（2026-07-15）
+
+- `/token-usage` 的时间范围、图表粒度、KEY 类型、模型、风险状态、Top N、搜索、隐藏零消耗与表格排序由 URL query 驱动，不得只保存在 React 组件 state 或浏览器持久化存储。
+- URL 参数固定为 `w/wstart/wend/g/kind/model/risk/topn/q/hz/sort/dir`。筛选变化使用 replace，并沿用 `/skills` 的默认值省略语义，不得因初次渲染强制写入无关默认参数。
+- 无 query 时保持 `today/hour/全部类型/全部模型/全部风险/Top 10/不隐藏零消耗/quota desc` 默认语义。
+- 刷新、复制链接、在新标签打开或浏览器历史导航到含 query 的 `/token-usage` 时，页面从 URL 恢复全部可见筛选与排序。
+- `w=custom` 时 `wstart/wend` 使用 Unix 秒并允许逐项保留；只有两端均为有效范围时才驱动新的 API 时间查询，半填写不得形成错误请求或清除已填写值。
+- `w/wstart/wend/g` 映射到 `/api/token-usage` 的 `start_timestamp/end_timestamp/time_granularity`；其它筛选与排序只影响当前 payload 的前端派生，不改变 API 时间范围。
+- 顶部 KEY 类型控件和明细区快捷类型按钮读写同一 `kind` 参数；隐藏零消耗使用 `hz`；可排序表头使用 `sort/dir`。
+- 详情抽屉、选中 KEY 与忽略风险属于临时页面状态，不写入 URL、localStorage 或 sessionStorage。
+
+### Token Usage URL 可验证行为
+
+- 打开 `/token-usage` 时页面按默认语义展示，URL 无需自动变成长参数链接。
+- 打开 `/token-usage?w=30d&g=day&kind=dapp&model=gpt-5.5&q=alice&risk=high_error&topn=20&hz=1&sort=request_count&dir=asc` 时，对应控件、图表、排行与表格排序恢复。
+- 自定义开始时间写入后 URL 保留 `w=custom&wstart=...`；补齐 `wend` 后 API 请求使用两端原值。
+- 从含筛选 query 的 Token Usage URL 刷新、复制到新标签或从其它页面后退返回时，筛选结果不得回到组件默认值。

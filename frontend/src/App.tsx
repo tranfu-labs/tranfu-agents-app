@@ -9,6 +9,7 @@ import { useSkillQueryState } from './lib/skillQuery'
 import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
 import { applyTheme, getBrowserPrefersDark, getBrowserThemeStorage, readStoredThemeMode, resolveTheme, writeStoredThemeMode, type ThemeMode } from './lib/theme'
 import { initialTokenUsageQuery } from './lib/tokenUsageRange'
+import { resolveTokenUsageApiQuery, useTokenUsageQueryState } from './lib/tokenUsageQuery'
 import type { Lang } from './lib/types'
 import type { StatePayload } from './lib/types'
 import { clueApiSearch, legacyEvidenceCluePath, type SkillsClueKind } from './lib/skillsEvidence'
@@ -89,9 +90,15 @@ function OperatorDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => stri
 }
 
 function TokenUsageRoute({ t }: { t: (key: string) => string }) {
-  const [query, setQuery] = useState(initialTokenUsageQuery)
-  const usage = useTokenUsage(true, query)
-  return <TokenUsageView data={usage.data} loading={usage.loading} error={usage.error} query={query} setQuery={setQuery} refresh={usage.refresh} t={t} />
+  const [params, setParams] = useTokenUsageQueryState()
+  const { g, w, wend, wstart } = params
+  const query = useMemo(
+    () => resolveTokenUsageApiQuery({ g, w, wend, wstart }),
+    [g, w, wend, wstart],
+  )
+  const fallbackQuery = useMemo(() => initialTokenUsageQuery(), [])
+  const usage = useTokenUsage(query !== null, query || fallbackQuery)
+  return <TokenUsageView data={usage.data} loading={usage.loading} error={usage.error} query={query || fallbackQuery} params={params} setParams={setParams} refresh={usage.refresh} t={t} />
 }
 
 function RouteLoading({ t }: { t: (key: string) => string }) {
