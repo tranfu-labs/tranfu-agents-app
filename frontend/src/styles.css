@@ -316,6 +316,7 @@
   .token-toolbar{align-items:flex-end}
   .token-toolbar .field{flex:0 0 auto;white-space:nowrap}
   .token-toolbar .field select{min-width:120px}
+  .token-range-warning{padding:9px 16px;border-top:1px solid color-mix(in srgb,var(--wait) 35%,var(--line));color:var(--wait);background:color-mix(in srgb,var(--wait) 8%,var(--elev2));font-size:12px}
   .token-search{flex:1 1 360px;min-width:300px}
   .token-search input{width:100%;min-width:0}
   .token-datetime input{min-width:180px}

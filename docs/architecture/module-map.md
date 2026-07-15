@@ -47,14 +47,15 @@ agent 机器                         中心服务器(单容器)                 
   缺失 `first_seen` 时按服务端统计 `day` 显示今天/昨天/星期/MM-DD/YYYY-MM-DD,hover 保留原始日期)且不呈现可点态;
   `/admin` 里的具体 ISO 时间戳也按浏览器本地绝对时间显示,date-only 统计字段保持服务端 `Asia/Shanghai` 日期语义;旧 `lens` search param 保留 no-op,
   未收录使用占比由过去 W 变化、问题线索与待处理线索呈现;
-  暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS search params。
-  `/agents`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并请求各自 API。
+  `/token-usage` 独立读取 `/api/token-usage`，以 `w/wstart/wend/g/kind/model/risk/topn/q/hz/sort/dir` 保存全部可见筛选与排序，变化使用 replace，临时 KEY 抽屉/忽略状态不持久化；
+  暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS/Token Usage search params。
+  `/agents`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并请求各自 API。
   SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
-  `/agents`、`/agent/:key`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
-  `/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
+  `/agents`、`/agent/:key`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
+  `/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/token-usage`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
 - **上游**:M1 的 `/api/state/stream`、`/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;状态流与 `/api/state` 取不到时退回内置演示数据,
-  SKILLS 接口取不到时显示错误/空态。
+  SKILLS 接口取不到时显示错误/空态；`/api/token-usage` 只读外部分发平台数据，不进入 Agent 遥测数据模型。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
   独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。

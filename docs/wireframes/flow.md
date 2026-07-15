@@ -4,11 +4,11 @@
 > 按用户流程分节，每节一张字符流程图 + 一张步骤表。规则见 [AGENTS.md](AGENTS.md)「流转图」一节，画法见 [legend.md](legend.md)。
 > 节点=真实页面（实线框，内部一行指向其 `pages/<page>.md`），可跨流程复现；同页态变化用虚线框 `┄┊` 节点，不伪造成新页面。
 > 编号与步骤表一一对应、无孤儿编号。本图是流程图、不是视口，不套比例尺、不分断点。
-> 路由来源：`frontend/src/App.tsx`（含 `/admin` 直链后台 Route）+ `frontend/src/components/TopBar.tsx`（顶栏三标签全局导航）。
+> 路由来源：`frontend/src/App.tsx`（含 `/admin` 直链后台 Route）+ `frontend/src/components/TopBar.tsx`（顶栏四标签全局导航）。
 
 ## 顶部导航全局切换
 
-顶栏三标签在任意页面常驻，互相直达；`*` 兜底路由回落 Pods 看板。
+顶栏四标签在任意页面常驻，互相直达；`*` 兜底路由回落 Pods 看板。
 
 ```
                   ┌─ Pods 看板 / ─────┐
@@ -17,6 +17,9 @@
 ┌─ Agents 列表 /agents ─┐  ── ② ─▶  ┌─ SKILLS 统计 /skills ─┐
 │ → pages/agents.md     │ ◀──────   │ → pages/skills.md     │
 └───────────────────────┘           └───────────────────────┘
+任意页顶栏 ── ④ ─▶ ┌─ Token Usage /token-usage ─┐
+                    │ → pages/token-usage.md     │
+                    └────────────────────────────┘
 ```
 
 | 步 | 从 | 到 | 触发 |
@@ -24,6 +27,25 @@
 | ① | 任意页顶栏 | Pods 看板 `/` | 点标签「Pods」（或未知路径 `*` 兜底） |
 | ② | 任意页顶栏 | Agents `/agents`、SKILLS `/skills` | 点对应标签 |
 | ③ | 任意页顶栏 | 回 Pods 看板 | 点标签「Pods」 |
+| ④ | 任意页顶栏 | Token Usage `/token-usage` | 点标签「Token 用量」 |
+
+## Token Usage 筛选与详情
+
+```
+┌─ Token Usage /token-usage ─┐ ① 改筛选/排序  ┌┄ 同页 query 状态 ┄┐
+│ → pages/token-usage.md     │ ─────────────▶ ┊ URL replace       ┊
+│                            │ ◀───────────── ┊ 图表/表格原地重筛 ┊
+│                            │ ② 点 KEY 行     └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+│                            │ ─────────────▶ ┌┄ KEY 详情抽屉 ┄┐
+│                            │ ◀── ③ 关闭 ─── ┊ 临时同页状态  ┊
+└────────────────────────────┘                └┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+```
+
+| 步 | 从 | 到 | 触发 |
+|---|---|---|---|
+| ① | Token Usage `/token-usage` | 同页（query 变化） | 改时间、粒度、类型、模型、风险、Top N、搜索、隐藏零消耗或排序；replace 写 URL |
+| ② | Token Usage | KEY 详情抽屉（同页） | 点 KEY 明细行；不写 URL |
+| ③ | KEY 详情抽屉 | Token Usage 同页 | 点关闭按钮或 backdrop |
 
 ## 看板巡检 → Agent 详情
 
