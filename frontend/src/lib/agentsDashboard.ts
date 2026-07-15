@@ -134,6 +134,20 @@ export function agentFiltersQuery(filters: AgentFilters) {
   return query ? `?${query}` : ''
 }
 
+export function agentsApiQuery(filters: AgentFilters) {
+  if (filters.w === 'custom' && (!filters.wstart || !filters.wend)) return null
+  return agentFiltersQuery(filters).replace(/^\?/, '') || 'w=today'
+}
+
+export type AgentsRoutePhase = 'pending-window' | 'skeleton' | 'error' | 'data'
+
+export function resolveAgentsRoutePhase(query: string | null, hasData: boolean, loading: boolean, error: string): AgentsRoutePhase {
+  if (query === null) return 'pending-window'
+  if (error && !loading) return 'error'
+  if (!hasData) return 'skeleton'
+  return 'data'
+}
+
 function shiftDay(day: string, offset: number) {
   const date = new Date(`${day}T00:00:00Z`)
   if (Number.isNaN(date.getTime())) return day

@@ -1,4 +1,4 @@
-"""board 域(看板与计算):/api/state /api/skills /api/skill /api/operator /api/agent
+"""board 域(看板与计算):/api/state /api/agents /api/skills /api/skill /api/operator /api/agent
 (对应 openspec/specs/board/spec.md)。
 
 _state_cache 与 _state_cache_lock 是模块状态,留在本模块定义;server/app.py 通过
@@ -296,6 +296,271 @@ def _agent_overview(cards, latest_shim):
         ],
         "runtime": _agent_group_stats(cards, "runtime"),
         "operator": _agent_group_stats(cards, "operator"),
+    }
+
+
+_AGENT_STATUS_FILTERS = {"all", "live", "attention", "idle", "done"}
+_AGENT_SIGNAL_FILTERS = {"", "error", "shim", "quiet", "quality"}
+_AGENT_SORTS = {"recent", "window_time", "window_days", "success", "errors", "name"}
+
+
+def _agent_identity(card):
+    return f"{card.get('operator') or ''}::{card.get('agent') or card.get('runtime') or ''}"
+
+
+def _agent_display_labels(cards):
+    groups = {}
+    for card in cards:
+        name = str(card.get("agent") or "").strip() or "Agent"
+        groups.setdefault(name, []).append(card)
+    labels = {}
+    for name, group in groups.items():
+        ordered = sorted(group, key=_agent_identity)
+        for index, card in enumerate(ordered, start=1):
+            labels[_agent_identity(card)] = f"{name} · {index}" if len(ordered) > 1 else name
+    return labels
+
+
+def _agent_issue_signals(card, latest_shim):
+    signals = []
+    quality = card.get("quality") or {}
+    if (card.get("status") in {"error", "blocked"}
+            or int(quality.get("error") or 0) > 0
+            or int(quality.get("blocked") or 0) > 0):
+        signals.append("error")
+    version = card.get("shim_version")
+    if not version or (latest_shim and version != latest_shim):
+        signals.append("shim")
+    recent = (card.get("active_days") or [])[-14:]
+    if card.get("status") not in LIVE_ST and len(recent) >= 14 and not any(int(value or 0) for value in recent):
+        signals.append("quiet")
+    runs = int(quality.get("runs") or 0)
+    success = int(quality.get("success") or 0)
+    if runs >= 3 and success / runs < 0.8:
+        signals.append("quality")
+    return signals
+
+
+def _agent_days(start, end):
+    return [(start + timedelta(days=index)).isoformat() for index in range((end - start).days + 1)]
+
+
+def _agents_window(w=None, wstart=None, wend=None):
+    today = stats_today()
+    key = str(w or "today").strip()
+    if key == "today":
+        start = end = today
+    elif key == "this_week":
+        start, end = today - timedelta(days=today.weekday()), today
+    elif key == "last_week":
+        end = today - timedelta(days=today.weekday() + 1)
+        start = end - timedelta(days=6)
+    elif key in {"7d", "14d", "30d", "90d"}:
+        start, end = today - timedelta(days=int(key[:-1]) - 1), today
+    elif key == "custom":
+        if wstart is None or wend is None:
+            raise HTTPException(400, "custom window requires wstart and wend")
+        try:
+            start = datetime.fromtimestamp(int(wstart), tz=STATS_TZ).date()
+            end = datetime.fromtimestamp(int(wend), tz=STATS_TZ).date()
+        except (ValueError, TypeError, OverflowError, OSError) as exc:
+            raise HTTPException(400, "wstart and wend must be Unix seconds") from exc
+        if end < start:
+            raise HTTPException(400, "custom window end must not be before start")
+        if (end - start).days + 1 > WINDOW_DAYS:
+            raise HTTPException(400, f"custom window must not exceed {WINDOW_DAYS} days")
+        earliest = today - timedelta(days=WINDOW_DAYS - 1)
+        if start < earliest:
+            raise HTTPException(400, f"custom window must start on or after {earliest.isoformat()}")
+    else:
+        raise HTTPException(400, "w must be one of today,this_week,last_week,7d,14d,30d,90d,custom")
+
+    days = _agent_days(start, end)
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=len(days) - 1)
+    return {
+        "key": key,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days": days,
+        "previous_start": previous_start.isoformat(),
+        "previous_end": previous_end.isoformat(),
+        "previous_days": _agent_days(previous_start, previous_end),
+    }
+
+
+def _agent_series(card, overview_days):
+    series = card.get("active_days") or card.get("active_series") or []
+    offset = len(overview_days) - len(series)
+    return {
+        overview_days[index + offset]: int(value or 0)
+        for index, value in enumerate(series)
+        if 0 <= index + offset < len(overview_days)
+    }
+
+
+def _agent_window_values(card, overview_days, selected_days):
+    series = _agent_series(card, overview_days)
+    values = [int(series.get(day) or 0) for day in selected_days]
+    return sum(values), sum(1 for value in values if value > 0)
+
+
+def _agent_window_stats(cards, overview_days, selected_days):
+    available = bool(overview_days) and set(selected_days).issubset(overview_days)
+    seconds = 0
+    active_agents = 0
+    for card in cards:
+        agent_seconds, _active_days = _agent_window_values(card, overview_days, selected_days)
+        seconds += agent_seconds
+        if agent_seconds > 0:
+            active_agents += 1
+    return {"active_agents": active_agents, "active_seconds": seconds, "available": available}
+
+
+def _filter_agent_cards(cards, q, status, signal, latest_shim):
+    if status not in _AGENT_STATUS_FILTERS:
+        raise HTTPException(400, "status must be one of all,live,attention,idle,done")
+    if signal not in _AGENT_SIGNAL_FILTERS:
+        raise HTTPException(400, "signal must be one of error,shim,quiet,quality")
+    query = str(q or "").strip().casefold()
+    filtered = []
+    for card in cards:
+        signals = _agent_issue_signals(card, latest_shim)
+        searchable = " ".join(str(value) for value in [
+            card.get("agent"), card.get("task"), card.get("current_step"), *(card.get("models") or []),
+        ] if value).casefold()
+        if query and query not in searchable:
+            continue
+        if status == "live" and card.get("status") not in LIVE_ST:
+            continue
+        if status == "attention" and not signals:
+            continue
+        if status == "idle" and card.get("status") != "idle":
+            continue
+        if status == "done" and card.get("status") != "done":
+            continue
+        if signal and signal not in signals:
+            continue
+        filtered.append(card)
+    return filtered
+
+
+def _sort_agent_rows(rows, sort):
+    if sort in {"today", "week"}:
+        sort = "window_time" if sort == "today" else "window_days"
+    if sort not in _AGENT_SORTS:
+        raise HTTPException(400, "sort must be one of recent,window_time,window_days,success,errors,name")
+    ordered = sorted(rows, key=lambda row: row["key"])
+    ordered.sort(key=lambda row: str(row.get("last_seen") or row.get("ts") or ""), reverse=True)
+    if sort == "window_time":
+        ordered.sort(key=lambda row: int(row["active_seconds"]), reverse=True)
+    elif sort == "window_days":
+        ordered.sort(key=lambda row: int(row["active_seconds"]), reverse=True)
+        ordered.sort(key=lambda row: int(row["window_active_days"]), reverse=True)
+    elif sort == "success":
+        ordered.sort(key=lambda row: (
+            int((row.get("quality") or {}).get("success") or 0) / int((row.get("quality") or {}).get("runs") or 1)
+            if int((row.get("quality") or {}).get("runs") or 0) else -1
+        ), reverse=True)
+    elif sort == "errors":
+        ordered.sort(key=lambda row: int((row.get("quality") or {}).get("error") or 0)
+                     + int((row.get("quality") or {}).get("blocked") or 0), reverse=True)
+    elif sort == "name":
+        ordered.sort(key=lambda row: f"{row.get('agent') or row.get('runtime') or ''} {row.get('operator') or ''}")
+    return ordered
+
+
+def agents_overview_payload(cards, latest_shim, w=None, wstart=None, wend=None,
+                            q="", status="all", signal="", sort="window_time"):
+    window = _agents_window(w, wstart, wend)
+    today = stats_today()
+    overview_days = [(today - timedelta(days=index)).isoformat()
+                     for index in range(WINDOW_DAYS - 1, -1, -1)]
+    filtered = _filter_agent_cards(cards, q, status, signal, latest_shim)
+    rows = []
+    for card in filtered:
+        active_seconds, active_days = _agent_window_values(card, overview_days, window["days"])
+        rows.append({
+            **card,
+            "key": _agent_identity(card),
+            "operator": card.get("operator") or "",
+            "agent": card.get("agent"),
+            "runtime": card.get("runtime") or "",
+            "active_seconds": active_seconds,
+            "window_active_days": active_days,
+            "signals": _agent_issue_signals(card, latest_shim),
+        })
+    rows = _sort_agent_rows(rows, sort)
+
+    ranking = []
+    for index, row in enumerate(sorted(
+            (item for item in rows if int(item["active_seconds"]) > 0),
+            key=lambda item: (-int(item["active_seconds"]), item["key"])), start=1):
+        ranking.append({
+            "rank": index,
+            "key": row["key"],
+            "operator": row["operator"],
+            "agent": row.get("agent"),
+            "runtime": row["runtime"],
+            "status": row.get("status"),
+            "last_seen": row.get("last_seen") or row.get("ts"),
+            "active_seconds": int(row["active_seconds"]),
+            "active_days": int(row["window_active_days"]),
+        })
+
+    daily = []
+    for day in window["days"]:
+        segments = []
+        for row in rows:
+            seconds = int(_agent_series(row, overview_days).get(day) or 0)
+            if seconds <= 0:
+                continue
+            segments.append({
+                "key": row["key"],
+                "operator": row["operator"],
+                "agent": row.get("agent"),
+                "runtime": row["runtime"],
+                "active_agents": 1,
+                "active_seconds": seconds,
+            })
+        segments.sort(key=lambda item: (-item["active_seconds"], item["key"]))
+        daily.append({
+            "day": day,
+            "active_agents": len(segments),
+            "active_seconds": sum(item["active_seconds"] for item in segments),
+            "segments": segments,
+        })
+
+    current = _agent_window_stats(filtered, overview_days, window["days"])
+    previous = _agent_window_stats(filtered, overview_days, window["previous_days"])
+    overview_summary = _agent_overview(filtered, latest_shim)["summary"]
+    signal_counts = {
+        name: sum(1 for row in rows if name in row["signals"])
+        for name in ("error", "shim", "quiet", "quality")
+    }
+    attention = sum(1 for row in rows if row["signals"])
+    summary = {
+        **overview_summary,
+        "total_agents": len(filtered),
+        "active_agents": current["active_agents"],
+        "active_seconds": current["active_seconds"],
+        "average_active_seconds": (
+            round(current["active_seconds"] / current["active_agents"])
+            if current["active_agents"] else 0
+        ),
+        "attention": attention,
+    }
+    return {
+        "today": today.isoformat(),
+        "window": window,
+        "summary": summary,
+        "comparison": {"current": current, "previous": previous},
+        "daily": daily,
+        "ranking": ranking,
+        "agents": rows,
+        "signals": signal_counts,
+        "agent_labels": _agent_display_labels(cards),
+        "shim": {"version": latest_shim},
     }
 
 
@@ -1666,6 +1931,19 @@ async def state_stream(request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/api/agents")
+async def agents_stats(w: str = "today", wstart: str | None = Query(None), wend: str | None = Query(None),
+                       q: str = "", status: str = "all", signal: str = "", sort: str = "window_time"):
+    def compute():
+        snapshot = _state_compute_or_cache()
+        return agents_overview_payload(
+            snapshot["sessions"], (snapshot.get("shim") or {}).get("version"),
+            w, wstart, wend, q, status, signal, sort,
+        )
+
+    return JSONResponse(await run_in_threadpool(compute))
 
 
 @router.get("/api/skills")

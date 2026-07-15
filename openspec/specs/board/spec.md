@@ -1,6 +1,6 @@
 # 规格:board(看板与计算域)
 
-事实来源:`server/routes/board.py`(`/api/state` / `/api/skills` / `/api/skill` / `/api/operator` / `/api/agent` 端点 + `_snapshot` / `metrics` / `leverage` / `skill_usage` / `skills_overview` / `*_payload` / `_state_compute_or_cache`)、`server/profile.py`(`load_profiles` / `load_shim_versions` / `reuse_map`)、共用模块 `server/db.py`、`server/catalog.py`(skill 来源标记)、以及 `frontend/` React 看板。缓存状态 `_state_cache` / `_state_cache_lock` 由 `server/routes/board.py` 持有,`server/app.py` re-export 给测试 monkeypatch。
+事实来源:`server/routes/board.py`(`/api/state` / `/api/agents` / `/api/skills` / `/api/skill` / `/api/operator` / `/api/agent` 端点 + `_snapshot` / `metrics` / `leverage` / `skill_usage` / `skills_overview` / `agents_overview_payload` / `*_payload` / `_state_compute_or_cache`)、`server/profile.py`(`load_profiles` / `load_shim_versions` / `reuse_map`)、共用模块 `server/db.py`、`server/catalog.py`(skill 来源标记)、以及 `frontend/` React 看板。缓存状态 `_state_cache` / `_state_cache_lock` 由 `server/routes/board.py` 持有,`server/app.py` re-export 给测试 monkeypatch。
 
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
@@ -9,6 +9,14 @@
 - `GET /api/state/stream` → `text/event-stream`。连接建立后先发送一条 `event: state` 完整快照,
   payload 与 `/api/state` 同结构;后续由写侧 dirty 标记触发合并推送,长时间无业务事件时发送 SSE comment keepalive。
   SSE 失败不得影响 `/api/state` 普通 HTTP 请求。
+- `GET /api/agents?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=&q=&status=&signal=&sort=]` →
+  `{ today, window, summary, comparison, daily, ranking, agents, signals, agent_labels, shim }`。`w=custom` 的
+  `wstart/wend` 为 Unix 秒，按 `Asia/Shanghai` 映射统计日；两端必填、起日不得晚于止日、含首尾最多 90 天，
+  起点不得早于当前 90 天可用序列；终点可延伸到未来，未来统计日按当前时点返回 0 且 `comparison.current.available=false`。非法时间戳或范围返回 `400`。`q` 只匹配 Agent 名、任务、当前步骤和 model；
+  `status` 支持 `all/live/attention/idle/done`；`signal` 支持 `error/shim/quiet/quality`；`sort` 支持
+  `recent/window_time/window_days/success/errors/name`，非法值返回 `400`。时长单位为秒；`ranking[]` 排除零时长，
+  固定按 `active_seconds DESC, key ASC` 排序。`ranking[]`、`agents[]` 和 `daily[].segments[]` 均显式返回
+  `key/operator/agent/runtime`，供调用方直接组装 Agent 与操作员展示信息。
 - `GET /api/skills?days={7|30|90}` 或 `GET /api/skills?w={today|this_week|last_week|7d|14d|30d|90d|custom}[&wstart=&wend=&rt=&src=&scope=all|new]` →
   `{ today, window, daily[], table[], operator_daily[], operator_table[], governance, period_comparison?, attribution?, funnel, published_skills?, catalog }`(SKILLS 总览;
   `today` 为服务端统计时区 `Asia/Shanghai` 当日;`window` 显式返回本期/上期起止日;`days` 为旧兼容参数,`w` 为新版仪表盘时间窗;两者影响 daily/operator_daily、
@@ -127,7 +135,7 @@
   adaptive polling,取不到时退回内置演示数据并显示"未连接服务端"。
   fallback polling 首次加载立即请求;页面可见且 `totals.live > 0` 时约 3 秒刷新;页面可见且 `totals.live == 0`
   时约 15 秒刷新;页面隐藏时暂停或降到约 60 秒刷新;任一时刻不得并发叠加多个 `/api/state` 请求。
-  TopBar、Pods、Agents 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询。
+  TopBar、Pods 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询；Agents 页面主体独立读取 `/api/agents`,但不得因此另建 `/api/state` 轮询。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
@@ -141,8 +149,8 @@
   逐日铺满;旧 `days` 兼容窗口等价于以服务端 `today` 为右端的最近 N 天。每一天占一个槽位,有 used 数据才长堆叠柱,
   无数据留空槽;只有 `window.end == today` 的最后一列标记"今日进行中"。前端取窗口内使用量 Top N(`topn`,默认 8)分色,
   其余合并为"其它"段;窗口选择器不含"全部"档。
-- `/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
-  并行请求 SKILLS API。Pods、Agents 与 AgentDetail 仍复用 `/api/state` gate。SKILLS GET 请求层必须按完整 URL 做 in-flight 去重和 ETag revalidate;
+- `/agents`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/skill/:name` 与 `/operator/:name` 不得被全局 `/api/state` 首包阻塞;这些路由必须先挂载自身 loading/skeleton,
+  并请求各自 API。Pods 与 AgentDetail 仍复用 `/api/state` gate；Agents 使用 `/api/agents`。SKILLS GET 请求层必须按完整 URL 做 in-flight 去重和 ETag revalidate;
   可把同 URL 已校验 payload 作为返回页/刷新过渡态先展示,但后台仍必须向服务端校验,不得用前端 TTL 命中跳过请求。刷新或筛选切换时优先保留旧列表并用 refreshing/loading 状态表达后台刷新中,
   不得把旧数据伪装成已完成刷新结果。
 - SKILLS 总览采用证据导向仪表盘结构:控制条 → 当前时间窗变化(8 格,标题由时间窗 i18n label 派生,每格可追证据) → 问题线索(5 项) →
@@ -460,9 +468,9 @@
 
 - `/api/state` 与 `/api/state/stream` 顶层可返回 `agent_overview`。对象包含 `today`、90 天 `days[]`、`summary`、`daily[]`、`runtime[]`、`operator[]`；日期为服务端 `Asia/Shanghai` 统计日，时长为秒。
 - `agent_overview` 的聚合以最终身份卡片为单位，遵守 `operator + agent||runtime` 合并规则；`summary` 的 runs/success/errors/blocked 沿用 Agent card 的 quality 口径。现有 state 字段保持兼容，缺失 `agent_overview` 时前端由 sessions 降级构建。
-- `/agents` 的统计集合为当前搜索、状态与问题线索范围内的全部 Agent 身份卡片，统计对象固定为 Agent，主指标固定为所选窗口运行时长。桌面/平板信息流为控制条 → 单一八卡时间窗变化/快照 → 问题线索 → Agent 运行时长排行与趋势 → Agent 明细；变化使用 replace，不得使用浏览器存储。
+- `/agents` 独立请求 `/api/agents`，不得等待全局 `/api/state` 首包后才挂载；首次加载和 query 变化期间先显示与信息架构对应的 skeleton，失败显示可重试错误态且不得在新 URL 下保留旧统计。custom 半填写态保留真实控制条及日期输入，只 skeleton 数据区。统计集合为当前搜索、状态与问题线索范围内的全部 Agent 身份卡片，`summary.total_agents` 也使用该过滤集合；统计对象固定为 Agent，主指标固定为所选窗口运行时长。桌面/平板信息流为控制条 → 单一八卡时间窗变化/快照 → 问题线索 → Agent 运行时长排行与趋势 → Agent 明细；变化使用 replace，不得使用浏览器存储。
 - 问题线索至少包含当前异常/阻塞、Shim outdated/unknown、最近 14 天无活跃、至少 3 runs 且成功率低于 80%；线索是事实提示，不作为评分或成本指标。
-- Agent 明细为可扫描的响应式表格，保留 Agent 身份、当前状态、任务/步骤、当前选择窗口的活跃时长与活跃天数、累计质量、Skill、MCP、Shim 和最近活跃；不得显示操作员或运行终端列。整行键盘可达并进入 `/agent/:key`。桌面显示完整列，平板只允许表格容器内部横滚，手机以同一语义表格行压缩为摘要，不得造成页面根横向滚动。
+- Agent 明细为可扫描的响应式表格，保留 Agent 身份、当前状态、任务/步骤、操作员、当前选择窗口的活跃时长与活跃天数、累计质量、Skill、MCP、Shim 和最近活跃；必须显示操作员列，不得显示运行终端列。整行键盘可达并进入 `/agent/:key`。桌面显示完整列，平板只允许表格容器内部横滚，手机以含操作员的同一语义表格行压缩为摘要，不得造成页面根横向滚动。
 - `/agents` 支持中英文、system/light/dark 主题和 `>1080px` 桌面、`601–1080px` 平板、`≤600px` 手机布局；新增 Agents 前端状态不得持久化。
 
 ### Agents 控制条与八卡事实区
@@ -486,9 +494,9 @@
 - 图表指标固定为 `active_seconds`，不得提供“活跃 Agent｜活跃时长”指标切换。多日窗口按 Agent 逐日堆叠，当前窗口按运行时长取 Top 8 Agent，其余聚合为“其他”；每天全部分段之和必须等于该日总运行时长。
 - 多日图沿用同等级轴线、220px viewBox、日期抽样、今日斜纹与 hover 降权；逐日透明 hit rect 覆盖整日槽。tooltip 锚定日期槽并在视口边缘翻转，显示各 Agent 运行时长，并同时保留该日活跃 Agent 总数和活跃总时长；只有窗口右端等于服务端 `today` 时标记“今日进行中”。
 - 日期槽支持 pointer hover/click 与键盘 focus，并使用 roving `tabIndex` 使整图只有一个顺序 Tab 停靠点；左右方向键切换日期，Escape/blur 关闭。移动端点击列显示浮层，点击空白或横向滚动关闭。窗口变化时关闭旧 tooltip，并把唯一停靠点与滚动位置同步重置到最后一个非零运行时长日期。
-- current/previous 时间窗只有每个统计日都存在于 overview 日序列时才可展示或参与环比；custom 部分落在可用序列之外时视为不可用，不得把缺失日期静默按 0 聚合。
+- current/previous 时间窗只有完整落在服务端 90 天已发生日序列内才可展示或参与环比；custom 起点早于保留期时接口返回 `400`。终点延伸到未来时，未来统计日按当前时点明确返回 0、summary/ranking 保留截至当前事实值，但 `comparison.current.available=false`，不得与完整窗口环比或与已被清理的历史缺失混淆。
 - 单日窗口只有一个真实统计日：有正时长时按 Agent 显示 Top 8 + 其他的环形扇形图，圆环中心显示全部 Agent 总运行时长，图上方直显当日 Agent 数与时长；颜色、图例、hover/focus 降权、tooltip 与主题变量必须和多日柱状图同构；不得伪造小时数据。全窗时长为 0 时只显示 Empty，不绘制空圆环、坐标轴、日期或零高度柱。
-- Agent 明细表与趋势使用同一组经过 `q/status/signal` 筛选的 Agent，并按 `w/wstart/wend` 从身份卡片 `active_days` 重算窗口活跃时长和活跃天数。排序支持最近活跃、窗口活跃时长、窗口活跃天数、累计成功率、累计错误数和名称；旧 URL 的 `sort=today|week` 分别兼容映射到窗口活跃时长/窗口活跃天数。质量必须明确标为累计口径，不得伪装成窗口统计。
+- Agent 明细表与趋势使用 `/api/agents` 返回的同一组经过 `q/status/signal` 筛选的 Agent 和同一 `w/wstart/wend` 窗口统计，不得在浏览器另算另一套集合。排序支持最近活跃、窗口活跃时长、窗口活跃天数、累计成功率、累计错误数和名称；旧 URL 的 `sort=today|week` 分别兼容映射到窗口活跃时长/窗口活跃天数。质量必须明确标为累计口径，不得伪装成窗口统计。
 - 统计基数继续使用按 `operator + agent||runtime` 合并后的身份卡片，不得退化为按 session 展示或计数；同名 Agent 身份不得跨身份合并时长，必要时以稳定后缀区分显示。
 
 ### Agents 手机优先级
@@ -498,6 +506,9 @@
 
 ### Agents 可验证行为
 
+- `GET /api/agents?w=7d` 的 `window.days` 恰为最近 7 个上海统计日，`ranking[0]` 是该窗口正时长最大的 Agent；custom 参数缺失、倒序、91 天或起点早于可用 90 天序列均返回 `400`。终点晚于 `today` 时未来日期保留在 `window.days/daily` 中且当前值为 0。
+- 同一 Agent identity 跨多个 session 时，`ranking/agents/summary` 只计一个 Agent；同名不同 identity 分开返回且时长不合并。`ranking[]` 与 `agents[]` 都必须带 `operator`。
+- 人为延迟 `/api/agents` 后刷新 `/agents`，页面立即显示 skeleton，不被 `/api/state` 是否返回所阻塞。
 - 固定数据库数据后，`/api/state.agent_overview.daily` 长度为 90，日期递增且最后一天等于服务端 `today`；身份跨多个 session 时只在 summary、Runtime、operator 和 daily 中计为一个 Agent。
 - `/agents?status=attention&signal=quality` 只显示满足筛选条件的明细行；刷新/复制链接保持筛选，清空筛选回到全量列表。
 - Agent 明细行点击或键盘 Enter/Space 进入对应 `/agent/:key`；无匹配 Agent 时显示空态，不渲染空表头。
