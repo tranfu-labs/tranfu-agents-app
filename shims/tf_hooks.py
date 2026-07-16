@@ -17,6 +17,7 @@ Examples:
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,23 @@ from pathlib import Path
 # still sources a file (vs inheriting env) because hooks run in a non-interactive
 # shell that does NOT read ~/.zshrc — see install.sh.
 RUNTIME_FOR_TARGET = {"claude": "claude-code", "codex": "codex"}
+
+
+def _manage_codex_guard(action, settings):
+    """Best-effort lifecycle bridge to the optional Codex LaunchAgent guard."""
+    script = Path(__file__).resolve().with_name("tf_codex_hook_guard.py")
+    if not script.exists():
+        return False
+    command = "install-launch-agent" if action == "install" else "uninstall-launch-agent"
+    args = [sys.executable, str(script), command]
+    if action == "install":
+        args += ["--hooks", str(Path(settings).expanduser())]
+    try:
+        proc = subprocess.run(args, timeout=12, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
+        return proc.returncode == 0
+    except Exception:
+        return False
 
 
 def _command(target):
@@ -347,6 +365,8 @@ def cmd_install(args):
     else:
         print(f"TRANFU {TARGETS[args.target]['label']} hooks already installed")
     print(f"settings: {args.settings}")
+    if args.target == "codex":
+        _manage_codex_guard("install", args.settings)
     return 0
 
 
@@ -362,6 +382,8 @@ def cmd_uninstall(args):
     else:
         print(f"TRANFU {TARGETS[args.target]['label']} hooks not installed")
     print(f"settings: {args.settings}")
+    if args.target == "codex":
+        _manage_codex_guard("uninstall", args.settings)
     return 0
 
 
@@ -373,6 +395,10 @@ def cmd_restore(args):
     if pre:
         print(f"current backup: {pre}")
     print(f"settings: {args.settings}")
+    if args.target == "codex":
+        cfg, _existed = _load_settings(args.settings)
+        installed = any(hook_counts(cfg, "codex").values())
+        _manage_codex_guard("install" if installed else "uninstall", args.settings)
     return 0
 
 

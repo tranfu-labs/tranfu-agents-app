@@ -2,6 +2,7 @@
 避免同机多 agent 共用 tf_env.sh 互相覆盖、把活动串到别的 agent 头上。"""
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shims"))
 
@@ -42,3 +43,23 @@ def test_idempotent_no_change_on_reinstall():
     tf_hooks.install_hooks(cfg, "claude")
     changed, actions = tf_hooks.install_hooks(cfg, "claude")   # 再装一次
     assert changed is False and actions == ["already installed"]
+
+
+def test_codex_cli_install_and_uninstall_manage_guard(tmp_path, monkeypatch):
+    settings = tmp_path / "hooks.json"
+    calls = []
+    monkeypatch.setattr(tf_hooks, "_manage_codex_guard",
+                        lambda action, path: calls.append((action, Path(path))) or True)
+
+    assert tf_hooks.main(["--target", "codex", "--settings", str(settings), "install"]) == 0
+    assert tf_hooks.main(["--target", "codex", "--settings", str(settings), "uninstall"]) == 0
+    assert calls == [("install", settings), ("uninstall", settings)]
+
+
+def test_claude_cli_does_not_manage_codex_guard(tmp_path, monkeypatch):
+    settings = tmp_path / "settings.json"
+    monkeypatch.setattr(
+        tf_hooks, "_manage_codex_guard",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    assert tf_hooks.main(["--target", "claude", "--settings", str(settings), "install"]) == 0

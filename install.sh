@@ -159,12 +159,12 @@ PY
 }
 
 if ! _install_from_manifest; then
-  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
+  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py tf_codex_hook_guard.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
     curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
   done
   rm -f ~/.tranfu/manifest.json
 fi
-chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf-hermes-hook.sh ~/.tranfu/tf-doctor
+chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_codex_hook_guard.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf-hermes-hook.sh ~/.tranfu/tf-doctor
 
 _install_openclaw_plugin() {
   mkdir -p "${HOME}/.tranfu/openclaw"

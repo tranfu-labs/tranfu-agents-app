@@ -49,7 +49,22 @@
     - 与 `~/.tranfu/logs/hook-payload.jsonl`(`TF_DEBUG_HOOK=1` 按需 raw stdin dump,
       由 ingest 域 spec 规定)互补共存:两者写入点独立、文件路径不同、守门条件不同,
       各自失败不影响对方与上报主线。
-11. 服务端根静态 icon 文件与看板 head 引用的同源主题初始化脚本 `/theme-init.js` 必须从构建后的
+11. **Codex Hook 信任健康守护**:Codex 安装必须提供 stdlib-only `tf_codex_hook_guard.py`,以 Codex
+    app-server `hooks/list` 返回的 `currentHash / trustStatus / enabled` 为运行时事实。仅当当前 handler hash
+    与 `[hooks.state]` 已持久化 trusted hash 按事件构成完整、唯一且内容不变的 group 排列时,才允许自动
+    重排 `~/.codex/hooks.json`;修复必须移动完整 group,保留 matcher、第三方字段与 group 内 handler 顺序,
+    写前生成 `*.tranfu-guard.bak.*` 备份,原子替换,写后再次确认受影响 TRANFU handler 全部
+    `trusted + enabled`,否则原子回滚。守护绝不得写 Codex trusted hash、批准新内容或用重装冒充纯换序修复;
+    新增/删除/重复/缺失/无法唯一映射的 hash 与未知结构均不得自动修改。
+    macOS Codex Hook 安装/卸载必须同步幂等安装/卸载 managed
+    `~/Library/LaunchAgents/com.tranfu.codex-hook-guard.plist`,以 `RunAtLoad`、`WatchPaths` 监听
+    `~/.codex/hooks.json` 并用 `StartInterval=300` 兜底。需要用户重新信任的异常按 fingerprint 去重通知打开
+    Codex `/hooks`;恢复健康后清除旧 fingerprint。Codex 命令不存在、`hooks/list` 不支持/超时/坏响应时只记
+    本地诊断状态,不改文件、不通知。非 macOS 静默跳过 LaunchAgent,保留手动 `check --json`。
+    `tf_selfupdate.py` 必须在远端 manifest 节流判断之前 best-effort 补齐 Codex LaunchAgent,使仍有 Hook
+    执行入口的既有安装在获得新 shim 后下一次事件自动完成守护安装;升级前已完全不执行 Hook 的旧安装没有
+    自举入口,文档必须要求重跑安装器一次(见 ADR-0024)。
+12. 服务端根静态 icon 文件与看板 head 引用的同源主题初始化脚本 `/theme-init.js` 必须从构建后的
     `frontend/dist` 根目录提供,并走白名单与路径穿越保护。
     TRANFU//AGENTS head/manifest 引用到的浏览器与 PWA icon 文件包括未版本化兼容文件与版本化实体文件;
     带点静态路径不得落入 SPA fallback。
@@ -84,3 +99,12 @@
 - 4 进程并发各写 100 条 → 文件总行数恰好 400 且每行可独立 `json.loads`(`O_APPEND` 原子性回归)。
 - 真机 Hermes 会话执行某 skill → 日志末尾出对应 `tool=="skill_view"` 行 ↔ 远端 `tf.db.skill_uses` 出对应
   `(session_id, skill)` 行,**形成端到端诊断闭环**。
+- CodeIsland 与 TRANFU 两个已信任 Codex Hook group 仅交换顺序 → 守护生成备份、重排完整 group,
+  写后 `hooks/list` 中 TRANFU 为 `trusted + enabled`,且第三方 matcher/字段/内容不变。
+- Codex Hook 出现 trusted state 中不存在的新 hash、缺失/重复 hash 或无法唯一映射 → `hooks.json` 与
+  `config.toml` 均不变,相同异常 fingerprint 只通知一次打开 `/hooks`;恢复健康后未来异常可再次通知。
+- 重排写后复查仍不健康 → 原子恢复备份,不留下半修复配置。
+- 重复安装 Codex Hook → 只有一个 managed LaunchAgent;重复 ensure 且 plist 未变、服务已加载时不得
+  bootstrap/kickstart。卸载只删除该 managed plist,不删除用户 Hook、信任记录或第三方配置。
+- 本机已有新守护但 `.selfupdate.json` 仍处于一小时节流窗口 → 下一次 Codex 自更新进程补齐 LaunchAgent,
+  且不发起新的 manifest 网络请求。
