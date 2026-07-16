@@ -81,6 +81,9 @@ agent 机器                         中心服务器(单容器)                 
     `session_end` 以 `skill_mode=equipped` 排队后台上报装备态,hook 不等待网络;只出站到 M1,不依赖 Python shim,
     不得记录 prompt 正文;
   - `tf_hooks.py` Claude Code / Codex hooks JSON 幂等安装、卸载、恢复管理器;
+  - `tf_codex_hook_guard.py` Codex 用户 Hook 信任健康守护:通过 app-server `hooks/list` 读取真实 hash/信任状态,
+    仅对完整唯一的已信任 group 纯换序做备份+原子重排+写后复查,新 hash 只去重通知用户打开 `/hooks`;
+    macOS managed LaunchAgent 监听 `~/.codex/hooks.json` 并每 300 秒兜底检查(ADR-0024);
   - `mcp/server.py` MCP reporter(桌面/黑盒,首次上报附 profile);
   - `tf_client.py` python 客户端。
 - **入口**:使用者运行(tf-run / 钩子 / MCP 工具),或 `install.sh` 安装后由各 agent 触发。
@@ -91,6 +94,7 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M4 — 安装与分发 (`install.sh` + M1 的 `/install.sh`、`/shims/manifest`、`/shims/{path}`)
 - **职责**:一键把 shim 装到 `~/.tranfu`、写 shell rc(身份/密钥)、装完自动注册一次。
+  Codex Hook 安装/卸载同时幂等安装/卸载健康守护 LaunchAgent;自更新器在远端节流判断前补齐守护。
 - **入口**:`curl -fsSL $SERVER/install.sh | bash -s -- --server .. --key .. --operator .. --runtime .. --agent .. --role ..`。
 - **上游**:管理员提供的 server/key。
 - **下游**:按 `$SERVER/shims/manifest` 全量取 shim 文件;装完调 `tf_report.py --status started --profile` 注册。

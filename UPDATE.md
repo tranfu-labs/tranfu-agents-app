@@ -113,6 +113,10 @@ sticky 保存,后续不带这字段的心跳不会清掉它。
 2. 本机要关闭自动更新 → 在 `~/.tranfu/tf_env.<runtime>.sh` 写 `export TF_AUTO_UPDATE=0`。
 3. 自动更新失败不会破坏旧文件;检查是否没有写入 `~/.tranfu` 权限、或网络无法访问 `$SERVER/shims/manifest`。
 4. 本地 `manifest.json` 版本一致但缺文件时,新版自更新器会自动补齐;补不齐通常是权限或下载失败。
+5. 新版 Codex shim 会安装 `com.tranfu.codex-hook-guard` LaunchAgent,防止其它安装器只交换 Hook group
+   顺序后所有 Hook 被误判 `modified`。守护只恢复已信任 hash 的完整唯一纯排列;真实新 hash 只通知用户
+   打开 `/hooks`,绝不写信任配置。仍能触发 Hook 的机器会在下一次自更新进程中自动补齐;
+   **升级前已经完全不执行 Hook 的机器必须重跑一次 install.sh**,因为旧自更新器已没有启动入口。
 
 ## 7. SKILLS 统计页升级注意
 

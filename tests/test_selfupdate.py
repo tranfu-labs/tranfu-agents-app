@@ -140,3 +140,29 @@ def test_lock_prevents_concurrent_updates(tmp_path, monkeypatch):
         assert tf_selfupdate._acquire_lock() is None
     finally:
         tf_selfupdate._release_lock(fd)
+
+
+def test_main_ensures_codex_guard_before_throttled_update(tmp_path, monkeypatch):
+    _use_root(tmp_path, monkeypatch)
+    monkeypatch.setenv("TF_RUNTIME", "codex")
+    monkeypatch.setenv("TF_AUTO_UPDATE", "0")
+    calls = []
+    monkeypatch.setattr(tf_selfupdate, "_ensure_codex_hook_guard",
+                        lambda: calls.append("guard") or True)
+    monkeypatch.setattr(tf_selfupdate, "update_once",
+                        lambda: calls.append("update") or False)
+
+    tf_selfupdate.main()
+
+    assert calls == ["guard", "update"]
+
+
+def test_guard_ensure_only_runs_for_codex(tmp_path, monkeypatch):
+    _use_root(tmp_path, monkeypatch)
+    script = tmp_path / "tf_codex_hook_guard.py"
+    script.write_text("# guard\n", encoding="utf-8")
+    monkeypatch.setenv("TF_RUNTIME", "claude-code")
+    monkeypatch.setattr(tf_selfupdate.subprocess, "run",
+                        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not run")))
+
+    assert tf_selfupdate._ensure_codex_hook_guard() is False

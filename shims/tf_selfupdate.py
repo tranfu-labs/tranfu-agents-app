@@ -13,6 +13,7 @@ import os
 import py_compile
 import shutil
 import subprocess
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -256,6 +257,27 @@ def _report_update(version):
         pass
 
 
+def _ensure_codex_hook_guard():
+    """Install/update the local guard even while remote update checks throttle.
+
+    The updater itself is already spawned detached by tf_hook.py, so this local
+    launchctl maintenance never blocks the host Codex turn.
+    """
+    if os.environ.get("TF_RUNTIME") != "codex":
+        return False
+    script = ROOT / "tf_codex_hook_guard.py"
+    if not script.exists():
+        return False
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "install-launch-agent"],
+            timeout=12, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 def update_once():
     if os.environ.get("TF_AUTO_UPDATE") == "0":
         return False
@@ -287,6 +309,10 @@ def update_once():
 
 
 def main():
+    try:
+        _ensure_codex_hook_guard()
+    except Exception:
+        pass
     try:
         update_once()
     except Exception:

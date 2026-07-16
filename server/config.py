@@ -32,7 +32,7 @@ _MEDIA = {".sh": "text/x-shellscript", ".py": "text/x-python",
 
 # 须以可执行位写出的 shim 文件清单(install.sh / 自更新会读)。
 _EXECUTABLE_SHIMS = {
-    "tf_client.sh", "tf_hooks.py", "tf_claude_hooks.py",
+    "tf_client.sh", "tf_hooks.py", "tf_claude_hooks.py", "tf_codex_hook_guard.py",
     "wrapper/tf-run", "wrapper/tf-hermes-hook.sh", "wrapper/tf-doctor",
 }
 

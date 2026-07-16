@@ -4,7 +4,8 @@
 不再依赖人工发事件。所有事件共用一个分发器 `~/.tranfu/tf_hook.py`。
 
 ## 前提
-已用 `install.sh` 装好 shim(`~/.tranfu/` 下有 tf_report.py / tf_profile.py / tf_hook.py / tf_hooks.py),
+已用 `install.sh` 装好 shim(`~/.tranfu/` 下有 tf_report.py / tf_profile.py / tf_hook.py / tf_hooks.py /
+tf_codex_hook_guard.py),
 且 shell rc 里已 `export TF_SERVER/TF_KEY/TF_OPERATOR/TF_RUNTIME=codex/TF_AGENT=...`。
 
 ## 安装钩子(用户级,对所有项目生效)
@@ -29,6 +30,17 @@ python3 ~/.tranfu/tf_hooks.py --target codex restore
 
 ## 验证
 重启 Codex,随便跑一步,然后刷新看板。首次运行新增 hook 时,Codex 可能要求信任该 hook;确认一次即可。
+
+macOS 安装会同时维护 `~/Library/LaunchAgents/com.tranfu.codex-hook-guard.plist`。它只在所有 handler hash
+与已信任 hash 构成完整唯一纯排列时自动调整完整 group 顺序;新内容不会被自动信任,而是系统通知用户打开
+Codex `/hooks`。检查守护与 Hook 运行时状态:
+
+```bash
+python3 ~/.tranfu/tf_codex_hook_guard.py status --json
+python3 ~/.tranfu/tf_codex_hook_guard.py check --no-notify --json
+```
+
+`tf_hooks.py --target codex uninstall` 会同时卸载 managed LaunchAgent,不删除第三方 Hook 或 Codex 信任记录。
 
 ## 取环境变量失败时
 钩子命令以 Codex 进程的环境运行。若你从终端 `codex` 启动(rc 已 source),

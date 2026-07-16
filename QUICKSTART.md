@@ -67,6 +67,19 @@ python3 ~/.tranfu/tf_hooks.py --target codex restore
 每次写入前都会生成 `*.tranfu.bak.*` 备份。安装或修复后需要重启 Claude Code / Codex
 (钩子在会话开始时快照,必须重启生效)。Codex 首次运行新增 hook 时可能会要求信任,确认一次即可。
 
+macOS Codex 安装会同时启用 `com.tranfu.codex-hook-guard` 健康守护:登录时、
+`~/.codex/hooks.json` 变化时和每 300 秒检查一次。若其它工具只交换了已信任 Hook group 的顺序,
+守护会备份后自动排回可信位置并复查;若出现新 hash、缺失或无法证明安全的变化,**不会自动信任**,
+只发一次系统通知提醒在 Codex 输入 `/hooks` 检查。可手动查看:
+
+```bash
+python3 ~/.tranfu/tf_codex_hook_guard.py check --no-notify --json
+python3 ~/.tranfu/tf_codex_hook_guard.py status --json
+```
+
+升级前 Hook 已经全部停止执行的旧机器没有自更新入口,需重跑一次第 1 步安装命令;仍能正常触发 Hook 的
+既有安装会在 shim 更新后的下一次事件自动补齐守护。
+
 事件 → 状态:`SessionStart`→started(+profile 注册)、`UserPromptSubmit`→running、
 `PreToolUse`→running(step=tool: 工具名)、`Stop`/`SessionEnd`→done。
 Claude Code 的 `Skill` 工具调用、Codex 轮末本地 transcript 扫描都会默认附带 skill 名用于团队 SKILLS 统计;
