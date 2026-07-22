@@ -587,12 +587,14 @@ function DonutChart({
   items,
   selectedLabel,
   onSelect,
+  legendLimit = 6,
 }: {
   title: string
   icon: IconName
   items: DonutItem[]
   selectedLabel?: string | null
   onSelect?: (label: string) => void
+  legendLimit?: number
 }) {
   const [tip, setTip] = useState<Tooltip | null>(null)
   useDismissTipOnScroll(setTip)
@@ -630,7 +632,7 @@ function DonutChart({
         })}
       </svg>
       <div className="token-donut-legend">
-        {items.slice(0, 6).map((item) => (
+        {items.slice(0, legendLimit).map((item) => (
           <button
             type="button"
             key={item.label}
@@ -1147,7 +1149,7 @@ export function TokenUsageView({
     filteredBaseRows
       .filter((row) => row.kind !== 'dapp')
       .forEach((row) => {
-        const label = row.username || row.owner || row.token_name || `#${row.token_id}`
+        const label = row.token_name || row.owner || row.username || `#${row.token_id}`
         const item = map.get(label) || { label, value: 0, color: COLORS[(map.size + 2) % COLORS.length], count: 0, requests: 0, errors: 0, tokenUsed: 0 }
         item.value += Number(row.quota || 0)
         item.count = Number(item.count || 0) + 1
@@ -1318,7 +1320,7 @@ export function TokenUsageView({
       <div className="split token-split">
         <section className="frame token-donut-grid">
           <DonutChart title="分组消耗占比" icon="pie" items={groupItems} selectedLabel={selectedGroupLabel} onSelect={setSelectedGroupLabel} />
-          <DonutChart title="个人消耗占比" icon="key" items={personalItems} />
+          <DonutChart title="个人消耗占比" icon="key" items={personalItems} legendLimit={8} />
           <DonutChart title="类型消耗占比" icon="pie" items={typeItems} />
           <DonutChart title={selectedRow ? '模型消耗占比 · 选中 KEY' : '模型消耗占比'} icon="model" items={modelItems} />
         </section>
