@@ -2,7 +2,7 @@ import { createLoader, createSerializer, parseAsInteger, parseAsString, useQuery
 import { makeTokenUsageRange } from './tokenUsageRange.ts'
 import type { TokenUsageQuery, TokenUsageRangeMeta } from './types.ts'
 
-export type TokenUsageKindFilter = 'all' | 'personal' | 'dapp' | 'other'
+export type TokenUsageKindFilter = 'all' | 'personal' | 'dapp'
 export type TokenUsageRiskFilter = 'all' | 'normal' | 'low_quota' | 'exhausted' | 'high_error' | 'disabled' | 'spike' | 'high_latency' | 'restricted_model'
 export type TokenUsageSortField = 'quota' | 'request_count' | 'token_name' | 'owner' | 'kind' | 'risk' | 'last_used_at' | 'remain_quota'
 export type TokenUsageSortDirection = 'asc' | 'desc'
@@ -57,7 +57,7 @@ export const serializeTokenUsageQueryState = createSerializer(queryParsers)
 
 const PRESETS = new Set(['today', 'yesterday', 'this_week', 'last_week', '7d', '14d', '30d', 'custom'])
 const GRANULARITIES = new Set<TokenUsageQuery['timeGranularity']>(['hour', 'four_hour', 'day', 'week', 'month'])
-const KINDS = new Set<TokenUsageKindFilter>(['all', 'personal', 'dapp', 'other'])
+const KINDS = new Set<TokenUsageKindFilter>(['all', 'personal', 'dapp'])
 const RISKS = new Set<TokenUsageRiskFilter>(['all', 'normal', 'low_quota', 'exhausted', 'high_error', 'disabled', 'spike', 'high_latency', 'restricted_model'])
 const TOP_LIMITS = new Set([5, 10, 20])
 const SORT_FIELDS = new Set<TokenUsageSortField>(['quota', 'request_count', 'token_name', 'owner', 'kind', 'risk', 'last_used_at', 'remain_quota'])

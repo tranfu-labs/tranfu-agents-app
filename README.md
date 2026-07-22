@@ -70,6 +70,7 @@ By default the Token Usage tab does not read your distribution platform. To show
 ```bash
 TF_TOKEN_USAGE_BASE_URL=https://api.tranfu.com
 TF_TOKEN_USAGE_PATH=/api/data/keys
+TF_TOKEN_USAGE_LOG_PATH=/api/log/
 TF_TOKEN_USAGE_USER_ID=<distribution-platform-user-id>
 TF_TOKEN_USAGE_ACCESS_TOKEN=<long-lived-read-token>
 TF_TOKEN_USAGE_DEMO=0
@@ -100,6 +101,7 @@ Current Token Usage dashboard capabilities:
 - KEY ranking supports Top 5 / Top 10 / Top 20 with the remaining KEYs grouped as "Other".
 - Clicking a KEY highlights it across the ranking, trend, model mix, table, and opens a detail drawer.
 - Risk alerts cover spend spikes, high failure rate, high latency, low or exhausted quota, disabled-but-consuming KEYs, and Dapp model mismatches.
+- Clicking a failed KEY reads distribution error logs and shows recent failure reasons, status codes, request IDs, upstream request IDs, and channel info when `ERROR_LOG_ENABLED` is enabled in the distribution platform.
 - The KEY table supports sorting, quick personal/Dapp filters, hiding zero-spend KEYs, search highlighting, and CSV export.
 - The header shows freshness metadata: last update time, upstream status, and whether the response came from backend cache.
 

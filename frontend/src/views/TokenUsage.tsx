@@ -2,10 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Empty, SectionTitle } from '../components/Common'
 import { MiniTrend } from '../components/Charts'
+import { fetchTokenUsageErrors } from '../lib/api'
 import { unix } from '../lib/tokenUsageRange'
 import { normalizeTokenUsageFilters, resolveTokenUsageModel, tokenUsageCustomRangeIssue, tokenUsagePayloadMatchesQuery, tokenUsagePresetPatch } from '../lib/tokenUsageQuery'
 import type { SetTokenUsageQueryState, TokenUsageQueryState, TokenUsageSortField } from '../lib/tokenUsageQuery'
-import type { TokenModelUsage, TokenUsagePayload, TokenUsageQuery, TokenUsageSummary, TokenUsageTrend } from '../lib/types'
+import type { TokenModelUsage, TokenUsageErrorsPayload, TokenUsagePayload, TokenUsageQuery, TokenUsageSummary, TokenUsageTrend } from '../lib/types'
 
 type TokenKind = 'personal' | 'dapp' | 'other'
 type RiskState = 'normal' | 'low_quota' | 'exhausted' | 'high_error' | 'disabled' | 'spike' | 'high_latency' | 'restricted_model'
@@ -15,10 +16,14 @@ type EnrichedTokenRow = TokenUsageSummary & { kind: TokenKind; owner: string; ri
 type SortState = { field: TokenUsageSortField; dir: 'asc' | 'desc' }
 type Tooltip = { x: number; y: number; title: string; rows: Array<{ label: string; value: string; color?: string }> }
 type IconName = 'alert' | 'dollar' | 'health' | 'key' | 'model' | 'pie' | 'rank' | 'trend'
+type DonutItem = { label: string; value: number; color: string; count?: number; requests?: number; errors?: number; tokenUsed?: number }
+type GroupBreakdownItem = DonutItem & { rows: EnrichedTokenRow[]; models: TokenModelUsage[] }
 
 const QUOTA_PER_USD = 500000
 const COLORS = ['#ef3340', '#e5e7eb', '#7a8190', '#f59e0b', '#0891b2', '#22c55e', '#8b5cf6', '#f97316', '#06b6d4', '#eab308', '#64748b', '#ec4899']
 const KIND_CLASS: Record<TokenKind, string> = { personal: 'kind-personal', dapp: 'kind-dapp', other: 'kind-other' }
+const KIND_DONUT_COLORS: Record<'personal' | 'dapp', string> = { personal: '#38bdf8', dapp: '#a78bfa' }
+const GROUP_COLORS: Record<string, string> = { TranFu: '#ef3340', Dapp: '#a78bfa', EVM: '#06b6d4', '量化': '#f59e0b', '未分组': '#64748b' }
 const PRESETS = [
   ['today', '当日'],
   ['yesterday', '昨天'],
@@ -100,6 +105,21 @@ function normalized(text?: string) {
   return String(text || '').trim().toLowerCase()
 }
 
+function tokenGroupLabel(row: TokenUsageSummary) {
+  const raw = String(row.group || '').trim()
+  const value = normalized(raw)
+  if (!raw) return '未分组'
+  if (/^(个人|personal|person|individual|member|user|tranfu)$/i.test(raw) || value === '个人') return 'TranFu'
+  if (/^dapp$/i.test(raw) || value === 'dapp') return 'Dapp'
+  if (/^evm$/i.test(raw)) return 'EVM'
+  if (raw === '量化' || /(quant|quantitative|量化)/i.test(raw)) return '量化'
+  return raw
+}
+
+function groupColor(label: string, index: number) {
+  return GROUP_COLORS[label] || COLORS[index % COLORS.length]
+}
+
 function toInputValue(timestamp: string) {
   if (!timestamp || !/^\d+$/.test(timestamp)) return ''
   const date = new Date(Number(timestamp) * 1000)
@@ -114,11 +134,7 @@ function fromInputValue(value: string) {
 }
 
 function inferKind(row: TokenUsageSummary): TokenKind {
-  const group = normalized(row.group)
-  const name = normalized(row.token_name)
-  if (/(dapp|app|应用|项目|product|prod|production)/i.test(group) || /^(dapp|app|应用|项目)[-_/|｜\s]/i.test(name)) return 'dapp'
-  if (/(personal|person|individual|member|user|个人|成员)/i.test(group) || /^(个人|成员|personal|user)[-_/|｜\s]/i.test(name)) return 'personal'
-  return 'other'
+  return tokenGroupLabel(row) === 'Dapp' ? 'dapp' : 'personal'
 }
 
 function inferOwner(row: TokenUsageSummary, kind: TokenKind) {
@@ -253,6 +269,31 @@ function computeTokenMetrics(rows: EnrichedTokenRow[]) {
   const errors = rows.reduce((sum, row) => sum + Number(row.error_count || 0), 0)
   const riskCount = rows.filter((row) => row.riskReasons.length).length
   return { quota, tokenUsed, requests, errors, active: rows.filter((row) => Number(row.request_count || 0) > 0).length, errorRate: errors / Math.max(1, requests + errors), riskCount }
+}
+
+function buildGroupBreakdown(rows: EnrichedTokenRow[], modelRows: TokenModelUsage[]): GroupBreakdownItem[] {
+  const map = new Map<string, Omit<GroupBreakdownItem, 'color'>>()
+  const groupByTokenId = new Map<number, string>()
+  rows.forEach((row) => {
+    const label = tokenGroupLabel(row)
+    groupByTokenId.set(row.token_id, label)
+    const item = map.get(label) || { label, value: 0, count: 0, requests: 0, errors: 0, tokenUsed: 0, rows: [], models: [] }
+    item.value += Number(row.quota || 0)
+    item.count = Number(item.count || 0) + 1
+    item.requests = Number(item.requests || 0) + Number(row.request_count || 0)
+    item.errors = Number(item.errors || 0) + Number(row.error_count || 0)
+    item.tokenUsed = Number(item.tokenUsed || 0) + Number(row.token_used || 0)
+    item.rows.push(row)
+    map.set(label, item)
+  })
+  modelRows.forEach((row) => {
+    const label = groupByTokenId.get(row.token_id)
+    if (!label) return
+    map.get(label)?.models.push(row)
+  })
+  return [...map.values()]
+    .sort((a, b) => b.value - a.value)
+    .map((item, index) => ({ ...item, color: groupColor(item.label, index) }))
 }
 
 function projectMonthlyQuota(quota: number, startTimestamp: number, endTimestamp: number) {
@@ -540,12 +581,24 @@ function arc(cx: number, cy: number, r: number, startAngle: number, endAngle: nu
   return `M ${x1} ${y1} A ${r} ${r} 0 ${endAngle - startAngle > 180 ? 1 : 0} 1 ${x2} ${y2}`
 }
 
-function DonutChart({ title, icon, items }: { title: string; icon: IconName; items: Array<{ label: string; value: number; color: string }> }) {
+function DonutChart({
+  title,
+  icon,
+  items,
+  selectedLabel,
+  onSelect,
+}: {
+  title: string
+  icon: IconName
+  items: DonutItem[]
+  selectedLabel?: string | null
+  onSelect?: (label: string) => void
+}) {
   const [tip, setTip] = useState<Tooltip | null>(null)
   useDismissTipOnScroll(setTip)
   const total = items.reduce((sum, item) => sum + item.value, 0)
   if (!total) return <Empty title={title} hint="暂无数据" />
-  const segments = items.reduce<Array<{ item: (typeof items)[number]; start: number; end: number }>>((list, item) => {
+  const segments = items.reduce<Array<{ item: DonutItem; start: number; end: number }>>((list, item) => {
     const start = list.length ? list[list.length - 1].end : 0
     const end = start + (item.value / total) * 359.9
     return [...list, { item, start, end }]
@@ -562,20 +615,101 @@ function DonutChart({ title, icon, items }: { title: string; icon: IconName; ite
               d={arc(84, 100, 45, start, end)}
               fill="none"
               stroke={item.color}
-              strokeWidth="22"
+              strokeWidth={selectedLabel === item.label ? '24' : '22'}
+              strokeOpacity={selectedLabel && selectedLabel !== item.label ? 0.35 : 1}
               strokeLinecap="round"
+              onClick={() => onSelect?.(item.label)}
               onMouseMove={(event) => setTip({ x: event.clientX, y: event.clientY, title: item.label, rows: [
                 { label: '消耗金额', value: moneyFromQuota(item.value), color: item.color },
                 { label: '占比', value: pct(item.value / total) },
+                ...(item.count !== undefined ? [{ label: 'KEY 数', value: n(item.count) }] : []),
+                ...(item.requests !== undefined ? [{ label: '请求数', value: n(item.requests) }] : []),
               ] })}
             />
           )
         })}
       </svg>
       <div className="token-donut-legend">
-        {items.slice(0, 6).map((item) => <span key={item.label}><i style={{ background: item.color }} />{item.label}<b>{pct(item.value / total)}</b></span>)}
+        {items.slice(0, 6).map((item) => (
+          <button
+            type="button"
+            key={item.label}
+            className={`${selectedLabel === item.label ? 'selected' : ''} ${selectedLabel && selectedLabel !== item.label ? 'dimmed' : ''}`}
+            onClick={() => onSelect?.(item.label)}
+          >
+            <i style={{ background: item.color }} />{item.label}<b>{pct(item.value / total)}</b>
+          </button>
+        ))}
       </div>
       <ChartTip tip={tip} />
+    </div>
+  )
+}
+
+function TokenGroupDrawer({ item, total, onClose }: { item: GroupBreakdownItem | null; total: number; onClose: () => void }) {
+  if (!item) return null
+  const topKeys = [...item.rows].sort((a, b) => Number(b.quota || 0) - Number(a.quota || 0)).slice(0, 5)
+  const modelMap = new Map<string, { model_name: string; count: number; quota: number; token_used: number }>()
+  item.models.forEach((row) => {
+    const modelName = row.model_name || 'unknown'
+    const model = modelMap.get(modelName) || { model_name: modelName, count: 0, quota: 0, token_used: 0 }
+    model.count += Number(row.count || 0)
+    model.quota += Number(row.quota || 0)
+    model.token_used += Number(row.token_used || 0)
+    modelMap.set(modelName, model)
+  })
+  const topModels = [...modelMap.values()].sort((a, b) => b.quota - a.quota).slice(0, 4)
+  const errorRate = Number(item.errors || 0) / Math.max(1, Number(item.requests || 0) + Number(item.errors || 0))
+  return (
+    <div className="token-drawer-backdrop" onMouseDown={onClose}>
+      <aside className="token-drawer" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="token-drawer-head">
+          <span>分组详情</span>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+        <div className="token-drawer-title">
+          <b>{item.label}</b>
+          <div><span className="token-group-badge" style={{ color: item.color, borderColor: item.color }}>分组</span></div>
+        </div>
+        <div className="token-detail-grid">
+          <div><span>消耗金额</span><b>{moneyFromQuota(item.value)}</b></div>
+          <div><span>占总消耗</span><b>{pct(item.value / Math.max(1, total))}</b></div>
+          <div><span>KEY 数</span><b>{n(item.count)}</b></div>
+          <div><span>请求数</span><b>{n(item.requests)}</b></div>
+          <div><span>失败率</span><b>{pct(errorRate)}</b></div>
+          <div><span>Tokens</span><b>{shortN(item.tokenUsed)}</b></div>
+        </div>
+        <div className="token-detail-section">
+          <h3>Top 消耗 KEY</h3>
+          {topKeys.length ? topKeys.map((row) => (
+            <div className="token-group-row" key={row.token_id}>
+              <span><i style={{ background: item.color }} />{row.token_name || `#${row.token_id}`}</span>
+              <b>{moneyFromQuota(row.quota)}</b>
+              <em>{pct(Number(row.quota || 0) / Math.max(1, item.value))}</em>
+            </div>
+          )) : <p>暂无 KEY 数据</p>}
+        </div>
+        <div className="token-detail-section">
+          <h3>Top 使用模型</h3>
+          {topModels.length ? topModels.map((row) => (
+            <div className="token-group-row" key={row.model_name}>
+              <span><i style={{ background: item.color }} />{row.model_name}</span>
+              <b>{moneyFromQuota(row.quota)}</b>
+              <em>{n(row.count)} 次</em>
+            </div>
+          )) : <p>暂无模型数据</p>}
+        </div>
+        <div className="token-detail-section">
+          <h3>分组 KEY</h3>
+          {item.rows.map((row) => (
+            <div className="token-group-row" key={`${item.label}:${row.token_id}`}>
+              <span><i style={{ background: item.color }} />{row.token_name || `#${row.token_id}`}</span>
+              <b>{moneyFromQuota(row.quota)}</b>
+              <em>{n(row.request_count)} 次</em>
+            </div>
+          ))}
+        </div>
+      </aside>
     </div>
   )
 }
@@ -591,7 +725,7 @@ function weightedPercentile(values: Array<{ value: number; weight: number }>, pe
   return sorted.at(-1)?.value || 0
 }
 
-function HealthPanel({ rows, metrics }: { rows: EnrichedTokenRow[]; metrics: { requests: number; errors: number; tokenUsed: number } }) {
+function HealthPanel({ rows, metrics, onSelectToken }: { rows: EnrichedTokenRow[]; metrics: { requests: number; errors: number; tokenUsed: number }; onSelectToken: (tokenId: number) => void }) {
   const total = metrics.requests + metrics.errors
   const successRate = metrics.requests / Math.max(1, total)
   const latencyWeight = rows.reduce((sum, row) => sum + Number(row.avg_use_time || 0) * Number(row.request_count || 0), 0)
@@ -610,7 +744,7 @@ function HealthPanel({ rows, metrics }: { rows: EnrichedTokenRow[]; metrics: { r
     .sort((a, b) => b.requests + b.errors - (a.requests + a.errors))
     .slice(0, 5)
   const keyErrors = rows
-    .map((row) => ({ name: row.token_name || `#${row.token_id}`, rate: errorRateOf(row), errors: Number(row.error_count || 0) }))
+    .map((row) => ({ tokenId: row.token_id, name: row.token_name || `#${row.token_id}`, rate: errorRateOf(row), errors: Number(row.error_count || 0) }))
     .filter((item) => item.errors > 0)
     .sort((a, b) => b.rate - a.rate)
     .slice(0, 3)
@@ -628,7 +762,7 @@ function HealthPanel({ rows, metrics }: { rows: EnrichedTokenRow[]; metrics: { r
           const rate = item.requests / Math.max(1, item.requests + item.errors)
           return <span key={item.name}>{item.name} <i className={rate < 0.9 ? 'bad' : 'good'} /> <b>{pct(rate)}</b></span>
         })}
-        {keyErrors.map((item) => <span key={item.name} className="warn">KEY失败 {item.name} <i className="bad" /> <b>{pct(item.rate)}</b></span>)}
+        {keyErrors.map((item) => <button key={item.name} type="button" className="warn" onClick={() => onSelectToken(item.tokenId)}>KEY失败 {item.name} <i className="bad" /> <b>{pct(item.rate)}</b></button>)}
       </div>
     </section>
   )
@@ -746,10 +880,90 @@ function SortButton({ field, sort, setSort, children }: { field: TokenUsageSortF
   )
 }
 
+type TokenErrorLog = TokenUsageErrorsPayload['data']['items'][number]
+
+function errorLogTitle(log: TokenErrorLog) {
+  const status = log.status_code ? `HTTP ${log.status_code}` : '失败'
+  const code = log.error_code || log.error_type || ''
+  return code ? `${status} · ${code}` : status
+}
+
+function shortReason(reason?: string) {
+  const text = String(reason || '未返回失败原因').trim()
+  return text.length > 160 ? `${text.slice(0, 160)}...` : text
+}
+
+function ErrorLogsSection({
+  row,
+  payload,
+  loading,
+  error,
+  onRetry,
+}: {
+  row: EnrichedTokenRow
+  payload: TokenUsageErrorsPayload | null
+  loading: boolean
+  error: string
+  onRetry: () => void
+}) {
+  const errorCount = Number(row.error_count || 0)
+  if (!errorCount) return null
+  const logs = payload?.data.items || []
+  const summary = payload?.data.summary || []
+  return (
+    <div className="token-detail-section token-error-section">
+      <div className="token-detail-section-head">
+        <h3>失败原因</h3>
+        <button type="button" className="token-link-btn" onClick={onRetry} disabled={loading}>{loading ? '读取中' : '刷新'}</button>
+      </div>
+      {loading && !payload ? (
+        <div className="token-error-loading"><span className="token-spinner" />正在读取分发平台错误日志</div>
+      ) : null}
+      {error ? <div className="token-error-empty">错误日志读取失败：{error}</div> : null}
+      {!loading && !error && payload && !logs.length ? (
+        <div className="token-error-empty">当前只拿到 {n(errorCount)} 次失败统计，未读到失败明细。请确认分发平台已开启错误日志。</div>
+      ) : null}
+      {summary.length ? (
+        <div className="token-error-summary">
+          {summary.slice(0, 3).map((item) => (
+            <div key={`${item.status_code || 0}:${item.error_code || item.error_type}:${item.reason}`}>
+              <b>{item.status_code ? `HTTP ${item.status_code}` : item.error_code || item.error_type || '失败'}</b>
+              <span>{shortReason(item.reason)}</span>
+              <em>{n(item.count)} 次 · 最近 {ts(item.latest_at)}</em>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {logs.length ? (
+        <div className="token-error-list">
+          {logs.slice(0, 8).map((log) => (
+            <div className="token-error-log" key={`${log.id}:${log.created_at}:${log.request_id}`}>
+              <div>
+                <b>{errorLogTitle(log)}</b>
+                <span>{ts(log.created_at)} · {log.model_name || '未知模型'} · {log.channel_name || `通道 #${log.channel || '-'}`}</span>
+              </div>
+              <p>{shortReason(log.content)}</p>
+              <dl>
+                {log.request_id ? <><dt>Request ID</dt><dd>{log.request_id}</dd></> : null}
+                {log.upstream_request_id ? <><dt>Upstream ID</dt><dd>{log.upstream_request_id}</dd></> : null}
+                {log.request_path ? <><dt>Path</dt><dd>{log.request_path}</dd></> : null}
+              </dl>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function TokenKeyDrawer({
   row,
   trendRows,
   modelRows,
+  errorLogs,
+  errorLogsLoading,
+  errorLogsError,
+  onRefreshErrors,
   granularity,
   onClose,
   t,
@@ -757,6 +971,10 @@ function TokenKeyDrawer({
   row: EnrichedTokenRow | null
   trendRows: TokenUsageTrend[]
   modelRows: TokenModelUsage[]
+  errorLogs: TokenUsageErrorsPayload | null
+  errorLogsLoading: boolean
+  errorLogsError: string
+  onRefreshErrors: () => void
   granularity?: string
   onClose: () => void
   t: (key: string) => string
@@ -826,6 +1044,7 @@ function TokenKeyDrawer({
             {row.riskReasons.map((item) => <div className={`token-alert-line ${item.severity}`} key={item.id}><b>{item.title}</b><span>{item.detail}</span></div>)}
           </div>
         ) : null}
+        <ErrorLogsSection row={row} payload={errorLogs} loading={errorLogsLoading} error={errorLogsError} onRetry={onRefreshErrors} />
       </aside>
     </div>
   )
@@ -851,7 +1070,12 @@ export function TokenUsageView({
   t: (key: string) => string
 }) {
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null)
+  const [selectedGroupLabel, setSelectedGroupLabel] = useState<string | null>(null)
   const [ignoredRisks, setIgnoredRisks] = useState<Set<string>>(() => new Set())
+  const [errorLogs, setErrorLogs] = useState<TokenUsageErrorsPayload | null>(null)
+  const [errorLogsLoading, setErrorLogsLoading] = useState(false)
+  const [errorLogsError, setErrorLogsError] = useState('')
+  const [errorLogsReload, setErrorLogsReload] = useState(0)
   const filters = useMemo(() => normalizeTokenUsageFilters(params), [params])
   const { kind, model: requestedModel, risk, q, topLimit, hideZero, sort } = filters
   const update = (patch: Partial<TokenUsageQueryState>) => void setParams(patch)
@@ -875,6 +1099,38 @@ export function TokenUsageView({
   const filteredModels = useMemo(() => (payload?.models || []).filter((row) => matchingTokenIds.has(row.token_id) && (model === 'all' || row.model_name === model)), [matchingTokenIds, model, payload])
   const selectedRow = useMemo(() => filteredRows.find((row) => row.token_id === selectedTokenId) || null, [filteredRows, selectedTokenId])
   const activeSelectedTokenId = selectedRow?.token_id ?? null
+  useEffect(() => {
+    setErrorLogs(null)
+    setErrorLogsError('')
+    if (!selectedRow || Number(selectedRow.error_count || 0) <= 0) {
+      setErrorLogsLoading(false)
+      return undefined
+    }
+    const controller = new AbortController()
+    let cancelled = false
+    setErrorLogsLoading(true)
+    void fetchTokenUsageErrors(query, {
+      tokenId: selectedRow.token_id,
+      tokenName: selectedRow.token_name,
+      group: selectedRow.group,
+    }, controller.signal)
+      .then((next) => {
+        if (cancelled) return
+        setErrorLogs(next)
+        setErrorLogsError('')
+      })
+      .catch((err) => {
+        if (cancelled || (err as Error)?.name === 'AbortError') return
+        setErrorLogsError((err as Error)?.message || '读取失败')
+      })
+      .finally(() => {
+        if (!cancelled) setErrorLogsLoading(false)
+      })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [errorLogsReload, query.endTimestamp, query.startTimestamp, selectedRow?.error_count, selectedRow?.group, selectedRow?.token_id, selectedRow?.token_name])
   const metrics = useMemo(() => computeTokenMetrics(filteredBaseRows), [filteredBaseRows])
   const comparisonMetrics = useMemo(() => computeTokenMetrics(filteredComparisonRows), [filteredComparisonRows])
   const growthRate = changeRate(metrics.quota, comparisonMetrics.quota)
@@ -884,10 +1140,30 @@ export function TokenUsageView({
     [filteredBaseRows],
   )
   const riskRows = allRiskAlerts.filter((row) => !ignoredRisks.has(row.id)).slice(0, 8)
+  const groupItems = useMemo(() => buildGroupBreakdown(filteredBaseRows, filteredModels), [filteredBaseRows, filteredModels])
+  const selectedGroup = selectedGroupLabel ? groupItems.find((item) => item.label === selectedGroupLabel) || null : null
+  const personalItems = useMemo(() => {
+    const map = new Map<string, DonutItem>()
+    filteredBaseRows
+      .filter((row) => row.kind !== 'dapp')
+      .forEach((row) => {
+        const label = row.username || row.owner || row.token_name || `#${row.token_id}`
+        const item = map.get(label) || { label, value: 0, color: COLORS[(map.size + 2) % COLORS.length], count: 0, requests: 0, errors: 0, tokenUsed: 0 }
+        item.value += Number(row.quota || 0)
+        item.count = Number(item.count || 0) + 1
+        item.requests = Number(item.requests || 0) + Number(row.request_count || 0)
+        item.errors = Number(item.errors || 0) + Number(row.error_count || 0)
+        item.tokenUsed = Number(item.tokenUsed || 0) + Number(row.token_used || 0)
+        map.set(label, item)
+      })
+    return [...map.values()].sort((a, b) => b.value - a.value).slice(0, 8)
+  }, [filteredBaseRows])
   const typeItems = useMemo(() => {
-    const map = new Map<TokenKind, number>()
-    filteredBaseRows.forEach((row) => map.set(row.kind, (map.get(row.kind) || 0) + Number(row.quota || 0)))
-    return [...map.entries()].map(([name, value], index) => ({ label: kindLabel(name, t), value, color: COLORS[index % COLORS.length] })).filter((item) => item.value > 0)
+    const map: Record<'personal' | 'dapp', number> = { personal: 0, dapp: 0 }
+    filteredBaseRows.forEach((row) => { map[row.kind === 'dapp' ? 'dapp' : 'personal'] += Number(row.quota || 0) })
+    return (['personal', 'dapp'] as const)
+      .map((name) => ({ label: kindLabel(name, t), value: map[name], color: KIND_DONUT_COLORS[name] }))
+      .filter((item) => item.value > 0)
   }, [filteredBaseRows, t])
   const modelItems = useMemo(() => {
     const map = new Map<string, number>()
@@ -908,6 +1184,7 @@ export function TokenUsageView({
   const clearIgnoredRisks = () => {
     setIgnoredRisks(new Set())
   }
+  const refreshSelectedErrors = () => setErrorLogsReload((value) => value + 1)
   const isInitialLoading = loading && !payload
   const statusLabel = data?.source === 'demo' ? 'DEMO' : data?.configured ? (loading && payload ? 'LIVE ⟳' : 'LIVE') : undefined
   const freshness = data?.fetched_at ? new Date(data.fetched_at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
@@ -954,7 +1231,6 @@ export function TokenUsageView({
               <option value="all">{t('tokenAllKinds')}</option>
               <option value="personal">{t('tokenPersonal')}</option>
               <option value="dapp">{t('tokenDapp')}</option>
-              <option value="other">{t('tokenOtherType')}</option>
             </select>
           </label>
           <label className="field">
@@ -1007,7 +1283,7 @@ export function TokenUsageView({
         <div className="stat"><div className="v">{n(metrics.riskCount)}</div><div className="l">{t('tokenRisk')}</div></div>
       </div>
 
-      <HealthPanel rows={filteredBaseRows} metrics={metrics} />
+      <HealthPanel rows={filteredBaseRows} metrics={metrics} onSelectToken={setSelectedTokenId} />
 
       <div className="split token-split">
         <section className="frame"><KeyRankBars rows={filteredBaseRows} topLimit={topLimit} selectedTokenId={activeSelectedTokenId} onSelect={setSelectedTokenId} t={t} /></section>
@@ -1026,6 +1302,7 @@ export function TokenUsageView({
                   <span className={`dot risk-${row.state}`} />
                   <div><b>{row.token_name}</b><p>{row.title} · {row.detail}</p></div>
                   <span className="mono">{moneyFromQuota(row.quota)}</span>
+                  <button className="token-risk-detail" type="button" onClick={() => setSelectedTokenId(row.token_id)}>详情</button>
                   <button className="token-risk-dismiss" type="button" onClick={() => ignoreRisk(row.id)}>忽略</button>
                 </div>
               ))}
@@ -1040,6 +1317,8 @@ export function TokenUsageView({
 
       <div className="split token-split">
         <section className="frame token-donut-grid">
+          <DonutChart title="分组消耗占比" icon="pie" items={groupItems} selectedLabel={selectedGroupLabel} onSelect={setSelectedGroupLabel} />
+          <DonutChart title="个人消耗占比" icon="key" items={personalItems} />
           <DonutChart title="类型消耗占比" icon="pie" items={typeItems} />
           <DonutChart title={selectedRow ? '模型消耗占比 · 选中 KEY' : '模型消耗占比'} icon="model" items={modelItems} />
         </section>
@@ -1084,7 +1363,19 @@ export function TokenUsageView({
           </div>
         ) : <Empty title={t('tokenNoData')} hint={t('tokenNoDataHint')} />}
       </section>
-      <TokenKeyDrawer row={selectedRow} trendRows={payload?.trend || []} modelRows={payload?.models || []} granularity={data?.range?.time_granularity} onClose={() => setSelectedTokenId(null)} t={t} />
+      <TokenKeyDrawer
+        row={selectedRow}
+        trendRows={payload?.trend || []}
+        modelRows={payload?.models || []}
+        errorLogs={errorLogs}
+        errorLogsLoading={errorLogsLoading}
+        errorLogsError={errorLogsError}
+        onRefreshErrors={refreshSelectedErrors}
+        granularity={data?.range?.time_granularity}
+        onClose={() => setSelectedTokenId(null)}
+        t={t}
+      />
+      <TokenGroupDrawer item={selectedGroup} total={metrics.quota} onClose={() => setSelectedGroupLabel(null)} />
         </>
       ) : null}
     </div>

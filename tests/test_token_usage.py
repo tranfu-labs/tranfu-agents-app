@@ -11,6 +11,7 @@ def clear_token_usage_cache(monkeypatch):
     for name in (
         "TF_TOKEN_USAGE_BASE_URL",
         "TF_TOKEN_USAGE_PATH",
+        "TF_TOKEN_USAGE_LOG_PATH",
         "TF_TOKEN_USAGE_ACCESS_TOKEN",
         "TF_TOKEN_USAGE_COOKIE",
         "TF_TOKEN_USAGE_USER_ID",
@@ -21,6 +22,8 @@ def clear_token_usage_cache(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     with tu._UPSTREAM_CACHE_LOCK:
         tu._UPSTREAM_CACHE.clear()
+    with tu._ERROR_CACHE_LOCK:
+        tu._ERROR_CACHE.clear()
 
 
 def test_token_usage_demo_fallback_when_unconfigured(client):
@@ -100,6 +103,81 @@ def test_token_usage_upstream_success_and_cache(client, monkeypatch):
     assert first["data"]["trend"][0]["count"] == 3
     assert first["data"]["trend"][0]["error_count"] == 1
     assert first["data"]["trend"][0]["quota"] == 30
+
+
+def test_token_usage_error_logs_success_and_cache(client, monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "success": True,
+                "data": {
+                    "page": 1,
+                    "page_size": 30,
+                    "total": 1,
+                    "items": [{
+                        "id": 99,
+                        "created_at": 1784649700,
+                        "type": 5,
+                        "token_id": 15,
+                        "token_name": "key-a",
+                        "username": "admin",
+                        "user_id": 1,
+                        "group": "Dapp",
+                        "model_name": "gpt-5.5",
+                        "content": "upstream timeout",
+                        "use_time": 31,
+                        "is_stream": True,
+                        "channel": 7,
+                        "channel_name": "openai",
+                        "request_id": "req-local",
+                        "upstream_request_id": "req-up",
+                        "other": json.dumps({
+                            "status_code": 504,
+                            "error_type": "upstream_error",
+                            "error_code": "timeout",
+                            "request_path": "/v1/responses",
+                        }),
+                    }],
+                },
+            }).encode()
+
+    def fake_urlopen(req, timeout):
+        calls.append((req, timeout))
+        return FakeResponse()
+
+    monkeypatch.setenv("TF_TOKEN_USAGE_BASE_URL", "https://example.test")
+    monkeypatch.setenv("TF_TOKEN_USAGE_LOG_PATH", "/api/log/")
+    monkeypatch.setenv("TF_TOKEN_USAGE_ACCESS_TOKEN", "Bearer token")
+    monkeypatch.setenv("TF_TOKEN_USAGE_USER_ID", "42")
+    monkeypatch.setattr(tu.urllib.request, "urlopen", fake_urlopen)
+
+    url = "/api/token-usage/errors?start_timestamp=1784649600&end_timestamp=1784736000&token_id=15&token_name=key-a"
+    first = client.get(url).json()
+    second = client.get(url).json()
+
+    assert len(calls) == 1
+    req, _timeout = calls[0]
+    assert req.full_url.startswith("https://example.test/api/log/?")
+    assert "type=5" in req.full_url
+    assert "token_name=key-a" in req.full_url
+    assert req.headers["Authorization"] == "Bearer token"
+    assert req.headers["New-api-user"] == "42"
+    assert first["source"] == "upstream"
+    assert first["cached"] is False
+    assert second["cached"] is True
+    row = first["data"]["items"][0]
+    assert row["content"] == "upstream timeout"
+    assert row["status_code"] == 504
+    assert row["error_code"] == "timeout"
+    assert first["data"]["summary"][0]["count"] == 1
 
 
 def test_token_usage_upstream_failure_without_demo_returns_502(client, monkeypatch):

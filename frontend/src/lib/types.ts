@@ -637,6 +637,54 @@ export type TokenUsagePayload = {
   }
 }
 
+export type TokenUsageErrorLog = {
+  id: number
+  created_at: number
+  token_id: number
+  token_name: string
+  username?: string
+  user_id?: number
+  group?: string
+  model_name?: string
+  content?: string
+  use_time?: number
+  is_stream?: boolean
+  channel?: number
+  channel_name?: string
+  request_id?: string
+  upstream_request_id?: string
+  status_code?: number
+  error_type?: string
+  error_code?: string
+  request_path?: string
+}
+
+export type TokenUsageErrorSummary = {
+  reason: string
+  count: number
+  status_code?: number
+  error_type?: string
+  error_code?: string
+  latest_at?: number
+}
+
+export type TokenUsageErrorsPayload = {
+  ok: boolean
+  source: 'upstream' | 'demo' | string
+  configured?: boolean
+  cached?: boolean
+  warning?: string
+  fetched_at?: string
+  range?: Pick<TokenUsageRangeMeta, 'start_timestamp' | 'end_timestamp' | 'days'>
+  data: {
+    items: TokenUsageErrorLog[]
+    summary: TokenUsageErrorSummary[]
+    total?: number
+    page?: number
+    page_size?: number
+  }
+}
+
 export type TokenUsageQuery = {
   preset: string
   startTimestamp: number

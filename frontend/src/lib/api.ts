@@ -16,6 +16,7 @@ import type {
   SkillsOverview,
   StatePayload,
   TokenUsageQuery,
+  TokenUsageErrorsPayload,
   TokenUsagePayload,
 } from './types'
 
@@ -58,8 +59,25 @@ function tokenUsageUrl(query: TokenUsageQuery) {
   return `/api/token-usage?${params.toString()}`
 }
 
+function tokenUsageErrorsUrl(query: TokenUsageQuery, params: { tokenId?: number; tokenName?: string; modelName?: string; group?: string }) {
+  const search = new URLSearchParams({
+    start_timestamp: String(query.startTimestamp),
+    end_timestamp: String(query.endTimestamp),
+    page_size: '30',
+  })
+  if (params.tokenId) search.set('token_id', String(params.tokenId))
+  if (params.tokenName) search.set('token_name', params.tokenName)
+  if (params.modelName) search.set('model_name', params.modelName)
+  if (params.group) search.set('group', params.group)
+  return `/api/token-usage/errors?${search.toString()}`
+}
+
 async function fetchTokenUsagePayload(query: TokenUsageQuery, signal?: AbortSignal) {
   return fetchJson<TokenUsagePayload>(tokenUsageUrl(query), signal ? { signal } : undefined)
+}
+
+export async function fetchTokenUsageErrors(query: TokenUsageQuery, params: { tokenId?: number; tokenName?: string; modelName?: string; group?: string }, signal?: AbortSignal) {
+  return fetchJson<TokenUsageErrorsPayload>(tokenUsageErrorsUrl(query, params), signal ? { signal } : undefined)
 }
 
 function emptySkillsEvidence(query: string): SkillsEvidencePayload {
