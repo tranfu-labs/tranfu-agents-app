@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { angleSpan, buildDonutSegments, buildSourceDonutSegments } from './skillsAttribution.ts'
+import { angleSpan, buildDonutSegments, buildSourceDonutSegments, donutArcPath } from './skillsAttribution.ts'
 import { buildRankItems, deltaRatio, formatDelta } from './skillsDashboard.ts'
 import { SKILLS_CHART_MAX_BAR_WIDTH, resolveSkillsChartLayout } from './skillsChartLayout.ts'
 import { classifySkillHealth } from './skillsThresholds.ts'
@@ -123,4 +123,13 @@ test('source donut parent and child angles remain consistent and omit zero secto
   assert.ok(Math.abs(angleSpan(innerCataloged) - outerCataloged) < 0.5 * Math.PI / 180)
   assert.ok(Math.abs(angleSpan(innerUntracked) - angleSpan(outerUntracked)) < 0.5 * Math.PI / 180)
   assert.equal(buildDonutSegments([{ key: 'zero', value: 0 }, { key: 'one', value: 1 }]).length, 1)
+})
+
+test('a single positive donut segment renders a complete annulus with two arcs per edge', () => {
+  const [segment] = buildDonutSegments([{ key: 'only', value: 9 }])
+  assert.ok(segment)
+  const path = donutArcPath(segment, 30, 46)
+  assert.equal((path.match(/A 46 46/g) || []).length, 2)
+  assert.equal((path.match(/A 30 30/g) || []).length, 2)
+  assert.match(path, /^M .+ Z$/)
 })

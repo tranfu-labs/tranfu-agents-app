@@ -480,6 +480,56 @@ export type SkillsEvidencePayload = {
 export type OperatorDetail = {
   operator: string
   today: string
+  window?: SkillsOverview['window']
+  applied_filters?: {
+    w?: string
+    window_start?: string
+    window_end?: string
+    rt?: string
+    src?: string
+  }
+  analysis?: {
+    metrics?: {
+      sessions_window?: number
+      previous_sessions?: number
+      skill_count?: number
+      session_count?: number
+      runtime_count?: number
+      first_day?: string
+      last_day?: string
+    }
+    daily?: Array<{
+      day: string
+      skill: string
+      display_name?: string
+      display_name_zh?: string
+      source?: string
+      sessions: number
+    }>
+    skills?: Array<{
+      name: string
+      display_name?: string
+      display_name_zh?: string
+      source?: string
+      sessions_window?: number
+      previous_sessions?: number
+      session_count?: number
+      share?: number
+      runtime_counts?: Record<string, number>
+      last_day?: string
+    }>
+    runtime?: Array<{ runtime: string; used?: number }>
+    records?: Array<{
+      day?: string
+      skill?: string
+      display_name?: string
+      display_name_zh?: string
+      source?: string
+      runtime?: string
+      session_id?: string
+      first_seen?: string
+    }>
+  }
   metrics?: {
     sessions_7d?: number
     sessions_30d?: number
@@ -489,7 +539,7 @@ export type OperatorDetail = {
     first_day?: string
     last_day?: string
   }
-  daily?: Array<{ day: string; skill: string; display_name?: string; display_name_zh?: string; sessions: number }>
+  daily?: Array<{ day: string; skill: string; display_name?: string; display_name_zh?: string; source?: string; sessions: number }>
   skills?: Array<{
     name: string
     display_name?: string
@@ -507,6 +557,7 @@ export type OperatorDetail = {
     skill?: string
     display_name?: string
     display_name_zh?: string
+    source?: string
     runtime?: string
     session_id?: string
     first_seen?: string

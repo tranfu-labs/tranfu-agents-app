@@ -7,6 +7,9 @@ import './skillsPresentation.test.ts'
 import './skillsCopy.test.ts'
 import './agentsDashboard.test.ts'
 import './tokenUsageQuery.test.ts'
+import './operatorDetailQuery.test.ts'
+import './operatorDetailAnalysis.test.ts'
+import '../components/skills/OperatorSkillAnalysis.test.tsx'
 import { runApiCacheTests } from './apiCache.test.ts'
 
 await runApiCacheTests()

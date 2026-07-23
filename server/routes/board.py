@@ -1615,7 +1615,112 @@ def skills_overview(conn, days, w=None, wstart=None, wend=None, rt="", src="", s
     }
 
 
-def operator_detail_payload(conn, name):
+def _operator_window_analysis(conn, operator, window, rt, src, catalog_by, skill_names):
+    rows = [dict(r) for r in conn.execute("""
+      SELECT day, skill, COALESCE(runtime,'') runtime, session_id, first_seen
+      FROM skill_uses
+      WHERE operator=? AND mode='used' AND day IS NOT NULL
+        AND day >= ? AND day <= ?
+      ORDER BY COALESCE(first_seen, day) DESC, skill ASC, session_id ASC
+    """, (operator, window["previous_start"], window["end"]))]
+    scoped = [
+        row for row in rows
+        if _matches_operator_scope(row["runtime"] or "unknown", row["skill"], catalog_by, rt, src)
+    ]
+    current = [
+        row for row in scoped
+        if window["start"] <= row["day"] <= window["end"]
+    ]
+    previous = [
+        row for row in scoped
+        if window["previous_start"] <= row["day"] <= window["previous_end"]
+    ]
+    previous_by_skill = {}
+    for row in previous:
+        previous_by_skill[row["skill"]] = previous_by_skill.get(row["skill"], 0) + 1
+
+    daily_counts = {}
+    runtime_counts = {}
+    skills = {}
+    for row in current:
+        skill = row["skill"]
+        runtime = row["runtime"] or "unknown"
+        daily_key = (row["day"], skill)
+        daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
+        runtime_counts[runtime] = runtime_counts.get(runtime, 0) + 1
+        stat = skills.setdefault(skill, {
+            "sessions_window": 0,
+            "sessions": set(),
+            "runtime_counts": {},
+            "last_day": "",
+        })
+        stat["sessions_window"] += 1
+        stat["sessions"].add(row["session_id"])
+        stat["runtime_counts"][runtime] = stat["runtime_counts"].get(runtime, 0) + 1
+        stat["last_day"] = max(stat["last_day"], row["day"] or "")
+
+    total = len(current)
+    skill_table = []
+    for skill, stat in skills.items():
+        skill_table.append(_named_skill(skill, skill_names, {
+            "source": _skill_source(skill, catalog_by),
+            "sessions_window": int(stat["sessions_window"]),
+            "previous_sessions": int(previous_by_skill.get(skill, 0)),
+            "session_count": len(stat["sessions"]),
+            "share": (stat["sessions_window"] / total) if total else 0,
+            "runtime_counts": stat["runtime_counts"],
+            "last_day": stat["last_day"] or None,
+        }))
+    skill_table.sort(key=lambda item: (
+        -item["sessions_window"],
+        -item["previous_sessions"],
+        item["name"],
+    ))
+
+    daily = [
+        _skill_record(skill, skill_names, {
+            "day": day,
+            "sessions": int(sessions),
+            "source": _skill_source(skill, catalog_by),
+        })
+        for (day, skill), sessions in sorted(daily_counts.items())
+    ]
+    runtime = [
+        {"runtime": runtime_name, "used": int(sessions)}
+        for runtime_name, sessions in sorted(
+            runtime_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+    ]
+    records = [
+        _skill_record(row["skill"], skill_names, {
+            "day": row["day"],
+            "runtime": row["runtime"] or "unknown",
+            "session_id": row["session_id"],
+            "first_seen": row["first_seen"],
+            "source": _skill_source(row["skill"], catalog_by),
+        })
+        for row in current[:50]
+    ]
+    current_days = [row["day"] for row in current if row["day"]]
+    return {
+        "metrics": {
+            "sessions_window": total,
+            "previous_sessions": len(previous),
+            "skill_count": len(skills),
+            "session_count": len({row["session_id"] for row in current}),
+            "runtime_count": len(runtime_counts),
+            "first_day": min(current_days) if current_days else None,
+            "last_day": max(current_days) if current_days else None,
+        },
+        "daily": daily,
+        "skills": skill_table,
+        "runtime": runtime,
+        "records": records,
+    }
+
+
+def operator_detail_payload(conn, name, days=7, w=None, wstart=None, wend=None, rt="", src=""):
     operator = (name or "").strip()
     if not operator:
         raise HTTPException(404, "operator not found")
@@ -1631,6 +1736,7 @@ def operator_detail_payload(conn, name):
     today = stats_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d30 = (today - timedelta(days=29)).isoformat()
+    window = _skills_window(days, w, wstart, wend)
     catalog_items, catalog_by, catalog_meta = _catalog_context(conn)
     skill_names = _skill_name_map(conn, catalog_items)
     m = conn.execute("""
@@ -1704,9 +1810,24 @@ def operator_detail_payload(conn, name):
       ORDER BY COALESCE(first_seen, day) DESC
       LIMIT 50
     """, (operator,))]
+    analysis = _operator_window_analysis(
+        conn, operator, window, rt, src, catalog_by, skill_names,
+    )
+    applied_filters = {
+        "w": window["key"],
+        "window_start": window["start"],
+        "window_end": window["end"],
+    }
+    if rt:
+        applied_filters["rt"] = rt
+    if src:
+        applied_filters["src"] = _skill_source_key(src)
     return {
         "operator": operator,
         "today": today.isoformat(),
+        "window": window,
+        "applied_filters": applied_filters,
+        "analysis": analysis,
         "metrics": {
             "sessions_7d": int(m["sessions_7d"] or 0),
             "sessions_30d": int(m["sessions_30d"] or 0),
@@ -2014,9 +2135,11 @@ def skill_detail(name: str):
 
 
 @router.get("/api/operator/{name}")
-def operator_detail(name: str):
+def operator_detail(name: str, days: int = 7, w: str | None = None,
+                    wstart: int | None = Query(None), wend: int | None = Query(None),
+                    rt: str = "", src: str = ""):
     with closing(db()) as conn:
-        return JSONResponse(operator_detail_payload(conn, name))
+        return JSONResponse(operator_detail_payload(conn, name, days, w, wstart, wend, rt, src))
 
 
 @router.get("/api/agent/{key}")

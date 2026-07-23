@@ -1,6 +1,6 @@
 import type { Lang, SkillsOverview, SkillTableRow } from '../../lib/types'
 import type { ReactNode } from 'react'
-import { buildDonutSegments, buildSourceDonutSegments, type DonutSegment } from '../../lib/skillsAttribution'
+import { buildDonutSegments, buildSourceDonutSegments, donutArcPath } from '../../lib/skillsAttribution'
 import { skillDisplayName } from '../../lib/skillNames'
 import { RT, skillColor, sourceLabel, sourceKey } from '../../lib/utils'
 
@@ -10,19 +10,6 @@ const SOURCE_COLORS: Record<string, string> = {
   meta: '#0891b2',
   external: '#16a34a',
   non_catalog: '#f97316',
-}
-
-function polar(cx: number, cy: number, r: number, angle: number) {
-  return [cx + Math.cos(angle - Math.PI / 2) * r, cy + Math.sin(angle - Math.PI / 2) * r]
-}
-
-function arcPath(segment: DonutSegment, inner: number, outer: number) {
-  const [x1, y1] = polar(50, 50, outer, segment.start)
-  const [x2, y2] = polar(50, 50, outer, segment.end)
-  const [x3, y3] = polar(50, 50, inner, segment.end)
-  const [x4, y4] = polar(50, 50, inner, segment.start)
-  const large = segment.end - segment.start > Math.PI ? 1 : 0
-  return `M ${x1} ${y1} A ${outer} ${outer} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${inner} ${inner} 0 ${large} 0 ${x4} ${y4} Z`
 }
 
 function DonutShell({ title, total, children }: { title: string; total: number; children: ReactNode }) {
@@ -48,10 +35,10 @@ export function AttributionDonuts({ data, selected, rows, lang, setSource, t }: 
     <section className="skills-attribution">
       <DonutShell title={selectedRow ? `${selectedLabel} · runtime` : '按来源占比'} total={selectedRow ? totalRuntime : totalSource}>
         <svg viewBox="0 0 100 100" role="img" aria-label="source attribution">
-          {selectedRow ? runtimeSegments.map((segment) => <path key={segment.key} d={arcPath(segment, 30, 45)} fill={skillColor(segment.key)} />) : (
+          {selectedRow ? runtimeSegments.map((segment) => <path key={segment.key} d={donutArcPath(segment, 30, 45)} fill={skillColor(segment.key)} />) : (
             <>
-              {sourceModel.inner.map((segment) => <path key={segment.key} d={arcPath(segment, 22, 32)} fill={SOURCE_COLORS[segment.key]} opacity=".7" onClick={() => segment.key === 'non_catalog' && setSource('non_catalog')} />)}
-              {sourceModel.outer.map((segment) => <path key={segment.key} d={arcPath(segment, 34, 46)} fill={SOURCE_COLORS[segment.key]} onClick={() => setSource(sourceKey(segment.key))} />)}
+              {sourceModel.inner.map((segment) => <path key={segment.key} d={donutArcPath(segment, 22, 32)} fill={SOURCE_COLORS[segment.key]} opacity=".7" onClick={() => segment.key === 'non_catalog' && setSource('non_catalog')} />)}
+              {sourceModel.outer.map((segment) => <path key={segment.key} d={donutArcPath(segment, 34, 46)} fill={SOURCE_COLORS[segment.key]} onClick={() => setSource(sourceKey(segment.key))} />)}
             </>
           )}
           <text x="50" y="49" textAnchor="middle" fill="var(--text)" fontSize="9" fontWeight="700">{totalSource || totalRuntime}</text>
@@ -65,7 +52,7 @@ export function AttributionDonuts({ data, selected, rows, lang, setSource, t }: 
       </DonutShell>
       <DonutShell title={selectedRow ? `${selectedLabel} · runtime` : '按 runtime 占比'} total={totalRuntime}>
         <svg viewBox="0 0 100 100" role="img" aria-label="runtime attribution">
-          {runtimeSegments.map((segment) => <path key={segment.key} d={arcPath(segment, 28, 44)} fill={skillColor(segment.key)} />)}
+          {runtimeSegments.map((segment) => <path key={segment.key} d={donutArcPath(segment, 28, 44)} fill={skillColor(segment.key)} />)}
           <text x="50" y="52" textAnchor="middle" fill="var(--text)" fontSize="10" fontWeight="700">{totalRuntime}</text>
         </svg>
         <div className="skills-donut-legend">

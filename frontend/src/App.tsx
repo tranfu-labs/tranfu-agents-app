@@ -5,6 +5,7 @@ import { Toast } from './components/Toast'
 import { useAgentsOverview, useOperatorDetail, usePollingState, useSkillDetail, useSkillsEvidence, useSkillsOverview, useTokenUsage } from './lib/api'
 import { agentsApiQuery, parseAgentFilters, resolveAgentsRoutePhase } from './lib/agentsDashboard'
 import { makeT } from './lib/i18n'
+import { operatorDetailApiQuery } from './lib/operatorDetailQuery'
 import { useSkillQueryState } from './lib/skillQuery'
 import { resolveSkillsWindow, skillsWindowQuery } from './lib/skillsWindow'
 import { applyTheme, getBrowserPrefersDark, getBrowserThemeStorage, readStoredThemeMode, resolveTheme, writeStoredThemeMode, type ThemeMode } from './lib/theme'
@@ -82,11 +83,10 @@ function SkillDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => string 
 
 function OperatorDetailRoute({ lang, t }: { lang: Lang; t: (key: string) => string }) {
   const { name } = useParams()
-  const [params] = useSkillQueryState()
-  const days = [7, 30, 90].includes(params.win) ? params.win : 30
-  const overview = useSkillsOverview(false, days)
-  const detail = useOperatorDetail(true, name ? decodeURIComponent(name) : undefined, overview.data)
-  return <OperatorDetailView data={detail.data} loading={detail.loading} error={detail.error} lang={lang} t={t} />
+  const location = useLocation()
+  const query = useMemo(() => operatorDetailApiQuery(location.search), [location.search])
+  const detail = useOperatorDetail(query !== null, name ? decodeURIComponent(name) : undefined, query || '')
+  return <OperatorDetailView data={detail.data} loading={detail.loading} error={query === null ? 'operatorWindowIncomplete' : detail.error} lang={lang} t={t} />
 }
 
 function TokenUsageRoute({ t }: { t: (key: string) => string }) {

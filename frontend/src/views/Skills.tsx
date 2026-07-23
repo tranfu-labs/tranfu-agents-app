@@ -17,8 +17,9 @@ import { setSelectedSkill, selectedSkillOf } from '../lib/skillsSelection'
 import { resolveSkillsWindow } from '../lib/skillsWindow'
 import { mobileFilterSummary, windowDisplayLabel, windowPeriodLabel } from '../lib/skillsPresentation'
 import { skillDisplayName, skillNameMatches } from '../lib/skillNames'
+import { operatorDetailHref } from '../lib/operatorDetailQuery'
 import type { Lang, OperatorTableRow, SkillsOverview, SkillTableRow, SkillNamesMap } from '../lib/types'
-import { encodePathParam, RT, sourceKey, sourceLabel } from '../lib/utils'
+import { RT, sourceKey, sourceLabel } from '../lib/utils'
 
 type FilterableSkill = { name?: string; skill?: string; runtime?: string; source?: string; runtime_counts?: Record<string, number> }
 type FilterableOperator = { operator?: string; runtime?: string; source?: string; runtime_counts?: Record<string, number>; source_counts?: Record<string, number> }
@@ -176,7 +177,7 @@ function OperatorTable({ rows, params, setParams, windowKey, t }: { rows: Operat
     const dir = params.sort === key && params.dir !== 'asc' ? 'asc' : 'desc'
     void setParams({ sort: key, dir })
   }
-  const openOperator = (operator: string) => navigate(`/operator/${encodePathParam(operator)}${location.search}`)
+  const openOperator = (operator: string) => navigate(operatorDetailHref(operator, location.search))
   const head = (key: string, label: string, cls = '') => (
     <th className={`sort ${cls}`} onClick={(event: MouseEvent<HTMLTableCellElement>) => {
       event.stopPropagation()

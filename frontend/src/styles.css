@@ -204,6 +204,45 @@
   .skills-page,.skill-detail-page,.operator-detail-page{min-width:0;max-width:100%}
   .skills-page>.frame,.skills-page>.split,.skill-detail-page>.frame,.skill-detail-page>.dist,.operator-detail-page>.frame,.operator-detail-page>.dist-mirror{min-width:0;max-width:100%}
   .skills-page .skills-wrap,.skill-detail-page .skills-wrap,.operator-detail-page .skills-wrap,.skills-page .chart-box,.skill-detail-page .chart-box,.operator-detail-page .chart-box{min-width:0;max-width:100%}
+  .operator-detail-page{display:grid;gap:16px;overflow-x:hidden}
+  .operator-detail-page>.back{justify-self:start}
+  .operator-detail-page>.note-warn{margin:0}
+  .operator-hero{padding:18px}
+  .operator-hero-main{display:grid;gap:7px}
+  .operator-eyebrow{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .operator-hero h1{margin:0;font-size:24px;line-height:1.25;overflow-wrap:anywhere}
+  .operator-filter-chips{display:flex;gap:7px;flex-wrap:wrap}
+  .operator-filter-chips span{font-family:var(--mono);font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 8px;background:var(--elev2)}
+  .operator-summary .operator-stats{grid-template-columns:repeat(4,minmax(0,1fr));padding:14px 16px 0;margin-bottom:10px}
+  .operator-comparison{padding:0 16px 14px;color:var(--muted);font-size:12px}
+  .operator-comparison b{font-family:var(--mono);color:var(--text)}
+  .operator-analysis{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(340px,.88fr);gap:16px;align-items:stretch;min-width:0;max-width:100%}
+  .operator-analysis--donut{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .operator-analysis>.frame{min-width:0;max-width:100%;overflow:hidden}
+  .operator-donut{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:18px;align-items:center;padding:18px}
+  .operator-donut svg{display:block;width:100%;max-width:240px;height:auto;margin:auto}
+  .operator-donut-total{fill:var(--text);font-family:var(--mono);font-size:15px;font-weight:700}
+  .operator-donut-label{fill:var(--muted);font-family:var(--sans);font-size:6px}
+  .operator-donut-legend{display:grid;gap:7px;min-width:0}
+  .operator-donut-legend span{display:grid;grid-template-columns:9px minmax(0,1fr) auto;gap:7px;align-items:center;min-width:0;color:var(--muted);font-size:11px}
+  .operator-donut-legend i{width:8px;height:8px;border-radius:2px}
+  .operator-donut-legend b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:600}
+  .operator-donut-legend em{font-family:var(--mono);font-style:normal}
+  .operator-compact-rank{display:grid;padding:8px 12px}
+  .operator-compact-rank button{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center;min-width:0;padding:9px 7px;border:1px solid transparent;border-radius:8px;text-align:left}
+  .operator-compact-rank button:hover{border-color:var(--line);background:var(--hover)}
+  .operator-rank-index{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .operator-rank-main{display:grid;gap:4px;min-width:0}
+  .operator-rank-main>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .operator-rank-main small{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--muted)}
+  .operator-rank-other{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--line);margin-top:4px;padding:10px 7px;color:var(--muted);font-size:12px}
+  .operator-rank-other b{font-family:var(--mono);font-size:11px;color:var(--text)}
+  .operator-runtime .pad>.empty{padding:12px}
+  .operator-range-empty{min-height:190px;display:grid;place-items:center}
+  .operator-loading{min-height:260px;display:grid;place-items:center}
+  .operator-full-list .skills-wrap,.operator-records>table{width:100%}
+  .operator-records tbody tr{cursor:default}
+  .operator-records tbody tr:hover{background:transparent}
   .skills-dashboard{display:grid;gap:16px;overflow-x:hidden}
   .skills-dashboard>.frame,.skills-dashboard>.skills-main-split,.skills-dashboard>.skills-analysis,.skills-dashboard>.skills-attribution{min-width:0;max-width:100%}
   .skills-dashboard-toolbar{align-items:flex-end}
@@ -537,6 +576,7 @@
     .skill-detail-page .statgrid{grid-template-columns:repeat(3,minmax(0,1fr))}
     .operator-detail-page .statgrid.operator-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
     .skill-detail-page .dist,.operator-detail-page .dist-mirror{grid-template-columns:1fr}
+    .operator-analysis,.operator-analysis--donut{grid-template-columns:1fr}
   }
   @media(max-width:600px){
     html,body{overflow-x:hidden}
@@ -646,6 +686,18 @@
     .skill-detail-page .dist,.operator-detail-page .dist-mirror{grid-template-columns:1fr}
     .skill-detail-page .dhead .alabel{font-size:18px;overflow-wrap:anywhere}
     .operator-detail-page .dhead .alabel{font-size:20px;overflow-wrap:anywhere}
+    .operator-hero{padding:14px}
+    .operator-hero h1{font-size:20px}
+    .operator-analysis,.operator-analysis--donut{grid-template-columns:1fr}
+    .operator-donut{grid-template-columns:1fr;padding:14px}
+    .operator-donut svg{max-width:180px}
+    .operator-donut-legend{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+    .operator-donut-legend span{grid-template-columns:9px minmax(0,1fr) auto}
+    .operator-summary .operator-stats{padding:12px 12px 0}
+    .operator-comparison{padding:0 12px 12px}
+    .operator-compact-rank{padding:7px}
+    .operator-compact-rank button{align-items:start}
+    .operator-rank-main small{align-items:flex-start}
     .skills-page .skills-wrap table.mobile-card-table,.skill-detail-page table.mobile-card-table,.operator-detail-page table.mobile-card-table{display:block;min-width:0;width:100%;overflow:visible;white-space:normal}
     .skills-page .mobile-card-table thead,.skill-detail-page .mobile-card-table thead,.operator-detail-page .mobile-card-table thead{display:none}
     .skills-page .mobile-card-table tbody,.skill-detail-page .mobile-card-table tbody,.operator-detail-page .mobile-card-table tbody{display:grid;gap:10px;padding:10px 0}

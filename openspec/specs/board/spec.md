@@ -35,7 +35,10 @@
   `/api/skills` 与 `/api/skills/evidence` 可返回 `ETag` 并处理 `If-None-Match`;ETag 必须按路径、归一化 query 参数与稳定响应 payload 计算。
   命中时只允许同 URL / 同参数返回 `304` 且无 body,客户端只能复用本次服务端校验通过的同 URL payload;未经独立业务确认不得为这两个 API 引入跳过服务端校验的 TTL。
 - `GET /api/skill/{name}` → 单 skill 详情(含 `today`、指标、used/equipped 分列日级序列、runtime/operator 分布、最近记录、来源);查无此名 → 404。
-- `GET /api/operator/{name}` → 单操作员详情(含 `today`、used-only 指标、按 skill 分段日级序列、skill 排行、runtime 分布、最近记录);查无 used 记录 → 404。
+- `GET /api/operator/{name}[?w={today|this_week|last_week|7d|14d|30d|90d|custom}&wstart=&wend=&rt=&src=]`
+  → 单操作员当前观察范围详情，至少包含 `operator/today/window/applied_filters/analysis/skill_names/catalog`，
+  并保留现有顶层 `metrics/daily/skills/runtime/records` 兼容字段。`analysis` 无窗口参数时默认 `7d`，
+  窗口、custom 与 `Asia/Shanghai` 统计日语义复用 `/api/skills` 的窗口规则；查无全局 used 记录 → 404。
 - `GET /api/agent/{key}`(key = `operator::agentOrRuntime`)→ 单 agent 详情(可选)。
 - `GET /`、`/agents`、`/agent/{key}`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/{kind}`、`/skill/{name}`、`/operator/{name}` → React 看板 SPA;
   `GET /assets/*` → Vite 指纹化静态资源,成功响应必须可长期缓存(`public, max-age=31536000, immutable`);
@@ -111,8 +114,15 @@
     `EXPLAIN QUERY PLAN` 不可得,不得声称已验证生产 P95,只能报告可复现环境和合成样本数据。不得优先用缓存掩盖聚合根因;
     只有 SQL/索引优化后仍无法达到性能目标时,才允许引入 `/api/skills` 短 TTL 缓存。若引入缓存,默认 TTL 为 5 秒
     (允许 3-10 秒),缓存键必须归一化 `days/w/wstart/wend/rt/src/scope`,且缓存容量必须有上限。
-22. `/api/operator/{name}` 只统计该操作员的 `mode=used` 记录,不输出 equipped 指标;返回指标、按 skill 分段日级序列、
-    skill 排行(含来源)、runtime 分布和最近 50 条记录。
+22. `/api/operator/{name}` 的新增 `analysis` 只统计同一
+    `operator + mode=used + window + optional rt + optional src` 交集，不输出 equipped 指标。
+    `analysis.metrics` 至少返回当前窗口 `sessions_window/skill_count/session_count/runtime_count/first_day/last_day`
+    与上一同长窗口 `previous_sessions`；`analysis.skills[]` 是当前窗口完整 Skill 清单，每项至少返回
+    `name/display_name/display_name_zh/source/sessions_window/previous_sessions/session_count/share/runtime_counts/last_day`；
+    `analysis.daily/runtime/records` 服从同一范围，最近记录最多 50 条。现有顶层 `metrics` 继续表示既有
+    近 7 天/近 30 天/累计与全局首末日语义，顶层 `daily/skills/runtime/records` 继续保持既有全历史
+    used-only 集合、30 天排行排序、全量 runtime 与最近 50 条，不随新增 query 改义。操作员全局有 used
+    记录但当前范围为空时返回 200、零值和空数组；只有全局不存在 used 记录时返回 404。
 23. `/api/state` 与 `/api/state/stream` 必须共用同一份进程内快照缓存,缓存 TTL 由 `TF_STATE_TTL`(秒,float)配置,默认 1.5;
     前端可见的所有字段(包括 `now`/`sessions`/`feed`/`leverage`/`skills`/`shim`/`totals`)
     可以在一个 TTL 窗口内相同;不允许任何路径(包括 `/api/skills`、`/api/skill/{name}` 等)
@@ -238,9 +248,24 @@
 - Skill 详情趋势图固定最近 30 个 `Asia/Shanghai` 统计日逐日铺满(右端同服务端 `today`),used 柱与 equipped 折线分列展示,
   不相加;空天留白,今日列进行中,悬停/点击浮窗显示 used/equipped,且使用与 SKILLS 总览一致的柱子锚定、
   视口翻转和点击别处关闭规则。
-- 单操作员详情的 skill 排行在界面上呈现为「使用 Skill 排行」,默认按最近 7 天使用次数降序(平手按累计、再按名称);
-  此默认仅作用于操作员详情页内,不改变 SKILLS 总览页按当前时间窗 `sessions_window` 降序的口径。
-  操作员详情的 runtime 分布与 skill 排行采用左窄(runtime)/右宽(skill 排行)布局,窄屏(≤1080px)降级为单列。
+- 从 `/skills` 按人视角进入 `/operator/:name` 时，详情统计只继承 `w/wstart/wend/rt/src`；Skill 搜索词、
+  Top N、隐藏零使用、选中 Skill、总览排序和新增名单 scope 不得进入详情 API 或可见统计。来源 `/skills`
+  的已识别 query 可编码到独立 `from` 返回上下文，只用于显式返回 `/skills?view=operator...`，不得接受
+  任意站外或站内 path 跳转；无 `from` 的直达详情以当前统计参数生成最小按人返回地址。
+- 操作员详情标题、摘要、自适应主图、紧凑排行、runtime 分布、完整 Skill 明细和最近记录只消费同一
+  `analysis` 范围，顶层兼容字段不得参与新页面渲染。页面独立请求带完整统计 query 的
+  `/api/operator/{name}`，不得等待 `/api/state` 或 `/api/skills` 首包；URL 统计范围变化后不得把旧范围
+  payload 当作新范围的已完成结果。
+- 单统计日操作员详情显示「Skill 使用构成 · 当前窗口」环形图，按 used 记录取 Top 5 + 其他，中心显示
+  总记录数；不得显示单柱伪趋势或构造小时序列。多统计日显示「每日使用 · 按 Skill · 当前窗口」趋势，
+  固定 Top 8 + 其他。旁侧紧凑排行单日 Top 5、多日 Top 8，每条真实 Skill 行显示来源并可下钻，
+  长尾“其他 N 个”不可伪装成单一 Skill。零记录范围显示带当前窗口和筛选摘要的 Empty。
+- 操作员详情在主分析区下方显示当前窗口完整 Skill 明细，不受 Top 5/8 限制，默认按
+  `sessions_window desc, previous_sessions desc, name asc`；整行鼠标与 Enter/Space 均可进入
+  `/skill/:name`。可见“次数”须明确为会话×Skill 的 used 记录数、非真实调用次数。
+- 操作员详情桌面主分析区为主图/紧凑排行双列；平板与手机按标题/摘要 → 自适应主分析 → runtime →
+  完整清单 → 最近记录的 DOM 顺序单列，手机排行和表格使用摘要行。30/90 天或长 custom 只允许趋势
+  `.chart-box` 内部横滚并默认显示最新日期，页面根不得横向滚动。
 - 操作员详情与单 skill 详情的"最近记录"列表,时间列须以浏览器本地时区展示 `first_seen`:
   浏览器本地今天内显示克制相对时间(中文 `刚刚` / `N分钟前` / `N小时前`,英文 `just now` / `Nm ago` / `Nh ago`);
   浏览器本地昨天显示 `昨天 HH:mm` / `yesterday HH:mm`;本地 2-6 天前显示星期标签加本地时刻
@@ -286,7 +311,8 @@
   Skill 明细整行可点打开抽屉且键盘可达;按人主榜整行可点进入 `/operator/:name` 且键盘可达。
 - `/skill/:name` 与 `/operator/:name` 的指标卡在平板下应压缩为 3-4 列,手机下为 2 列;
   数字和标签不得重叠或溢出卡片。`/skill/:name` 的 runtime/operator 分布区在平板和手机下为单列。
-  `/operator/:name` 的 runtime 分布与使用 Skill 排行在平板和手机下为单列,使用 Skill 排行位于 runtime 分布之后。
+  `/operator/:name` 的主图、紧凑排行、runtime 分布、完整 Skill 明细和最近记录在平板和手机下按真实
+  DOM 顺序单列。
 - `/skill/:name` 与 `/operator/:name` 的最近记录表在手机下须展示为摘要行;
   最近记录无下钻目标,仍不得呈现为可点击行。
 - 除 `/admin` 管理钥匙的 `sessionStorage` 例外外,前端仅可使用 `localStorage` 固定 key
@@ -358,13 +384,24 @@
 - 同一造数查 `/api/skills?w=30d` → 操作员排序可随 30 天窗口变化。
 - `/api/skills?w=7d&rt=codex&src=own` → `operator_table.sessions_window`、`operator_daily`、`window_runtime_counts`
   与 `window_source_counts` 只统计当前窗口内 `codex + own` 交集。
-- `/skills?view=operator&w=7d&rt=codex&src=own` → 操作员排行使用当前窗口内 `codex + own` 计数;改变 skill 搜索词、
-  Skill Top N、隐藏 0 使用或选中 skill 不改变操作员排行。
-- 单操作员详情的 skill 排行行点击 → 进入对应 `/skill/{name}` 详情。
-- `GET /api/operator/不存在的人` → 404。
+- `/skills?view=operator&w=today&rt=codex&src=own&q=alice&topn=20&hz=1` 点操作员 →
+  详情 API 只收到 `w=today&rt=codex&src=own`；标题显示“今天”，显式返回仍恢复来源总览 query。
+  改变 Skill 搜索词、Top N、隐藏 0 使用、选中 Skill、总览排序或 scope 不改变操作员详情统计。
+- 今天有 7 个 Skill → 操作员详情环形图为 Top 5 + 其他，紧凑排行为 Top 5，完整 Skill 明细仍有 7 行；
+  单日 historical custom 的可见标题与 SVG 可访问名称使用真实窗口标签，不得误标为“今天/Today”。
+- 近 30 天有 14 个 Skill → 趋势为 Top 8 + 其他，紧凑排行为 Top 8，完整 Skill 明细仍有 14 行；
+  30/90 天只在图表盒内部横滚，页面根不得横向滚动。
+- 单操作员当前 runtime/source 范围为空 → `/api/operator/{name}` 返回 200 零值空态；全局无 used
+  记录或 equipped-only 的操作员才返回 404。
+- 无参数请求 `/api/operator/{name}` → 顶层 `metrics/daily/skills/runtime/records` 与旧契约逐项一致，
+  新增 `window.key=7d` 且 `analysis` 只含近 7 天；随后带 `w=today&rt=codex&src=own` 请求时，
+  顶层兼容字段仍不变，只有 `analysis` 按今天、Codex、own 的交集收窄。
+- 单操作员详情的紧凑排行或完整 Skill 明细真实 Skill 行点击/Enter/Space → 进入对应
+  `/skill/{name}` 详情；长尾“其他 N 个”和最近记录不可点击。
 - SKILLS 总览 Skill 明细表默认按当前时间窗内会话数降序,平手按累计;按人主表按 `sessions_window` 降序,
   平手按累计、再按操作员名。
-- 进入某操作员详情 → 左侧为 runtime 分布、右侧为「使用 Skill 排行」,排行默认按 7 天列降序。
+- 进入某操作员详情 → 单日为 Skill 构成环形图 + Top 5 排行，多日为按 Skill 日趋势 + Top 8 排行；
+  runtime、完整 Skill 明细和最近记录继续按同一当前观察范围展示。
 - /skills 视角切换位于控制条内,内容行按钮为 32px 高分段控件;切换后整页换主语且说明文案随之变化,时间窗不重置。
 - `/skills` 无窗口参数 → 前端默认 `w=7d`。
 - 1440x900 中文/英文分别打开 `/skills?view=skill&w=7d&topn=8` → 时间窗口选项、移动摘要等窗口文案随当前语言变化,
@@ -451,8 +488,9 @@
   搜索字段内部不拆行,KPI 为 4×2,表格/图表横滚限制在组件内部。
 - 375x812 打开任一 `/skill/:name` → 指标卡为 2 列,趋势图内部横滚,runtime/operator 分布单列,
   最近记录为摘要行且不可点击。
-- 375x812 打开任一 `/operator/:name` → 指标卡为 2 列,趋势图内部横滚,runtime 分布在上、使用 Skill 排行在下,
-  使用 Skill 排行摘要行可点击,最近记录摘要行不可点击。
+- 375x812 打开任一 `/operator/:name` → 指标卡为 2 列，按标题/摘要 → 单日环形或多日趋势 →
+  紧凑排行 → runtime → 完整 Skill 明细 → 最近记录的真实 DOM 顺序单列；排行与完整明细为可点击摘要行，
+  最近记录摘要行不可点击，页面根无横向滚动。
 - 1440x900 打开 `/skills`、`/skill/:name`、`/operator/:name` → 桌面布局与各自信息架构保持一致,
   不因移动端样式退化。
 - 首次打开看板且无主题偏好时,实际主题跟随浏览器 `prefers-color-scheme`。

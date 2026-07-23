@@ -128,10 +128,37 @@
 | ⑦ | Clue 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query）；旧 `/skills/evidence?kind=untracked|idle|zero_install` 兼容跳转到 clue |
 | ⑧ | 右侧 Skill 抽屉 | Skill 详情 `/skill/:name` | 点「前往详情页」按钮（附带 `location.search`） |
 | ⑨ | Skill 详情 | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 query） |
-| ⑩ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行（整行跳转，附带 `location.search`） |
-| ⑪ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← SKILLS」（强制回按人视角并回填 query） |
+| ⑩ | SKILLS `/skills` | Operator 详情 `/operator/:name` | 按人视角点排行表任意行；只把 `w/wstart/wend/rt/src` 作为统计参数，并把来源总览 query 编码为安全 `from` |
+| ⑪ | Operator 详情 | SKILLS `/skills?view=operator...` | 点「← 按人统计」；优先恢复合法 `from`，无 `from` 时用当前统计参数生成最小返回 query |
 | ⑫ | SKILLS `/skills` | 新增发布 Skill `/skills/new` | 点当前时间窗变化或问题线索中的「新增发布 Skill」记录 icon；保留 `w/wstart/wend/q` 与 own/meta 来源 |
 | ⑬ | 新增发布 Skill | SKILLS `/skills` | 点「← SKILLS」（回填进入时的 window/search query） |
+
+## Operator 详情下钻
+
+```
+┌─ SKILLS 按人 /skills?view=operator... ─┐
+│ → pages/skills.md                      │
+└──────────────────┬─────────────────────┘
+                   │ ① 点操作员；push
+                   │   统计 query = w/wstart/wend/rt/src
+                   │   from = 来源页已识别 query
+                   ▼
+┌─ Operator 详情 /operator/:name?... ────┐
+│ → pages/operator-detail.md             │
+│ 同 URL query 独立请求 /api/operator    │
+└──────────────┬───────────────┬─────────┘
+               │ ② 返回        │ ③ 点紧凑排行/完整明细
+               ▼               ▼
+┌─ SKILLS 按人 /skills?... ──────────────┐  ┌─ Skill 详情 /skill/:name ─┐
+│ 恢复 from；无 from 时恢复最小统计范围  │  │ → pages/skill-detail.md   │
+└────────────────────────────────────────┘  └───────────────────────────┘
+```
+
+| 步 | 从 | 到 | 触发 |
+|---|---|---|---|
+| ① | SKILLS 按人 `/skills` | Operator 详情 `/operator/:name` | 点操作员排行行；只把 `w/wstart/wend/rt/src` 作为详情统计参数，并把来源总览 query 编码为 `from` |
+| ② | Operator 详情 | SKILLS 按人 `/skills?view=operator...` | 点返回；优先恢复合法 `from`，无 `from` 时用当前统计参数生成最小返回 query |
+| ③ | Operator 详情 | Skill 详情 `/skill/:name` | 点紧凑排行或完整 Skill 明细真实 Skill 行；鼠标、Enter、Space 均可达 |
 
 ## 后台清理台进入与删除流程
 

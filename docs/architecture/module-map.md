@@ -23,6 +23,7 @@ agent 机器                         中心服务器(单容器)                 
   `/api/agents` 从同一最终身份卡片快照输出指定时间窗的 Agents summary/comparison/daily/ranking/agents/signals,
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL;
   Skill 读模型保留 slug identity,并从 catalog/profile 统一附加 `display_name/display_name_zh` 与批量名称映射,
+  `/api/operator/{name}` 以新增 `analysis` 承载 `w/wstart/wend/rt/src` 当前观察范围，旧顶层字段保持兼容，
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   连续段内纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入;
   最后确认心跳取 SQLite/pending 较新值,同一事件 pending 入队单调不减,任何新行插入前固化旧行 pending,
@@ -42,10 +43,11 @@ agent 机器                         中心服务器(单容器)                 
 ### M2 — 看板前端 (`frontend/`)
 - **职责**:优先通过 `/api/state/stream` SSE(失败时回退 `/api/state` adaptive polling)渲染 Pods 看板 / 治理详情;Agents 运营列表独立请求 `/api/agents`,先渲染 skeleton,再消费服务端指定窗口统计,固定按 Agent 统计运行时长,展示单日 Agent 环形分布或多日按 Agent 分段的堆叠趋势、排行及含操作员的明细表;低频读取
   `/api/skills`、`/api/skills/evidence`、`/api/skill/{name}` 与 `/api/operator/{name}` 渲染 SKILLS 总览 / 新增发布 Skill 列表 / 记录页 / clue 详情 / Skill 详情 / Operator 详情;SKILLS 总览图表按服务端返回的
-  `window.start..window.end` 铺满所选 `w/days` 窗口,详情页按 30 天日级时间轴,并负责柱子锚定的 hover/click 明细浮窗与视口避让;
+  `window.start..window.end` 铺满所选 `w/days` 窗口，Skill 详情按 30 天日级时间轴；Operator 详情继承
+  `w/wstart/wend/rt/src`，单日显示 Top 5 + 其他构成环、多日显示 Top 8 + 其他日趋势，并负责柱子锚定的 hover/click 明细浮窗与视口避让;
   SKILLS 总览使用证据导向 dashboard 结构(控制条/过去 W 变化/问题线索/主分析区:排行+趋势图|待处理线索/Donut/明细抽屉/下沉漏斗),视角切换收进控制条,
   首屏聚合数字必须能下钻到 `/skills/evidence`、`/skills/new` 或同页名单记录;待处理线索三类下钻到 `/skills/clues/:kind`;记录页、新增发布页和 clue 页继承当前时间窗并展示下一步动作、分组、原始记录或名单;
-  Skill 明细整行打开抽屉并由抽屉按钮跳详情,抽屉展示 W/环比/装机、14/30/90 趋势、runtime、使用操作员 Top 与装备未使用差集;按人主榜和操作员详情 Skill 排行整行跳转,
+  Skill 明细整行打开抽屉并由抽屉按钮跳详情,抽屉展示 W/环比/装机、14/30/90 趋势、runtime、使用操作员 Top 与装备未使用差集;按人主榜、操作员详情紧凑排行和完整 Skill 明细整行跳转,
   最近记录按浏览器本地时区展示 `first_seen`(本地今天内相对时间,昨天显示`昨天 HH:mm`,近 7 天显示星期+时刻,
   今年更早显示`MM-DD HH:mm`,跨年显示`YYYY-MM-DD HH:mm`,hover 显示完整本地绝对时间+时区;
   缺失 `first_seen` 时按服务端统计 `day` 显示今天/昨天/星期/MM-DD/YYYY-MM-DD,hover 保留原始日期)且不呈现可点态;

@@ -871,6 +871,105 @@ def test_operator_detail_recent_records_are_limited_to_50(client, app_mod):
 
     data = client.get("/api/operator/alice").json()
     assert len(data["records"]) == 50
+    assert len(data["analysis"]["records"]) == 50
+
+
+def test_operator_detail_no_query_preserves_legacy_contract(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="old", skill="alpha", current_step="old")
+    ev(client, operator="alice", runtime="codex", session_id="recent", skill="beta", current_step="recent")
+    ev(client, operator="alice", runtime="codex", session_id="today", skill="alpha", current_step="today")
+    _set_skill_day(app_mod, "old", "alpha", 31)
+    _set_skill_day(app_mod, "recent", "beta", 5)
+    _set_skill_day(app_mod, "today", "alpha", 0)
+
+    base = client.get("/api/operator/alice").json()
+    narrowed = client.get("/api/operator/alice?w=today&rt=codex&src=own").json()
+
+    for key in ("metrics", "daily", "skills", "runtime", "records"):
+        assert narrowed[key] == base[key]
+    assert base["metrics"]["sessions_total"] == 3
+    assert {row["day"] for row in base["daily"]} == {
+        _set_skill_day(app_mod, "old", "alpha", 31),
+        _set_skill_day(app_mod, "recent", "beta", 5),
+        _set_skill_day(app_mod, "today", "alpha", 0),
+    }
+    assert base["window"]["key"] == "7d"
+    assert {row["skill"] for row in base["analysis"]["daily"]} == {"alpha", "beta"}
+    assert narrowed["window"]["key"] == "today"
+    assert narrowed["applied_filters"]["rt"] == "codex"
+    assert narrowed["applied_filters"]["src"] == "own"
+    assert narrowed["analysis"]["metrics"]["sessions_window"] == 1
+    assert [row["name"] for row in narrowed["analysis"]["skills"]] == ["alpha"]
+
+
+def test_operator_detail_today_window_and_runtime_source_intersection_apply_to_all_blocks(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="today-own", skill="alpha", current_step="1")
+    ev(client, operator="alice", runtime="codex", session_id="yesterday-own", skill="alpha", current_step="2")
+    ev(client, operator="alice", runtime="claude-code", session_id="today-other-runtime", skill="alpha", current_step="3")
+    ev(client, operator="alice", runtime="codex", session_id="today-external", skill="beta", current_step="4")
+    ev(client, operator="alice", runtime="codex", session_id="today-equipped", skill="alpha",
+       skill_mode="equipped", current_step="5")
+    yesterday = _set_skill_day(app_mod, "yesterday-own", "alpha", 1)
+
+    response = client.get("/api/operator/alice?w=today&rt=codex&src=own")
+    assert response.status_code == 200
+    data = response.json()
+    analysis = data["analysis"]
+    assert data["window"]["key"] == "today"
+    assert analysis["metrics"] == {
+        "sessions_window": 1,
+        "previous_sessions": 1,
+        "skill_count": 1,
+        "session_count": 1,
+        "runtime_count": 1,
+        "first_day": data["today"],
+        "last_day": data["today"],
+    }
+    assert analysis["daily"] == [{
+        "skill": "alpha",
+        "display_name": "Alpha Workflow",
+        "display_name_zh": "Alpha 工作流",
+        "day": data["today"],
+        "sessions": 1,
+        "source": "own",
+    }]
+    assert analysis["runtime"] == [{"runtime": "codex", "used": 1}]
+    assert len(analysis["records"]) == 1
+    assert analysis["records"][0]["session_id"] == "today-own"
+    assert analysis["records"][0]["source"] == "own"
+    assert len(analysis["skills"]) == 1
+    assert analysis["skills"][0]["name"] == "alpha"
+    assert analysis["skills"][0]["sessions_window"] == 1
+    assert analysis["skills"][0]["previous_sessions"] == 1
+    assert analysis["skills"][0]["session_count"] == 1
+    assert analysis["skills"][0]["share"] == 1
+    assert analysis["skills"][0]["runtime_counts"] == {"codex": 1}
+    assert yesterday == data["window"]["previous_start"]
+
+
+def test_operator_detail_custom_window_empty_scope_and_invalid_window(client, app_mod):
+    _set_catalog(app_mod)
+    ev(client, operator="alice", runtime="codex", session_id="today", skill="alpha", current_step="1")
+    today = app_mod.stats_today()
+    start = int(datetime(today.year, today.month, today.day, tzinfo=STATS_TZ).timestamp())
+    end = start + 86399
+
+    custom = client.get(f"/api/operator/alice?w=custom&wstart={start}&wend={end}")
+    assert custom.status_code == 200
+    assert custom.json()["window"]["days"] == 1
+    assert custom.json()["analysis"]["metrics"]["sessions_window"] == 1
+
+    empty = client.get("/api/operator/alice?w=today&rt=hermes")
+    assert empty.status_code == 200
+    assert empty.json()["analysis"]["metrics"]["sessions_window"] == 0
+    assert empty.json()["analysis"]["daily"] == []
+    assert empty.json()["analysis"]["skills"] == []
+    assert empty.json()["analysis"]["runtime"] == []
+    assert empty.json()["analysis"]["records"] == []
+
+    assert client.get("/api/operator/alice?w=forever").status_code == 400
 
 
 def test_operator_detail_unknown_or_equipped_only_404(client, app_mod):

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DEMO_STATE, demoOperatorDetail, demoSkillDetail, demoSkillsOverview } from './demo'
+import { DEMO_STATE, demoSkillDetail, demoSkillsOverview } from './demo'
 import { createRevalidatedJsonFetcher } from './apiCache'
 import { makeTokenUsageComparisonRange } from './tokenUsageRange'
 import type {
@@ -489,33 +489,45 @@ export function useSkillDetail(enabled: boolean, name: string | undefined, fallb
   return { data: visibleData, loading: visibleLoading, error, demo, refresh }
 }
 
-export function useOperatorDetail(enabled: boolean, name: string | undefined, fallback?: SkillsOverview | null): Loadable<OperatorDetail> {
+export function useOperatorDetail(enabled: boolean, name: string | undefined, query: string): Loadable<OperatorDetail> {
   const [data, setData] = useState<OperatorDetail | null>(null)
+  const [dataKey, setDataKey] = useState('')
   const [loading, setLoading] = useState(Boolean(enabled && name))
   const [error, setError] = useState('')
+  const [errorKey, setErrorKey] = useState('')
   const [demo, setDemo] = useState(false)
   const lastFetch = useRef(0)
+  const requestSeq = useRef(0)
+  const requestKey = name ? `${name}?${query}` : ''
 
   const refresh = useCallback(
     async (force = false) => {
       const now = Date.now()
       if (!enabled || !name || (!force && now - lastFetch.current < 9500)) return
+      const key = `${name}?${query}`
+      const sequence = ++requestSeq.current
       setLoading(true)
       try {
-        const next = await fetchJson<OperatorDetail>(`/api/operator/${encodeURIComponent(name)}`)
+        const next = await fetchJson<OperatorDetail>(`/api/operator/${encodeURIComponent(name)}?${query}`)
+        if (requestSeq.current !== sequence) return
         setData(next)
+        setDataKey(key)
         setError('')
+        setErrorKey('')
         setDemo(false)
         lastFetch.current = Date.now()
-      } catch {
-        setData(demoOperatorDetail(name, fallback || demoSkillsOverview()))
-        setError('operatorNotFound')
-        setDemo(true)
+      } catch (caught) {
+        if (requestSeq.current !== sequence) return
+        setData(null)
+        setDataKey('')
+        setError(caught instanceof Error && caught.message === '404' ? 'operatorNotFound' : 'loadError')
+        setErrorKey(key)
+        setDemo(false)
       } finally {
-        setLoading(false)
+        if (requestSeq.current === sequence) setLoading(false)
       }
     },
-    [enabled, fallback, name],
+    [enabled, name, query],
   )
 
   useEffect(() => {
@@ -523,14 +535,15 @@ export function useOperatorDetail(enabled: boolean, name: string | undefined, fa
     const first = window.setTimeout(() => void refresh(true), 0)
     const timer = window.setInterval(() => void refresh(false), 10000)
     return () => {
+      requestSeq.current += 1
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
   }, [enabled, refresh])
 
-  const visibleData = name && data?.operator !== name ? null : data
-  const visibleLoading = loading || Boolean(name && data && data.operator !== name)
-  return { data: visibleData, loading: visibleLoading, error, demo, refresh }
+  const visibleData = dataKey === requestKey ? data : null
+  const visibleLoading = loading || Boolean(enabled && requestKey && dataKey !== requestKey && errorKey !== requestKey)
+  return { data: visibleData, loading: visibleLoading, error: errorKey === requestKey ? error : '', demo, refresh }
 }
 
 export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadable<TokenUsagePayload> {
