@@ -58,15 +58,24 @@ def _heartbeat_flush_loop():
         interval = _heartbeat_batch_seconds()
         time.sleep(interval if interval > 0 else 1.0)
         if interval > 0:
-            flush_heartbeat_batch()
+            try:
+                flush_heartbeat_batch()
+            except Exception:
+                # A transient SQLite failure must not kill the only flush
+                # thread. The atomic flush path leaves pending intact to retry.
+                continue
 
 
 def _queue_heartbeat(event_id, last_seen):
     if _heartbeat_batch_seconds() <= 0:
         return False
     _start_heartbeat_flush_thread()
+    event_id = int(event_id)
     with _heartbeat_pending_lock:
-        _heartbeat_pending[int(event_id)] = last_seen
+        current = _heartbeat_pending.get(event_id)
+        _heartbeat_pending[event_id] = (
+            _latest_heartbeat(current, last_seen) or current or last_seen
+        )
     return True
 
 

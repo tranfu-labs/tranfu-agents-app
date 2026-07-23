@@ -26,7 +26,9 @@
    state dirty,以便 SSE / cache 后续展示最新 liveness。服务进程异常退出时,允许丢失最多一个 batch 窗口内的纯心跳
    liveness 刷新;状态变化事件不得丢。flush 与 ingest 必须原子协调,pending 不得在对应 SQLite commit 前
    暂时不可见;SQLite 写入失败时 pending 必须保留以供重试。`TF_HEARTBEAT_BATCH_SECONDS=0` 时禁用 batch,
-   恢复每次纯心跳即时更新。
+   恢复每次纯心跳即时更新。同一事件 id 的 pending 时间必须单调不减,并发请求中后取得写锁的较旧
+   `recv` 不得覆盖较新 pending;后台 flush 的单轮普通运行时异常不得终止循环,必须在后续间隔自动重试
+   保留的 pending。
 3. 收到含 profile 字段的事件时,按身份**更新该身份最新 profile**(`profiles` 表);技能名首次出现记入 `skills_seen.first_day`。
 4. 事件同时具备 `skill` 与 `session_id` 时,服务端记录"该会话用过/装备过该 skill",
    以 `(session_id, skill, mode)` 幂等。`mode` 取自可选 `skill_mode ∈ {used,equipped}`,
@@ -95,6 +97,9 @@
 - pending 后发生即时 skill/profile/shim 写入 → DB 推进到当前 `recv` 并淘汰旧 pending。
 - pending 后发生状态/步骤变化 → 新行插入前旧行 `last_seen` 固化为 pending 末点。
 - flush 与 ingest 并发 → ingest 只能观察 flush 前 pending 或 flush 后 DB;flush 失败则 pending 保留重试。
+- 同一事件 pending 先入队 `00:02`、后入队 `00:01` → pending 仍为 `00:02`,不得因请求入锁乱序制造虚假断档。
+- 后台 flush 第一次因瞬时 SQLite 异常失败、第二次恢复 → flush 线程继续运行,同一 pending 自动写入并在
+  commit 成功后清除。
 - 连发两条相同 `status+current_step` 的纯心跳,且 `TF_HEARTBEAT_BATCH_SECONDS > 0` → 第二条返回 `heartbeat:true`;
   flush 前 DB 中上一事件行 `last_seen` 不变;flush 后 `last_seen` 变为最新接收时间。
 - `TF_HEARTBEAT_BATCH_SECONDS=0` 时,纯心跳立即更新 `events.last_seen`,保持旧行为。

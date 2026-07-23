@@ -123,6 +123,32 @@ def test_pending_heartbeat_is_used_as_last_confirmed_time(client, app_mod, monke
     assert list(app_mod._heartbeat_pending.values()) == ["2026-06-12T00:04:30+00:00"]
 
 
+def test_out_of_order_pending_heartbeat_cannot_move_last_confirmed_time_back(
+        client, app_mod, monkeypatch):
+    import server.routes.ingest as ingest
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:04:01+00:00",
+    )
+    ev(client, session_id="pending-order", current_step="same")
+    event_id = _event_row(app_mod, "pending-order")["id"]
+
+    # Requests generate recv before taking app._lock. This models the newer
+    # request entering the pending map before an older request acquires the lock.
+    assert ingest._queue_heartbeat(event_id, "2026-06-12T00:02:00+00:00") is True
+    assert ingest._queue_heartbeat(event_id, "2026-06-12T00:01:00+00:00") is True
+    assert app_mod._heartbeat_pending[event_id] == "2026-06-12T00:02:00+00:00"
+
+    latest = ev(client, session_id="pending-order", current_step="same")
+
+    assert latest.json()["heartbeat"] is True
+    assert len(_event_rows(app_mod, "pending-order")) == 1
+    assert app_mod._heartbeat_pending[event_id] == "2026-06-12T00:04:01+00:00"
+
+
 def test_stale_recovery_persists_pending_endpoint_before_new_segment(client, app_mod, monkeypatch):
     app_mod.HEARTBEAT_BATCH_SECONDS = 3600
     _set_times(
@@ -273,6 +299,59 @@ def test_flush_failure_keeps_pending_for_retry(client, app_mod, monkeypatch):
         ingest.flush_heartbeat_batch()
 
     assert dict(app_mod._heartbeat_pending) == pending
+
+
+def test_background_flush_retries_pending_after_transient_failure(
+        client, app_mod, monkeypatch):
+    import server.routes.ingest as ingest
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+    )
+    ev(client, session_id="loop-retry", current_step="same")
+    ev(client, session_id="loop-retry", current_step="same")
+    event_id = _event_row(app_mod, "loop-retry")["id"]
+
+    real_db = ingest.db
+    db_attempts = 0
+
+    class FailingConnection:
+        def executemany(self, *_args):
+            raise RuntimeError("database temporarily unavailable")
+
+        def close(self):
+            pass
+
+    def flaky_db():
+        nonlocal db_attempts
+        db_attempts += 1
+        if db_attempts == 1:
+            return FailingConnection()
+        return real_db()
+
+    class StopFlushLoop(BaseException):
+        pass
+
+    sleep_calls = 0
+
+    def controlled_sleep(_seconds):
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls > 2:
+            raise StopFlushLoop()
+
+    monkeypatch.setattr(ingest, "db", flaky_db)
+    monkeypatch.setattr(ingest.time, "sleep", controlled_sleep)
+
+    with pytest.raises(StopFlushLoop):
+        ingest._heartbeat_flush_loop()
+
+    assert db_attempts == 2
+    assert _event_row(app_mod, "loop-retry")["last_seen"] == "2026-06-12T00:02:00+00:00"
+    assert event_id not in app_mod._heartbeat_pending
 
 
 def test_legacy_naive_heartbeat_times_are_interpreted_as_utc():
