@@ -40,14 +40,25 @@ def _card(operator="alice", agent="builder", runtime="codex", **overrides):
 
 def _insert_run(conn, operator, agent, session_id, start, end, runtime="codex"):
     day = datetime.fromisoformat(start).astimezone(STATS_TZ).date().isoformat()
+    end_day = datetime.fromisoformat(end).astimezone(STATS_TZ).date().isoformat()
     conn.execute("""INSERT INTO events
       (ts,recv,day,last_seen,operator,runtime,agent,session_id,status,current_step,source)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-      (start, start, day, start, operator, runtime, agent, session_id, "running", "run", "heartbeat"))
+      (start, start, day, end, operator, runtime, agent, session_id, "running", "run", "heartbeat"))
     conn.execute("""INSERT INTO events
       (ts,recv,day,last_seen,operator,runtime,agent,session_id,status,current_step,source)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-      (end, end, day, end, operator, runtime, agent, session_id, "done", "done", "heartbeat"))
+      (end, end, end_day, end, operator, runtime, agent, session_id, "done", "done", "heartbeat"))
+
+
+def _insert_event(conn, operator, agent, session_id, recv, last_seen, status,
+                  step, runtime="codex"):
+    day = datetime.fromisoformat(recv).astimezone(STATS_TZ).date().isoformat()
+    conn.execute("""INSERT INTO events
+      (ts,recv,day,last_seen,operator,runtime,agent,session_id,status,current_step,source)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+      (recv, recv, day, last_seen, operator, runtime, agent, session_id,
+       status, step, "heartbeat"))
 
 
 def test_state_agent_overview_uses_identity_cards_and_exposes_history(client):
@@ -106,6 +117,90 @@ def test_agents_api_returns_window_ranking_operator_and_merged_identities(client
     assert len(body["daily"]) == 7
     assert body["daily"][-1]["active_seconds"] == 2100
     assert {segment["operator"] for segment in body["daily"][-1]["segments"]} == {"alice", "bob"}
+
+
+def test_agent_duration_unions_overlapping_sessions_across_all_consumers(client, app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 12, tzinfo=timezone.utc)))
+    with app_mod.db() as conn:
+        _insert_run(conn, "alice", "builder", "overlap-a",
+                    "2026-07-14T01:00:00+00:00", "2026-07-14T03:00:00+00:00")
+        _insert_run(conn, "alice", "builder", "overlap-b",
+                    "2026-07-14T02:00:00+00:00", "2026-07-14T04:00:00+00:00")
+        conn.commit()
+
+    state = client.get("/api/state").json()
+    card = next(row for row in state["sessions"] if row["operator"] == "alice")
+    agents = client.get("/api/agents?w=today").json()
+    detail = client.get("/api/agent/alice%3A%3Abuilder").json()
+
+    assert card["today_active"] == 3 * 3600
+    assert state["agent_overview"]["daily"][-1]["active_seconds"] == 3 * 3600
+    assert state["totals"]["today_active"] == 3 * 3600
+    assert agents["summary"]["active_seconds"] == 3 * 3600
+    assert agents["daily"][-1]["active_seconds"] == 3 * 3600
+    assert agents["ranking"][0]["active_seconds"] == 3 * 3600
+    assert agents["agents"][0]["active_seconds"] == 3 * 3600
+    assert detail["today_active"] == 3 * 3600
+
+
+def test_agent_duration_splits_historical_gap_and_late_terminal(client, app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 12, tzinfo=timezone.utc)))
+    with app_mod.db() as conn:
+        _insert_event(conn, "alice", "builder", "gap-recovery",
+                      "2026-07-14T01:00:00+00:00", "2026-07-14T01:01:00+00:00",
+                      "running", "first")
+        _insert_event(conn, "alice", "builder", "gap-recovery",
+                      "2026-07-14T01:10:00+00:00", "2026-07-14T01:11:00+00:00",
+                      "running", "second")
+        _insert_event(conn, "alice", "builder", "gap-recovery",
+                      "2026-07-14T01:12:00+00:00", "2026-07-14T01:12:00+00:00",
+                      "done", "done")
+        _insert_event(conn, "bob", "reviewer", "late-terminal",
+                      "2026-07-14T02:00:00+00:00", "2026-07-14T02:01:00+00:00",
+                      "running", "work")
+        _insert_event(conn, "bob", "reviewer", "late-terminal",
+                      "2026-07-14T02:10:00+00:00", "2026-07-14T02:10:00+00:00",
+                      "done", "late")
+        conn.commit()
+
+    body = client.get("/api/agents?w=today").json()
+    by_key = {row["key"]: row["active_seconds"] for row in body["agents"]}
+
+    assert by_key == {
+        "alice::builder": 3 * 60,
+        "bob::reviewer": 60,
+    }
+    assert body["summary"]["active_seconds"] == 4 * 60
+
+
+def test_agent_duration_day_cap_handles_many_overlapping_sessions(client, app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 15, 59, 59, tzinfo=timezone.utc)))
+    with app_mod.db() as conn:
+        for index in range(12):
+            _insert_run(conn, "alice", "builder", f"long-{index}",
+                        "2026-07-13T16:00:00+00:00", "2026-07-14T15:59:59+00:00")
+        conn.commit()
+
+    body = client.get("/api/agents?w=today").json()
+
+    assert body["summary"]["active_seconds"] == 86_399
+    assert body["summary"]["active_seconds"] <= 86_400
+    assert body["daily"][0]["active_seconds"] == body["ranking"][0]["active_seconds"]
+
+
+def test_agent_duration_crosses_shanghai_midnight_and_window_selection(client, app_mod, monkeypatch):
+    monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 6, 12, 16, 5, tzinfo=timezone.utc)))
+    with app_mod.db() as conn:
+        _insert_run(conn, "alice", "builder", "midnight-window",
+                    "2026-06-12T15:59:00+00:00", "2026-06-12T16:01:00+00:00")
+        conn.commit()
+
+    today = client.get("/api/agents?w=today").json()
+    week = client.get("/api/agents?w=7d").json()
+
+    assert today["summary"]["active_seconds"] == 60
+    assert week["summary"]["active_seconds"] == 120
+    assert [row["active_seconds"] for row in week["daily"][-2:]] == [60, 60]
 
 
 def test_agents_api_custom_window_uses_shanghai_days_and_rejects_invalid_ranges(client, app_mod, monkeypatch):

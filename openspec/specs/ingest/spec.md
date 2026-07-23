@@ -14,8 +14,11 @@
 ## 规则(MUST)
 1. 写入须带请求头 `X-TF-Key`,且等于服务端 `TF_KEY`(`TF_KEY` 为空时仅限本地开发)。比较须用常量时间
    比较(`hmac.compare_digest`),与管理钥匙一致、不得短路。
-2. **去重**:仅当 `status` 或 `current_step` 相对该身份的上一行发生变化时才落新行;
-   否则视为心跳,响应 `{"heartbeat": true}`,且不进活动流。纯心跳 `last_seen` 默认可进入进程内 batch:
+2. **去重**:`status` 或 `current_step` 相对该身份上一行发生变化时落新行;二者相同且距上一条已确认心跳
+   `<= STALE_SECONDS=180` 秒时视为纯心跳,响应 `{"heartbeat": true}`,且不进活动流。二者相同但间隔
+   `> 180` 秒时必须落一条内部 `heartbeat_resume` 行作为新连续段起点,不得覆盖旧行 `last_seen`;
+   最新卡片与活跃时长必须读取恢复行,活动流不得读取它。上一条已确认心跳必须同时考虑 SQLite `last_seen`
+   与 pending map 中尚未 flush 的最新值;切新段前须把 pending 末点固化到旧行。纯心跳 `last_seen` 默认可进入进程内 batch:
    当事件无其它即时写入语义时,服务端可以不立即 `UPDATE events.last_seen`,而是将最新 `last_seen` 放入 pending map,
    由后台 flush 按 `TF_HEARTBEAT_BATCH_SECONDS` 间隔用一个 SQLite 事务批量写入。batch flush 成功后必须通知 board 域
    state dirty,以便 SSE / cache 后续展示最新 liveness。服务进程异常退出时,允许丢失最多一个 batch 窗口内的纯心跳
@@ -81,6 +84,9 @@
 
 ## 可验证行为(示例)
 - 连发两条相同 `status+current_step` → 第二条返回 `heartbeat:true`,活动流不增。
+- 同状态/同步骤距最后确认心跳超过 180 秒后恢复 → 插入 `heartbeat_resume` 新段,旧行 `last_seen`
+  保持最后确认心跳,最新卡片可见恢复状态,活动流不新增伪状态变化。
+- pending map 中存在比 DB 更新的最后确认心跳 → 断档阈值以 pending 时间计算;确需切段时先固化该时间。
 - 连发两条相同 `status+current_step` 的纯心跳,且 `TF_HEARTBEAT_BATCH_SECONDS > 0` → 第二条返回 `heartbeat:true`;
   flush 前 DB 中上一事件行 `last_seen` 不变;flush 后 `last_seen` 变为最新接收时间。
 - `TF_HEARTBEAT_BATCH_SECONDS=0` 时,纯心跳立即更新 `events.last_seen`,保持旧行为。

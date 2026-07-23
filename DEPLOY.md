@@ -316,4 +316,5 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 - [ ] HTTPS 生产部署:设 `TF_HSTS=1`(或经可信反代识别 https 自动发 HSTS)。
 - [ ] 定期备份 `tf.db`。
 
-> 活跃时长按 **Asia/Shanghai 日/周** 统计,跨天会话按上海自然日边界自动拆分;具体时间戳仍以 UTC instant 存储。
+> 活跃时长按 **Asia/Shanghai 日/周** 统计,跨天会话按上海自然日边界自动拆分;同一 Agent 的重叠 session
+> 按区间并集计算,超过 180 秒的心跳断档停在最后确认心跳;具体时间戳仍以 UTC instant 存储。

@@ -13,7 +13,8 @@ from contextlib import closing
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from server.db import _audit, _clip, _maybe_prune, _sha, db, now_iso, now_utc, stats_day_for
+from server.config import STALE_SECONDS
+from server.db import _audit, _clip, _maybe_prune, _parse, _sha, db, now_iso, now_utc, stats_day_for
 from server.identity import canon_operator, verify_operator
 from server.profile import _skill_mode, _skill_names, _skill_use_name
 from server.security import (
@@ -73,6 +74,28 @@ def _drop_pending_heartbeat(event_id):
         return
     with _heartbeat_pending_lock:
         _heartbeat_pending.pop(int(event_id), None)
+
+
+def _pending_heartbeat(event_id):
+    if event_id is None:
+        return None
+    with _heartbeat_pending_lock:
+        return _heartbeat_pending.get(int(event_id))
+
+
+def _last_confirmed_heartbeat(last):
+    return _pending_heartbeat(last["id"]) or last["last_seen"] or last["recv"] or last["ts"]
+
+
+def _heartbeat_gap_exceeded(confirmed, recv_dt):
+    """True when a same-state report resumes after the confirmed live segment."""
+    if not confirmed:
+        return False
+    try:
+        confirmed_dt = _parse(confirmed)
+        return (recv_dt - confirmed_dt).total_seconds() > STALE_SECONDS
+    except (TypeError, ValueError):
+        return False
 
 
 def flush_heartbeat_batch():
@@ -212,10 +235,13 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
 
         # dedup key now includes session_id (§6) so concurrent sessions of one
         # identity don't swallow each other's liveness.
-        last = conn.execute("""SELECT id,status,current_step FROM events
+        last = conn.execute("""SELECT id,status,current_step,last_seen,recv,ts FROM events
             WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=? AND session_id=?
             ORDER BY id DESC LIMIT 1""", (op, rt, ag, sid)).fetchone()
-        if last and last["status"] == status and (last["current_step"] or "") == (step or ""):
+        same_state = (last and last["status"] == status
+                      and (last["current_step"] or "") == (step or ""))
+        confirmed = _last_confirmed_heartbeat(last) if same_state else None
+        if same_state and not _heartbeat_gap_exceeded(confirmed, recv_dt):
             if state_dirty or not _queue_heartbeat(last["id"], recv):
                 # semantic writes stay immediate; otherwise pure liveness can batch.
                 conn.execute("UPDATE events SET last_seen=? WHERE id=?", (recv, last["id"]))
@@ -224,14 +250,19 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
             if state_dirty:
                 _mark_state_dirty()
             return {"ok": True, "heartbeat": True, "verified": bool(verified)}
+        if same_state and confirmed and confirmed != last["last_seen"]:
+            # Preserve the last pending heartbeat as the old segment endpoint
+            # before a stale-gap recovery starts a new row.
+            conn.execute("UPDATE events SET last_seen=? WHERE id=?", (confirmed, last["id"]))
         _drop_pending_heartbeat(last["id"] if last else None)
+        event_source = "heartbeat_resume" if same_state else "heartbeat"
         conn.execute("""INSERT INTO events
           (ts,recv,day,last_seen,v,operator,agent,runtime,session_id,parent_session_id,verified,
            status,task,current_step,model,input,output,meta,source)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
           (ts, recv, day, recv, e.get("v"), op, e.get("agent"), rt, sid,
            e.get("parent_session_id"), verified, status,
-           e.get("task"), step, e.get("model"), inp, outp, meta_json, "heartbeat"))
+           e.get("task"), step, e.get("model"), inp, outp, meta_json, event_source))
         _maybe_prune(conn)
         conn.commit()
     _mark_state_dirty()

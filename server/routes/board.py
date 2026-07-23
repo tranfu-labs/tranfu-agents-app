@@ -93,6 +93,48 @@ def _iter_sessions(conn):
         yield (buf[0]["operator"] + "\x00" + (buf[0]["k"] or ""), cur[2], buf)
 
 
+def _session_active_intervals(rows):
+    """Build confirmed active intervals, splitting gaps beyond the stale limit."""
+    intervals = []
+    active_start = active_last = None
+    for r in rows:
+        event_time = _parse(r["rt_time"])
+        last_seen = max(event_time, _parse(r["ls"]))
+        status = r["status"]
+
+        if (active_start is not None
+                and (event_time - active_last).total_seconds() > STALE_SECONDS):
+            if active_last > active_start:
+                intervals.append((active_start, active_last))
+            active_start = active_last = None
+
+        if status in ACTIVE_ST:
+            if active_start is None:
+                active_start = event_time
+            active_last = max(active_last or event_time, last_seen)
+        elif status in ("done", "error", "idle") and active_start is not None:
+            if event_time > active_start:
+                intervals.append((active_start, event_time))
+            active_start = active_last = None
+
+    if active_start is not None and active_last > active_start:
+        intervals.append((active_start, active_last))
+    return intervals
+
+
+def _merge_intervals(intervals):
+    """Return the wall-clock union for one final Agent identity."""
+    merged = []
+    for start, end in sorted(intervals):
+        if end <= start:
+            continue
+        if not merged or start > merged[-1][1]:
+            merged.append([start, end])
+        elif end > merged[-1][1]:
+            merged[-1][1] = end
+    return [(start, end) for start, end in merged]
+
+
 def metrics(conn):
     """Per identity: day-bucketed active time (today/week/series7/series90) AND
     quality (runs/done/error/avg_sec/auto_rate). One pass over the window."""
@@ -100,6 +142,7 @@ def metrics(conn):
     today = now.date()
     buckets = {}   # key -> {dayiso: seconds}
     qual = {}      # key -> {runs,done,error,active,auto}
+    intervals_by_identity = {}
 
     def add(key, a, b):
         if b <= a:
@@ -116,29 +159,27 @@ def metrics(conn):
 
     for key, _sid, rows in _iter_sessions(conn):
         q = qual.setdefault(key, {"runs": 0, "done": 0, "error": 0, "blocked": 0, "active": 0.0, "auto": 0})
-        active_start = last_ls = None
         saw_wait = False
-        sess_active = 0.0
         for r in rows:
-            t = _parse(r["rt_time"]); last_ls = _parse(r["ls"]); st = r["status"]
+            st = r["status"]
             if st in ACTIVE_ST:                       # running/started/waiting/blocked
                 if st == "waiting":
                     saw_wait = True
                 elif st == "blocked":
                     q["blocked"] += 1
-                if active_start is None:
-                    active_start = t
             elif st in ("done", "error", "idle"):
-                if active_start is not None:
-                    add(key, active_start, t); sess_active += (t - active_start).total_seconds(); active_start = None
                 if st in ("done", "error"):
                     q["runs"] += 1
                     q[("done" if st == "done" else "error")] += 1
                     if st == "done" and not saw_wait:
                         q["auto"] += 1
-        if active_start is not None:   # still running -> count up to last_seen
-            add(key, active_start, last_ls); sess_active += (last_ls - active_start).total_seconds()
-        q["active"] += sess_active
+        session_intervals = _session_active_intervals(rows)
+        intervals_by_identity.setdefault(key, []).extend(session_intervals)
+        q["active"] += sum((end - start).total_seconds() for start, end in session_intervals)
+
+    for key, intervals in intervals_by_identity.items():
+        for start, end in _merge_intervals(intervals):
+            add(key, start, end)
 
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     days7 = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
@@ -1779,7 +1820,7 @@ def _snapshot(conn):
     sessions = conn.execute("""
       SELECT e.* FROM events e
       JOIN (SELECT operator,runtime,COALESCE(agent,runtime) ag,MAX(id) mid FROM events
-            WHERE source='heartbeat' GROUP BY operator,runtime,ag) last
+            WHERE source IN ('heartbeat','heartbeat_resume') GROUP BY operator,runtime,ag) last
       ON e.id = last.mid ORDER BY e.operator ASC, e.id DESC LIMIT 200""").fetchall()
     feed = conn.execute("""SELECT * FROM events WHERE source='heartbeat'
       ORDER BY id DESC LIMIT 40""").fetchall()

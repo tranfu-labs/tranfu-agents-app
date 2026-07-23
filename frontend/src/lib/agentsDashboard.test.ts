@@ -31,6 +31,7 @@ import {
   type AgentFilters,
 } from './agentsDashboard.ts'
 import type { AgentSession } from './types.ts'
+import { makeT } from './i18n.ts'
 import { keyOf } from './utils.ts'
 
 function readSource(relativePath: string) {
@@ -344,4 +345,9 @@ test('agent donut segments preserve legend order and calculate active-time share
   assert.equal(slices[1].offset, 1 / 3)
   assert.equal(slices.reduce((sum, slice) => sum + slice.share, 0), 1)
   assert.equal(slices.reduce((sum, slice) => sum + slice.value, 0), day.active_seconds)
+})
+
+test('agent directory labels last activity as elapsed time in both locales', () => {
+  assert.equal(makeT('zh')('agentLastSeen'), '距上次活跃')
+  assert.equal(makeT('en')('agentLastSeen'), 'Time since last active')
 })

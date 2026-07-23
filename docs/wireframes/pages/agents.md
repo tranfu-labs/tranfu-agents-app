@@ -22,7 +22,7 @@
 │                                                        │                  ╰────────────╯                             │
 │                                                        │●build 38% ●review 26% ●scout 16% ●docs 10% ●其他 10%        │
 ├─ 响应式表格 ⑥ // Agent 明细 ───────────────────────────┴─────────────────────────────────────────────────────────────┤
-│Agent / 状态 / 任务                   │操作员    │今天时长/天数 │累计质量  │Skills/MCP  │Shim    │最近活跃            │
+│Agent / 状态 / 任务                   │操作员    │今天时长/天数 │累计质量  │Skills/MCP  │Shim    │距上次活跃          │
 │build · 运行中 › 构建 Agents dashboard│alice     │4h32m / 1天   │91%       │3 / 3       │current │9秒前 ›             │
 │review · 空闲 › 复核交互与口径        │bob       │3h08m / 1天   │96%       │2 / 1       │current │2分钟前 ›           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -58,7 +58,8 @@
 │build · 运行中           ›   │
 │操作员 alice                 │
 │今天 4h32m / 1天 · 累计91%   │
-│Skill3 · MCP3 · current · 9s │
+│Skill3 · MCP3 · current      │
+│距上次活跃 9秒前             │
 ├─ KPI 网格 ② 今天变化 2×4 ───┤
 │总时长11h54   平均1h42       │
 │活跃7         Agent总数12    │
@@ -93,7 +94,7 @@
 | ③ | 问题线索 | 点击回填 `status=attention&signal=...`，手机优先显示 | `/api/agents.signals` | agents health |
 | ④ | Agent 时长排行 | 非零 Agent 按窗口时长降序；整行下钻 `/agent/:key` | `/api/agents.ranking` | AgentRankPanel |
 | ⑤ | 单日扇形 / 多日趋势 | 固定 `active_seconds`；单日按 Agent 分扇区、中心总时长；多日按 Agent 堆叠 | `/api/agents.daily` | AgentActivityChart |
-| ⑥ | Agent 明细 | 显示操作员、隐藏运行终端；默认窗口时长排序；整行下钻 | `/api/agents.agents` | AgentDirectoryTable |
+| ⑥ | Agent 明细 | 显示操作员、隐藏运行终端；相对时间明确标为“距上次活跃 / Time since last active”；默认窗口时长排序；整行下钻 | `/api/agents.agents` | AgentDirectoryTable |
 
 ### 加载态
 

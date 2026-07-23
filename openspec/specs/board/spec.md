@@ -47,9 +47,13 @@
 2. 每张卡合并:计算所得活跃(today/week/series7/`active_days`[90])、质量(runs/success/error/avg_sec/auto_rate)、
    复用(跨人技能重叠),以及该身份最新 profile 字段。
 3. **掉线判定**:`running/started` 且距 `last_seen` 超过 `STALE_SECONDS=180` 秒 → 展示为 `idle`。
-4. 活跃统计窗口 `WINDOW_DAYS=90`,按服务端统计时区 `Asia/Shanghai` 日;跨天会话按该时区当天边界拆分。
+4. 活跃统计窗口 `WINDOW_DAYS=90`,按服务端统计时区 `Asia/Shanghai` 日。时长先按 session 从服务端
+   `recv/last_seen` 构造连续段:相邻事件距最后确认心跳 `> STALE_SECONDS=180` 秒时,旧段停在最后确认心跳,
+   后续存活事件从自身 `recv` 开新段,迟到终态不得回填断线期间。随后按最终身份
+   `(operator, agent‖runtime)` 对全部 session 区间取并集,再按上海日边界拆分;不得直接相加重叠 session,
+   单 Agent 单统计日不得超过 86,400 秒。
 5. `totals.live` 仅计 `status ∈ {running, started, waiting}`。
-6. `feed` 为真实状态转变(非心跳),倒序。
+6. `feed` 为真实状态转变(非心跳),倒序;同状态长断档恢复的内部 `heartbeat_resume` 计时边界不得进入 feed。
 7. leverage = `{assets, skills_week}`。`assets` 为 `skill_uses WHERE mode='used'` 的 distinct skill 数;
    `skills_week` 为当前 7 天窗口内历史首次 `used` 的 distinct skill 数。历史首次日定义为该 skill 在
    `skill_uses WHERE mode='used'` 的最小 `day`;profile installed、`skills_seen` only、`equipped` only
@@ -467,10 +471,10 @@
 ## Agents 运营看板（2026-07-13）
 
 - `/api/state` 与 `/api/state/stream` 顶层可返回 `agent_overview`。对象包含 `today`、90 天 `days[]`、`summary`、`daily[]`、`runtime[]`、`operator[]`；日期为服务端 `Asia/Shanghai` 统计日，时长为秒。
-- `agent_overview` 的聚合以最终身份卡片为单位，遵守 `operator + agent||runtime` 合并规则；`summary` 的 runs/success/errors/blocked 沿用 Agent card 的 quality 口径。现有 state 字段保持兼容，缺失 `agent_overview` 时前端由 sessions 降级构建。
+- `agent_overview` 的聚合以最终身份卡片为单位，遵守 `operator + agent||runtime` 合并规则；时长复用 session 连续段经最终身份区间并集后生成的 `active_days`，`summary` 的 runs/success/errors/blocked 沿用 Agent card 的 quality 口径。现有 state 字段保持兼容，缺失 `agent_overview` 时前端由 sessions 降级构建。
 - `/agents` 独立请求 `/api/agents`，不得等待全局 `/api/state` 首包后才挂载；首次加载和 query 变化期间先显示与信息架构对应的 skeleton，失败显示可重试错误态且不得在新 URL 下保留旧统计。custom 半填写态保留真实控制条及日期输入，只 skeleton 数据区。统计集合为当前搜索、状态与问题线索范围内的全部 Agent 身份卡片，`summary.total_agents` 也使用该过滤集合；统计对象固定为 Agent，主指标固定为所选窗口运行时长。桌面/平板信息流为控制条 → 单一八卡时间窗变化/快照 → 问题线索 → Agent 运行时长排行与趋势 → Agent 明细；变化使用 replace，不得使用浏览器存储。
 - 问题线索至少包含当前异常/阻塞、Shim outdated/unknown、最近 14 天无活跃、至少 3 runs 且成功率低于 80%；线索是事实提示，不作为评分或成本指标。
-- Agent 明细为可扫描的响应式表格，保留 Agent 身份、当前状态、任务/步骤、操作员、当前选择窗口的活跃时长与活跃天数、累计质量、Skill、MCP、Shim 和最近活跃；必须显示操作员列，不得显示运行终端列。整行键盘可达并进入 `/agent/:key`。桌面显示完整列，平板只允许表格容器内部横滚，手机以含操作员的同一语义表格行压缩为摘要，不得造成页面根横向滚动。
+- Agent 明细为可扫描的响应式表格，保留 Agent 身份、当前状态、任务/步骤、操作员、当前选择窗口的活跃时长与活跃天数、累计质量、Skill、MCP、Shim 和“距上次活跃 / Time since last active”相对时间；必须显示操作员列，不得显示运行终端列。整行键盘可达并进入 `/agent/:key`。桌面显示完整列，平板只允许表格容器内部横滚，手机以含操作员的同一语义表格行压缩为摘要，不得造成页面根横向滚动。
 - `/agents` 支持中英文、system/light/dark 主题和 `>1080px` 桌面、`601–1080px` 平板、`≤600px` 手机布局；新增 Agents 前端状态不得持久化。
 
 ### Agents 控制条与八卡事实区
@@ -498,6 +502,8 @@
 - 单日窗口只有一个真实统计日：有正时长时按 Agent 显示 Top 8 + 其他的环形扇形图，圆环中心显示全部 Agent 总运行时长，图上方直显当日 Agent 数与时长；颜色、图例、hover/focus 降权、tooltip 与主题变量必须和多日柱状图同构；不得伪造小时数据。全窗时长为 0 时只显示 Empty，不绘制空圆环、坐标轴、日期或零高度柱。
 - Agent 明细表与趋势使用 `/api/agents` 返回的同一组经过 `q/status/signal` 筛选的 Agent 和同一 `w/wstart/wend` 窗口统计，不得在浏览器另算另一套集合。排序支持最近活跃、窗口活跃时长、窗口活跃天数、累计成功率、累计错误数和名称；旧 URL 的 `sort=today|week` 分别兼容映射到窗口活跃时长/窗口活跃天数。质量必须明确标为累计口径，不得伪装成窗口统计。
 - 统计基数继续使用按 `operator + agent||runtime` 合并后的身份卡片，不得退化为按 session 展示或计数；同名 Agent 身份不得跨身份合并时长，必要时以稳定后缀区分显示。
+- `/api/state` 卡片的 `today_active/week_active/active_series/active_days`、`agent_overview`、`totals.today_active`，
+  以及 `/api/agents` 的 summary/comparison/daily/ranking/agents 与 `/agent/:key` 详情必须复用同一身份并集日序列，不得分别计算另一套时长。
 
 ### Agents 手机优先级
 
@@ -518,6 +524,8 @@
 - 1440×900 下八卡一行，排行在左、趋势在右且底边差值不超过 4px；768×1024 下八卡四列且分析区单列；375×812 下八卡两列，问题线索之后先出现 Agent 明细。
 - 全窗运行时长为 0 时趋势无 SVG 坐标轴；有效单日正值显示按 Agent 分区的环形扇形图且不显示日期柱，中心总值等于全部扇区原值之和；7 日正值图无根横滚且柱宽不超过 30px；30 日正值图默认滚到容器末端且根 `scrollWidth <= clientWidth`。
 - Agent 排行与明细窗口时长来自同一批已合并身份卡片和同一组窗口日；排行第一行是当前窗口时长最大的非零 Agent。
+- 同一 Agent 两个重叠 session 的窗口时长、日趋势、排行、八卡与明细等于区间并集而非 session 时长之和；
+  长断档停在最后确认心跳，迟到终态不回填，且任一 Agent 单日时长不超过 86,400 秒。
 - 图表顺序 Tab 只有一个日期停靠点；方向键切换后 tooltip 显示分组分布并同时保留总人数与总时长，Escape 关闭。KPI、问题线索、排行和 Agent 明细行均保留既定 URL 或下钻语义。
 
 ## Skill 双语显示名称（2026-07-14）
