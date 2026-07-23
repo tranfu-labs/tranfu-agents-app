@@ -25,6 +25,7 @@ agent 机器                         中心服务器(单容器)                 
   Skill 读模型保留 slug identity,并从 catalog/profile 统一附加 `display_name/display_name_zh` 与批量名称映射,
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   连续段内纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入;
+  最后确认心跳取 SQLite/pending 较新值,任何新行插入前固化旧行 pending,flush 与 ingest 在全局写锁内原子交接且失败保留 pending;
   同状态/同步骤超过 180 秒后恢复必须落新行并保留旧段末点,
   `/healthz` 必须是 async 轻量响应且不得依赖 DB/聚合读路径。
 - **入口(路由)**:`POST /v1/events`、`GET /api/state`、`GET /api/state/stream`、`GET /api/agents`、`GET /api/skills`、`GET /api/skills/evidence`、`GET /api/skill/{name}`、

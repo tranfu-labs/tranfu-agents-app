@@ -18,11 +18,15 @@
    `<= STALE_SECONDS=180` 秒时视为纯心跳,响应 `{"heartbeat": true}`,且不进活动流。二者相同但间隔
    `> 180` 秒时必须落一条内部 `heartbeat_resume` 行作为新连续段起点,不得覆盖旧行 `last_seen`;
    最新卡片与活跃时长必须读取恢复行,活动流不得读取它。上一条已确认心跳必须同时考虑 SQLite `last_seen`
-   与 pending map 中尚未 flush 的最新值;切新段前须把 pending 末点固化到旧行。纯心跳 `last_seen` 默认可进入进程内 batch:
+   与 pending map 中尚未 flush 的最新值,并取两者较新的有效时间;旧 pending 不得回退 SQLite 时间。
+   同状态/同步骤的即时语义写入须淘汰已被覆盖的旧 pending;插入同一 session 的任何新事件行前须把上一行
+   尚未落库且较新的 pending 末点固化到 SQLite。纯心跳 `last_seen` 默认可进入进程内 batch:
    当事件无其它即时写入语义时,服务端可以不立即 `UPDATE events.last_seen`,而是将最新 `last_seen` 放入 pending map,
    由后台 flush 按 `TF_HEARTBEAT_BATCH_SECONDS` 间隔用一个 SQLite 事务批量写入。batch flush 成功后必须通知 board 域
    state dirty,以便 SSE / cache 后续展示最新 liveness。服务进程异常退出时,允许丢失最多一个 batch 窗口内的纯心跳
-   liveness 刷新;状态变化事件不得丢。`TF_HEARTBEAT_BATCH_SECONDS=0` 时禁用 batch,恢复每次纯心跳即时更新。
+   liveness 刷新;状态变化事件不得丢。flush 与 ingest 必须原子协调,pending 不得在对应 SQLite commit 前
+   暂时不可见;SQLite 写入失败时 pending 必须保留以供重试。`TF_HEARTBEAT_BATCH_SECONDS=0` 时禁用 batch,
+   恢复每次纯心跳即时更新。
 3. 收到含 profile 字段的事件时,按身份**更新该身份最新 profile**(`profiles` 表);技能名首次出现记入 `skills_seen.first_day`。
 4. 事件同时具备 `skill` 与 `session_id` 时,服务端记录"该会话用过/装备过该 skill",
    以 `(session_id, skill, mode)` 幂等。`mode` 取自可选 `skill_mode ∈ {used,equipped}`,
@@ -87,6 +91,10 @@
 - 同状态/同步骤距最后确认心跳超过 180 秒后恢复 → 插入 `heartbeat_resume` 新段,旧行 `last_seen`
   保持最后确认心跳,最新卡片可见恢复状态,活动流不新增伪状态变化。
 - pending map 中存在比 DB 更新的最后确认心跳 → 断档阈值以 pending 时间计算;确需切段时先固化该时间。
+- pending 早于 DB `last_seen` → 断档阈值取 DB 时间,后续 flush 不得造成时间回退或虚假恢复行。
+- pending 后发生即时 skill/profile/shim 写入 → DB 推进到当前 `recv` 并淘汰旧 pending。
+- pending 后发生状态/步骤变化 → 新行插入前旧行 `last_seen` 固化为 pending 末点。
+- flush 与 ingest 并发 → ingest 只能观察 flush 前 pending 或 flush 后 DB;flush 失败则 pending 保留重试。
 - 连发两条相同 `status+current_step` 的纯心跳,且 `TF_HEARTBEAT_BATCH_SECONDS > 0` → 第二条返回 `heartbeat:true`;
   flush 前 DB 中上一事件行 `last_seen` 不变;flush 后 `last_seen` 变为最新接收时间。
 - `TF_HEARTBEAT_BATCH_SECONDS=0` 时,纯心跳立即更新 `events.last_seen`,保持旧行为。

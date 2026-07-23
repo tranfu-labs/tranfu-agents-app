@@ -45,6 +45,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - **服务端只用标准库 + FastAPI/uvicorn**;数据库是单文件 SQLite(`$TF_DB`,默认 `tf.db`),不引入外部 DB/中间件。
 - `/api/state` 与 `/api/state/stream` 是实时看板状态读路径,服务端必须做进程内 TTL 缓存(默认 `TF_STATE_TTL=1.5` 秒)与 single-flight 重算保护;前端优先 SSE,失败才回退 adaptive polling。快照保留 `agent_overview`(90 天 Agents 活跃/质量聚合)兼容;`/api/agents` 是 Agents 页面和外部消费者的独立指定窗口读接口,必须复用同一份最终身份卡片快照,不得复制身份/质量计算。
   纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒批量写入 SQLite,状态/步骤变化、skill、profile、shim 版本变化仍即时落库;
+  最后确认心跳必须取 SQLite 与 pending 中的较新时间,即时写入不得被旧 pending 回退;任何新事件行插入前须固化旧行 pending 末点,
+  flush 必须在全局写锁内完成 pending 快照与 SQLite commit,失败时保留 pending 重试;
   同状态/同步骤距最后确认心跳超过 `STALE_SECONDS=180` 秒后恢复必须落新行并保留旧段末点;活跃时长先按 session 拆连续段,
   再按最终身份 `operator + agent||runtime` 对重叠区间取并集并按上海统计日切分,排行/趋势/八卡/明细/Agent 详情复用该日序列,
   单 Agent 单日不得超过 86,400 秒;迟到终态不得回填断线期间;

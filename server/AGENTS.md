@@ -56,7 +56,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
   不得复制身份/profile/质量计算;`ranking[]`、`agents[]` 与每日 identity 分段都必须显式返回 `operator`。
 - 活跃时长必须由 `routes/board.py` 先按 session 以 `STALE_SECONDS` 拆连续段,再按最终身份对区间取并集并按上海日切分;
   `/api/state`、`/api/agents` 与 Agent 详情不得另算。`routes/ingest.py` 对同状态/同步骤的长断档恢复必须落新行,
-  且先把 pending batch 的最后确认心跳固化为旧段末点。
+  且任何新事件行插入前都要把 pending batch 的最后确认心跳固化为旧段末点。SQLite 与 pending 同时存在时取较新值;
+  ingest/flush 同时需要锁时固定按 `app._lock → _heartbeat_pending_lock` 获取,SQLite commit 成功后才清 pending。
 - `tests/test_module_boundary.py` 守门:
   - `server/app.py` 行数 ≤ 220。
   - `routes/*.py` 可独立 import。

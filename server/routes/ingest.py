@@ -10,6 +10,7 @@ import secrets
 import threading
 import time
 from contextlib import closing
+from datetime import timezone
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -83,8 +84,42 @@ def _pending_heartbeat(event_id):
         return _heartbeat_pending.get(int(event_id))
 
 
+def _latest_heartbeat(*values):
+    """Return the latest parseable timestamp without letting a stale value win."""
+    latest_value = None
+    latest_dt = None
+    for value in values:
+        if not value:
+            continue
+        try:
+            parsed = _parse(value)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if latest_dt is None or parsed > latest_dt:
+            latest_value = value
+            latest_dt = parsed
+    return latest_value
+
+
 def _last_confirmed_heartbeat(last):
-    return _pending_heartbeat(last["id"]) or last["last_seen"] or last["recv"] or last["ts"]
+    return _latest_heartbeat(
+        last["last_seen"], last["recv"], last["ts"], _pending_heartbeat(last["id"]),
+    )
+
+
+def _persist_pending_heartbeat(conn, last):
+    """Stage a newer pending endpoint in SQLite before a successor row is inserted."""
+    if last is None:
+        return None
+    pending = _pending_heartbeat(last["id"])
+    if not pending:
+        return None
+    stored = _latest_heartbeat(last["last_seen"], last["recv"], last["ts"])
+    if _latest_heartbeat(stored, pending) == pending and pending != stored:
+        conn.execute("UPDATE events SET last_seen=? WHERE id=?", (pending, last["id"]))
+    return pending
 
 
 def _heartbeat_gap_exceeded(confirmed, recv_dt):
@@ -93,24 +128,33 @@ def _heartbeat_gap_exceeded(confirmed, recv_dt):
         return False
     try:
         confirmed_dt = _parse(confirmed)
+        if confirmed_dt.tzinfo is None:
+            confirmed_dt = confirmed_dt.replace(tzinfo=timezone.utc)
         return (recv_dt - confirmed_dt).total_seconds() > STALE_SECONDS
-    except (TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError):
         return False
 
 
 def flush_heartbeat_batch():
-    with _heartbeat_pending_lock:
-        batch = dict(_heartbeat_pending)
-        _heartbeat_pending.clear()
-    if not batch:
-        return 0
     from server import app
-    with app._lock, closing(db()) as conn:
-        conn.executemany(
-            "UPDATE events SET last_seen=? WHERE id=?",
-            [(last_seen, event_id) for event_id, last_seen in sorted(batch.items())],
-        )
-        conn.commit()
+    with app._lock:
+        with _heartbeat_pending_lock:
+            batch = dict(_heartbeat_pending)
+        if not batch:
+            return 0
+        with closing(db()) as conn:
+            conn.executemany(
+                """UPDATE events SET last_seen=? WHERE id=? AND
+                   (last_seen IS NULL OR julianday(last_seen) IS NULL
+                    OR julianday(?) >= julianday(last_seen))""",
+                [(last_seen, event_id, last_seen)
+                 for event_id, last_seen in sorted(batch.items())],
+            )
+            conn.commit()
+        with _heartbeat_pending_lock:
+            for event_id, last_seen in batch.items():
+                if _heartbeat_pending.get(event_id) == last_seen:
+                    _heartbeat_pending.pop(event_id, None)
     _mark_state_dirty()
     return len(batch)
 
@@ -244,17 +288,16 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         if same_state and not _heartbeat_gap_exceeded(confirmed, recv_dt):
             if state_dirty or not _queue_heartbeat(last["id"], recv):
                 # semantic writes stay immediate; otherwise pure liveness can batch.
-                conn.execute("UPDATE events SET last_seen=? WHERE id=?", (recv, last["id"]))
+                last_seen = _latest_heartbeat(confirmed, recv) or recv
+                conn.execute("UPDATE events SET last_seen=? WHERE id=?", (last_seen, last["id"]))
                 state_dirty = True
             conn.commit()
             if state_dirty:
+                # The committed immediate write supersedes any older pending value.
+                _drop_pending_heartbeat(last["id"])
                 _mark_state_dirty()
             return {"ok": True, "heartbeat": True, "verified": bool(verified)}
-        if same_state and confirmed and confirmed != last["last_seen"]:
-            # Preserve the last pending heartbeat as the old segment endpoint
-            # before a stale-gap recovery starts a new row.
-            conn.execute("UPDATE events SET last_seen=? WHERE id=?", (confirmed, last["id"]))
-        _drop_pending_heartbeat(last["id"] if last else None)
+        pending_to_drop = _persist_pending_heartbeat(conn, last)
         event_source = "heartbeat_resume" if same_state else "heartbeat"
         conn.execute("""INSERT INTO events
           (ts,recv,day,last_seen,v,operator,agent,runtime,session_id,parent_session_id,verified,
@@ -265,5 +308,7 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
            e.get("task"), step, e.get("model"), inp, outp, meta_json, event_source))
         _maybe_prune(conn)
         conn.commit()
+        if pending_to_drop is not None:
+            _drop_pending_heartbeat(last["id"])
     _mark_state_dirty()
     return {"ok": True, "logged": True, "verified": bool(verified)}

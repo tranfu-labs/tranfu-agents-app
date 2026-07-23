@@ -1,4 +1,7 @@
+import threading
 from datetime import datetime, timezone
+
+import pytest
 
 from conftest import ev
 
@@ -139,6 +142,150 @@ def test_stale_recovery_persists_pending_endpoint_before_new_segment(client, app
         "2026-06-12T00:05:01+00:00",
     ]
     assert app_mod._heartbeat_pending == {}
+
+
+def test_immediate_semantic_write_supersedes_older_pending(client, app_mod, monkeypatch):
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+        "2026-06-12T00:03:00+00:00",
+        "2026-06-12T00:05:30+00:00",
+    )
+    ev(client, session_id="semantic", current_step="same")
+    ev(client, session_id="semantic", current_step="same")
+    ev(client, session_id="semantic", current_step="same", skill="openai-docs")
+    latest = ev(client, session_id="semantic", current_step="same")
+
+    assert latest.json()["heartbeat"] is True
+    assert len(_event_rows(app_mod, "semantic")) == 1
+    assert _event_row(app_mod, "semantic")["last_seen"] == "2026-06-12T00:03:00+00:00"
+    assert list(app_mod._heartbeat_pending.values()) == ["2026-06-12T00:05:30+00:00"]
+
+    assert app_mod.flush_heartbeat_batch() == 1
+    assert _event_row(app_mod, "semantic")["last_seen"] == "2026-06-12T00:05:30+00:00"
+
+
+def test_state_change_persists_pending_endpoint_before_new_row(client, app_mod, monkeypatch):
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+        "2026-06-12T00:10:00+00:00",
+    )
+    ev(client, session_id="pending-done", current_step="same")
+    ev(client, session_id="pending-done", current_step="same")
+    done = ev(client, session_id="pending-done", status="done", current_step="complete")
+
+    assert done.json()["logged"] is True
+    rows = _event_rows(app_mod, "pending-done")
+    assert [(row["status"], row["last_seen"]) for row in rows] == [
+        ("running", "2026-06-12T00:02:00+00:00"),
+        ("done", "2026-06-12T00:10:00+00:00"),
+    ]
+    assert app_mod._heartbeat_pending == {}
+    agents = client.get(
+        "/api/agents?w=custom&wstart=1781193600&wend=1781193600",
+    ).json()
+    assert agents["summary"]["active_seconds"] == 120
+
+
+def test_flush_does_not_hide_pending_before_database_commit(client, app_mod, monkeypatch):
+    import server.routes.ingest as ingest
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+        "2026-06-12T00:04:30+00:00",
+    )
+    ev(client, session_id="flush-race", current_step="same")
+    ev(client, session_id="flush-race", current_step="same")
+
+    class FlushGate:
+        def __init__(self):
+            self._lock = threading.Lock()
+            self.flush_waiting = threading.Event()
+            self.allow_flush = threading.Event()
+
+        def __enter__(self):
+            if threading.current_thread().name == "test-heartbeat-flush":
+                self.flush_waiting.set()
+                assert self.allow_flush.wait(timeout=5)
+            self._lock.acquire()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self._lock.release()
+
+    gate = FlushGate()
+    monkeypatch.setattr(app_mod, "_lock", gate)
+    result = {}
+
+    def run_flush():
+        try:
+            result["count"] = ingest.flush_heartbeat_batch()
+        except Exception as exc:  # pragma: no cover - assertion reports thread failure
+            result["error"] = exc
+
+    thread = threading.Thread(target=run_flush, name="test-heartbeat-flush")
+    thread.start()
+    assert gate.flush_waiting.wait(timeout=5)
+
+    latest = ev(client, session_id="flush-race", current_step="same")
+    gate.allow_flush.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert "error" not in result
+    assert result["count"] == 1
+    assert latest.json()["heartbeat"] is True
+    assert len(_event_rows(app_mod, "flush-race")) == 1
+    assert _event_row(app_mod, "flush-race")["last_seen"] == "2026-06-12T00:04:30+00:00"
+
+
+def test_flush_failure_keeps_pending_for_retry(client, app_mod, monkeypatch):
+    import server.routes.ingest as ingest
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+    )
+    ev(client, session_id="flush-retry", current_step="same")
+    ev(client, session_id="flush-retry", current_step="same")
+    pending = dict(app_mod._heartbeat_pending)
+
+    class FailingConnection:
+        def executemany(self, *_args):
+            raise RuntimeError("database unavailable")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ingest, "db", lambda: FailingConnection())
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        ingest.flush_heartbeat_batch()
+
+    assert dict(app_mod._heartbeat_pending) == pending
+
+
+def test_legacy_naive_heartbeat_times_are_interpreted_as_utc():
+    import server.routes.ingest as ingest
+
+    assert ingest._latest_heartbeat(
+        "2026-06-12T00:02:00",
+        "2026-06-12T00:01:00+00:00",
+    ) == "2026-06-12T00:02:00"
+    assert ingest._heartbeat_gap_exceeded(
+        "2026-06-12T00:02:00",
+        datetime(2026, 6, 12, 0, 5, 1, tzinfo=timezone.utc),
+    ) is True
 
 
 def test_skill_heartbeat_stays_immediate(client, app_mod, monkeypatch):
