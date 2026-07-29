@@ -1,6 +1,7 @@
 # ADR-0013 活跃时长用服务端时间;blocked 计活跃且单列;心跳 60s / stale 180s
 
-- 状态:Accepted
+- 状态:Superseded
+- 被取代:ADR-0025
 - 关联:PROTOCOL.md §1 §6、ADR-0003(心跳去重)
 
 ## 背景 / 问题

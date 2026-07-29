@@ -250,8 +250,9 @@ shim 会在轮次/会话结束时**本地读取该会话的 rollout 文件**，�
 - **质量块**（`runs / success / error / blocked / avg_sec / auto_rate`）：从事件历史推导。
 - **活跃时长**：用服务端落库时间（`recv`）构造连续段；断档超过 180s 时停在最后确认心跳，
   恢复后从新事件开始，迟到终态不回填断线期间。同一最终身份 `operator + agent||runtime` 的
-  并行/重叠 session 按区间并集计算，再按 `Asia/Shanghai` 天分桶（today / week / 7日 / 90日）。
-  因此单 Agent 单统计日最多 86,400 秒。
+  每个 session 独立按 `Asia/Shanghai` 天分桶（today / week / 7日 / 90日）后累加；并行/重叠
+  session 的时长不去重，因此单 Agent 单统计日可以超过 86,400 秒。该值表达可观测 session
+  工作量之和，不是墙钟在线率；同一 session 内的重复心跳仍只推进最后确认时间，不按事件条数重复计时。
 - **reuse**：跨 operator 的技能名重叠信号。
 - **leverage**（`assets` / `skills_week`）：从团队上报过的技能推导。口径是
   **"累计曾出现过的技能资产"**（cumulative），不是"当前在用"。

@@ -18,7 +18,7 @@ agent 机器                         中心服务器(单容器)                 
 
 ### M1 — 服务端 collector (`server/app.py`)
 - **职责**:接收事件、去重落库、按身份计算活跃/质量/复用/leverage、聚合 Agents 运营 overview 与 Skill 使用/公司库采纳统计(读侧返回 `Asia/Shanghai` `today` 作为图表时间轴右端;
-  活跃时长先按 session 以 180 秒断档拆连续段,再按最终 `operator + agent||runtime` 身份取区间并集并按上海日切分)、
+  活跃时长先按 session 以 180 秒断档拆连续段并按上海日切分,再按最终 `operator + agent||runtime` 身份逐 session 累加,重叠区间不去重)、
   提供看板 SPA 与 API、分发安装脚本与 shim;`/api/state` 与 `/api/state/stream` 快照必须经进程内 TTL 缓存和 single-flight 复用,
   `/api/agents` 从同一最终身份卡片快照输出指定时间窗的 Agents summary/comparison/daily/ranking/agents/signals,
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL;

@@ -48,9 +48,9 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
   最后确认心跳必须取 SQLite 与 pending 中的较新时间,同一事件 pending 入队单调不减,即时写入不得被旧 pending 回退;
   任何新事件行插入前须固化旧行 pending 末点,flush 必须在全局写锁内完成 pending 快照与 SQLite commit,
   失败时保留 pending 且后台循环继续按间隔重试;
-  同状态/同步骤距最后确认心跳超过 `STALE_SECONDS=180` 秒后恢复必须落新行并保留旧段末点;活跃时长先按 session 拆连续段,
-  再按最终身份 `operator + agent||runtime` 对重叠区间取并集并按上海统计日切分,排行/趋势/八卡/明细/Agent 详情复用该日序列,
-  单 Agent 单日不得超过 86,400 秒;迟到终态不得回填断线期间;
+  同状态/同步骤距最后确认心跳超过 `STALE_SECONDS=180` 秒后恢复必须落新行并保留旧段末点;活跃时长先按 session 拆连续段并按上海统计日切分,
+  再按最终身份 `operator + agent||runtime` 逐 session 累加,重叠区间不得去重,单 Agent 单日允许超过 86,400 秒;
+  排行/趋势/八卡/明细/Agent 详情复用该日序列,迟到终态不得回填断线期间;
   响应 `now` 表示"上次服务端计算时间",不是每次请求的当前时间。`/healthz` 必须是 async 轻量 handler,
   固定返回 `ok`,不得打开 DB 或触发 IO,避免被 `/api/state` 聚合压力拖慢。
 - `/api/skills` 是低频但重聚合读路径,必须优先通过 SQLite 组合索引与 SQL 预聚合优化,避免把 raw

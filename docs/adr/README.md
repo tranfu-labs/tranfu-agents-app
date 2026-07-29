@@ -17,7 +17,7 @@
 | 0010 | 本地 hooks 配置必须幂等且可回退(Claude Code / Codex) | Accepted |
 | 0011 | per-operator 令牌身份(轻量入职注册,不做账号体系) | Accepted |
 | 0012 | 读侧鉴权是内容上报的硬前提(服务端强制丢弃敏感字段) | Accepted |
-| 0013 | 活跃时长用服务端时间;blocked 计活跃且单列;心跳 60s / stale 180s | Accepted |
+| 0013 | 活跃时长用服务端时间;blocked 计活跃且单列;心跳 60s / stale 180s | Superseded by 0025 |
 | 0014 | 存储与 schema:限流 / 90天保留+WAL / profile 全量覆盖 / session 去重 / parent / 版本号 | Accepted |
 | 0015 | Skill 使用按会话去重统计 | Accepted |
 | 0016 | Codex skill 使用从会话文件(rollout)补采 | Accepted |
@@ -29,3 +29,4 @@
 | 0022 | Hermes 钩子链路常态结构化诊断日志(默认开 / 双文件 5MB rotate / 不与 harden-codex 重复 raw dump) | Proposed |
 | 0023 | 主题偏好的 localStorage 窄例外 | Proposed |
 | 0024 | Codex Hook 信任只对完整唯一纯换序自动恢复；新 hash 仍由用户确认 | Accepted |
+| 0025 | 并行 Agent session 运行时长逐 session 累加（取代 0013） | Accepted |

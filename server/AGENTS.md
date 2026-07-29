@@ -54,7 +54,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
 - `/api/state` 的 `agent_overview` 必须在最终身份卡片之后聚合,遵守 `operator + agent||runtime` 合并口径;
   其 90 天日序列、Runtime/操作员分组与 summary 必须复用同一 state snapshot。`/api/agents` 同样必须从该最终快照身份卡片生成指定窗口统计,
   不得复制身份/profile/质量计算;`ranking[]`、`agents[]` 与每日 identity 分段都必须显式返回 `operator`。
-- 活跃时长必须由 `routes/board.py` 先按 session 以 `STALE_SECONDS` 拆连续段,再按最终身份对区间取并集并按上海日切分;
+- 活跃时长必须由 `routes/board.py` 先按 session 以 `STALE_SECONDS` 拆连续段并按上海日切分,再按最终身份逐 session 累加;
+  不同 session 的重叠区间不得去重或按 86,400 秒封顶;
   `/api/state`、`/api/agents` 与 Agent 详情不得另算。`routes/ingest.py` 对同状态/同步骤的长断档恢复必须落新行,
   且任何新事件行插入前都要把 pending batch 的最后确认心跳固化为旧段末点。SQLite 与 pending 同时存在时取较新值;
   同一事件 pending 入队必须单调不减;ingest/flush 同时需要锁时固定按

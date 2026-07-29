@@ -32,7 +32,7 @@ import {
 } from './agentsDashboard.ts'
 import type { AgentSession } from './types.ts'
 import { makeT } from './i18n.ts'
-import { keyOf } from './utils.ts'
+import { dur, keyOf } from './utils.ts'
 
 function readSource(relativePath: string) {
   for (const candidate of [path.join(process.cwd(), relativePath), path.join(process.cwd(), 'frontend', relativePath)]) {
@@ -71,6 +71,10 @@ test('agent filters normalize unknown URL values and preserve meaningful params'
   assert.equal(agentFiltersQuery(parseAgentFilters('?rank=runtime&rt=codex&op=alice')), '')
   assert.equal(parseAgentFilters('?sort=today').sort, 'window_time')
   assert.equal(parseAgentFilters('?sort=week').sort, 'window_days')
+})
+
+test('agent duration formatting keeps cumulative hours above one day', () => {
+  assert.equal(dur(12 * 86_399), '287h 59m')
 })
 
 test('agent route lifecycle never presents stale data as a completed failed query', () => {

@@ -218,6 +218,92 @@ def test_state_change_persists_pending_endpoint_before_new_row(client, app_mod, 
     assert agents["summary"]["active_seconds"] == 120
 
 
+def test_pending_endpoint_survives_interleaved_state_change_and_adds_parallel_session(
+        client, app_mod, monkeypatch):
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:01:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+        "2026-06-12T00:04:00+00:00",
+        "2026-06-12T00:10:00+00:00",
+    )
+    ev(client, session_id="parallel-pending-a", current_step="same")
+    ev(client, session_id="parallel-pending-b", current_step="same")
+    ev(client, session_id="parallel-pending-a", current_step="same")
+
+    a_id = _event_row(app_mod, "parallel-pending-a")["id"]
+    assert app_mod._heartbeat_pending[a_id] == "2026-06-12T00:02:00+00:00"
+
+    ev(client, session_id="parallel-pending-b", status="done", current_step="complete")
+    assert _event_row(app_mod, "parallel-pending-a")["last_seen"] == "2026-06-12T00:00:00+00:00"
+    assert app_mod._heartbeat_pending[a_id] == "2026-06-12T00:02:00+00:00"
+
+    ev(client, session_id="parallel-pending-a", status="done", current_step="complete")
+    assert [(row["status"], row["last_seen"]) for row in _event_rows(
+        app_mod, "parallel-pending-a",
+    )] == [
+        ("running", "2026-06-12T00:02:00+00:00"),
+        ("done", "2026-06-12T00:10:00+00:00"),
+    ]
+    assert app_mod._heartbeat_pending == {}
+
+    agents = client.get(
+        "/api/agents?w=custom&wstart=1781193600&wend=1781193600",
+    ).json()
+    assert agents["summary"]["active_seconds"] == 300
+    assert agents["summary"]["active_agents"] == 1
+    assert agents["agents"][0]["active_seconds"] == 300
+    assert agents["daily"][0]["active_seconds"] == 300
+    assert agents["ranking"][0]["active_seconds"] == 300
+
+
+def test_old_and_out_of_order_pending_do_not_duplicate_parallel_session_time(
+        client, app_mod, monkeypatch):
+    import server.routes.ingest as ingest
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:01:00+00:00",
+        "2026-06-12T00:03:00+00:00",
+        "2026-06-12T00:04:00+00:00",
+    )
+    ev(client, session_id="parallel-order-a", current_step="same")
+    ev(client, session_id="parallel-order-b", current_step="same")
+    a_id = _event_row(app_mod, "parallel-order-a")["id"]
+
+    assert ingest._queue_heartbeat(a_id, "2026-06-12T00:02:00+00:00") is True
+    assert ingest._queue_heartbeat(a_id, "2026-06-12T00:01:30+00:00") is True
+    assert app_mod._heartbeat_pending[a_id] == "2026-06-12T00:02:00+00:00"
+
+    duplicate = ev(client, session_id="parallel-order-a", current_step="same")
+    assert duplicate.json()["heartbeat"] is True
+    assert app_mod._heartbeat_pending[a_id] == "2026-06-12T00:03:00+00:00"
+    assert len(_event_rows(app_mod, "parallel-order-a")) == 1
+
+    ev(client, session_id="parallel-order-b", status="done", current_step="complete")
+    assert app_mod._heartbeat_pending[a_id] == "2026-06-12T00:03:00+00:00"
+    assert app_mod.flush_heartbeat_batch() == 1
+    assert _event_row(app_mod, "parallel-order-a")["last_seen"] == "2026-06-12T00:03:00+00:00"
+
+    assert ingest._queue_heartbeat(a_id, "2026-06-12T00:02:30+00:00") is True
+    assert app_mod.flush_heartbeat_batch() == 1
+    assert _event_row(app_mod, "parallel-order-a")["last_seen"] == "2026-06-12T00:03:00+00:00"
+    assert len(_event_rows(app_mod, "parallel-order-a")) == 1
+    assert app_mod._heartbeat_pending == {}
+
+    agents = client.get(
+        "/api/agents?w=custom&wstart=1781193600&wend=1781193600",
+    ).json()
+    assert agents["summary"]["active_seconds"] == 360
+    assert agents["summary"]["active_agents"] == 1
+    assert agents["agents"][0]["active_seconds"] == 360
+    assert agents["agents"][0]["window_active_days"] == 1
+
+
 def test_flush_does_not_hide_pending_before_database_commit(client, app_mod, monkeypatch):
     import server.routes.ingest as ingest
 

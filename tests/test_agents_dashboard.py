@@ -119,7 +119,7 @@ def test_agents_api_returns_window_ranking_operator_and_merged_identities(client
     assert {segment["operator"] for segment in body["daily"][-1]["segments"]} == {"alice", "bob"}
 
 
-def test_agent_duration_unions_overlapping_sessions_across_all_consumers(client, app_mod, monkeypatch):
+def test_agent_duration_sums_overlapping_sessions_across_all_consumers(client, app_mod, monkeypatch):
     monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 12, tzinfo=timezone.utc)))
     with app_mod.db() as conn:
         _insert_run(conn, "alice", "builder", "overlap-a",
@@ -133,14 +133,18 @@ def test_agent_duration_unions_overlapping_sessions_across_all_consumers(client,
     agents = client.get("/api/agents?w=today").json()
     detail = client.get("/api/agent/alice%3A%3Abuilder").json()
 
-    assert card["today_active"] == 3 * 3600
-    assert state["agent_overview"]["daily"][-1]["active_seconds"] == 3 * 3600
-    assert state["totals"]["today_active"] == 3 * 3600
-    assert agents["summary"]["active_seconds"] == 3 * 3600
-    assert agents["daily"][-1]["active_seconds"] == 3 * 3600
-    assert agents["ranking"][0]["active_seconds"] == 3 * 3600
-    assert agents["agents"][0]["active_seconds"] == 3 * 3600
-    assert detail["today_active"] == 3 * 3600
+    assert card["today_active"] == 4 * 3600
+    assert card["quality"]["avg_sec"] == 2 * 3600
+    assert state["agent_overview"]["daily"][-1]["active_seconds"] == 4 * 3600
+    assert state["totals"]["today_active"] == 4 * 3600
+    assert agents["summary"]["active_seconds"] == 4 * 3600
+    assert agents["summary"]["average_active_seconds"] == 4 * 3600
+    assert agents["summary"]["active_agents"] == 1
+    assert agents["daily"][-1]["active_seconds"] == 4 * 3600
+    assert agents["ranking"][0]["active_seconds"] == 4 * 3600
+    assert agents["agents"][0]["active_seconds"] == 4 * 3600
+    assert agents["agents"][0]["window_active_days"] == 1
+    assert detail["today_active"] == 4 * 3600
 
 
 def test_agent_duration_splits_historical_gap_and_late_terminal(client, app_mod, monkeypatch):
@@ -173,7 +177,7 @@ def test_agent_duration_splits_historical_gap_and_late_terminal(client, app_mod,
     assert body["summary"]["active_seconds"] == 4 * 60
 
 
-def test_agent_duration_day_cap_handles_many_overlapping_sessions(client, app_mod, monkeypatch):
+def test_agent_duration_allows_more_than_one_day_for_many_overlapping_sessions(client, app_mod, monkeypatch):
     monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 15, 59, 59, tzinfo=timezone.utc)))
     with app_mod.db() as conn:
         for index in range(12):
@@ -183,8 +187,10 @@ def test_agent_duration_day_cap_handles_many_overlapping_sessions(client, app_mo
 
     body = client.get("/api/agents?w=today").json()
 
-    assert body["summary"]["active_seconds"] == 86_399
-    assert body["summary"]["active_seconds"] <= 86_400
+    assert body["summary"]["active_seconds"] == 12 * 86_399
+    assert body["summary"]["active_seconds"] > 86_400
+    assert body["summary"]["active_agents"] == 1
+    assert body["agents"][0]["window_active_days"] == 1
     assert body["daily"][0]["active_seconds"] == body["ranking"][0]["active_seconds"]
 
 
@@ -193,14 +199,16 @@ def test_agent_duration_crosses_shanghai_midnight_and_window_selection(client, a
     with app_mod.db() as conn:
         _insert_run(conn, "alice", "builder", "midnight-window",
                     "2026-06-12T15:59:00+00:00", "2026-06-12T16:01:00+00:00")
+        _insert_run(conn, "alice", "builder", "midnight-overlap",
+                    "2026-06-12T15:59:30+00:00", "2026-06-12T16:00:30+00:00")
         conn.commit()
 
     today = client.get("/api/agents?w=today").json()
     week = client.get("/api/agents?w=7d").json()
 
-    assert today["summary"]["active_seconds"] == 60
-    assert week["summary"]["active_seconds"] == 120
-    assert [row["active_seconds"] for row in week["daily"][-2:]] == [60, 60]
+    assert today["summary"]["active_seconds"] == 90
+    assert week["summary"]["active_seconds"] == 180
+    assert [row["active_seconds"] for row in week["daily"][-2:]] == [90, 90]
 
 
 def test_agents_api_custom_window_uses_shanghai_days_and_rejects_invalid_ranges(client, app_mod, monkeypatch):

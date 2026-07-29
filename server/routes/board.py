@@ -122,19 +122,6 @@ def _session_active_intervals(rows):
     return intervals
 
 
-def _merge_intervals(intervals):
-    """Return the wall-clock union for one final Agent identity."""
-    merged = []
-    for start, end in sorted(intervals):
-        if end <= start:
-            continue
-        if not merged or start > merged[-1][1]:
-            merged.append([start, end])
-        elif end > merged[-1][1]:
-            merged[-1][1] = end
-    return [(start, end) for start, end in merged]
-
-
 def metrics(conn):
     """Per identity: day-bucketed active time (today/week/series7/series90) AND
     quality (runs/done/error/avg_sec/auto_rate). One pass over the window."""
@@ -142,7 +129,6 @@ def metrics(conn):
     today = now.date()
     buckets = {}   # key -> {dayiso: seconds}
     qual = {}      # key -> {runs,done,error,active,auto}
-    intervals_by_identity = {}
 
     def add(key, a, b):
         if b <= a:
@@ -174,12 +160,9 @@ def metrics(conn):
                     if st == "done" and not saw_wait:
                         q["auto"] += 1
         session_intervals = _session_active_intervals(rows)
-        intervals_by_identity.setdefault(key, []).extend(session_intervals)
-        q["active"] += sum((end - start).total_seconds() for start, end in session_intervals)
-
-    for key, intervals in intervals_by_identity.items():
-        for start, end in _merge_intervals(intervals):
+        for start, end in session_intervals:
             add(key, start, end)
+        q["active"] += sum((end - start).total_seconds() for start, end in session_intervals)
 
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     days7 = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
