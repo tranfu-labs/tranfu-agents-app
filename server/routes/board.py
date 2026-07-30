@@ -1920,6 +1920,42 @@ def skill_detail_payload(conn, name):
 
 
 # ---------------------------------------------------------------- read: snapshot
+_POD_SKILL_SCAN_SOURCES = ("heartbeat", "heartbeat_resume")
+_POD_SKILL_SCAN_STATUS = "done"
+_POD_SKILL_SCAN_PREFIX = "skill: "
+
+
+def _is_pod_skill_scan(row):
+    step = row["current_step"] or ""
+    return (
+        row["source"] in _POD_SKILL_SCAN_SOURCES
+        and row["status"] == _POD_SKILL_SCAN_STATUS
+        and step.casefold().startswith(_POD_SKILL_SCAN_PREFIX)
+    )
+
+
+def _pod_step(conn, row):
+    """Return the Pods-only step projection without rewriting current_step."""
+    if not _is_pod_skill_scan(row):
+        return row["current_step"]
+    agent_key = row["agent"] or row["runtime"] or ""
+    previous = conn.execute("""
+      SELECT current_step FROM events
+      WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=?
+        AND session_id=? AND id<?
+        AND NOT (
+          source IN (?,?)
+          AND COALESCE(status,'')=?
+          AND LOWER(COALESCE(current_step,'')) LIKE ?
+        )
+      ORDER BY id DESC LIMIT 1
+    """, (
+        row["operator"], row["runtime"], agent_key, row["session_id"], row["id"],
+        *_POD_SKILL_SCAN_SOURCES, _POD_SKILL_SCAN_STATUS, _POD_SKILL_SCAN_PREFIX + "%",
+    )).fetchone()
+    return previous["current_step"] if previous is not None else None
+
+
 def _snapshot(conn):
     sessions = conn.execute("""
       SELECT e.* FROM events e
@@ -1939,6 +1975,7 @@ def _snapshot(conn):
 
     def card(r):
         d = dict(r)
+        d["pod_step"] = _pod_step(conn, r)
         d["meta"] = json.loads(d["meta"]) if d.get("meta") else None
         d["fidelity"] = "coarse" if r["runtime"] in CLOUD_RUNTIMES else "full"
         ak = (r["agent"] if "agent" in r.keys() else None) or r["runtime"] or ""

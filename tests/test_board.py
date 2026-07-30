@@ -7,6 +7,13 @@ from datetime import datetime, timezone
 from conftest import ev
 
 
+def _set_ingest_times(monkeypatch, *values):
+    import server.routes.ingest as ingest
+
+    seq = iter(datetime.fromisoformat(value).replace(tzinfo=timezone.utc) for value in values)
+    monkeypatch.setattr(ingest, "now_utc", lambda: next(seq))
+
+
 # ---- /api/agent/{key} -----------------------------------------------------
 def test_agent_detail_404_for_unknown_key(client):
     r = client.get("/api/agent/unknown%3A%3Anope")
@@ -160,6 +167,96 @@ def test_reuse_map_attached_when_skills_shared_across_operators(client):
 def test_state_now_field_present_and_iso(client):
     body = client.get("/api/state").json()
     assert isinstance(body["now"], str) and "T" in body["now"]
+
+
+# ---- Pods-only current_step projection ------------------------------------
+def test_pod_step_skips_skill_scans_without_rewriting_other_consumers(client, app_mod):
+    ev(client, session_id="pod-step", status="running", current_step="tool: Bash")
+    ev(client, session_id="pod-step", status="running", current_step="tool done: Bash")
+    ev(client, session_id="pod-step", status="done", current_step="turn end")
+    ev(client, session_id="pod-step", status="done", current_step="skill: alpha", skill="alpha")
+    ev(client, session_id="pod-step", status="done", current_step="skill: beta", skill="beta")
+
+    state = client.get("/api/state").json()
+    card = next(item for item in state["sessions"] if item["session_id"] == "pod-step")
+    assert card["status"] == "done"
+    assert card["current_step"] == "skill: beta"
+    assert card["pod_step"] == "turn end"
+    feed_steps = [item["current_step"] for item in state["feed"]]
+    assert "turn end" in feed_steps
+    assert "skill: alpha" in feed_steps
+    assert "skill: beta" in feed_steps
+
+    detail = client.get("/api/agent/alice%3A%3Acodex").json()
+    assert detail["current_step"] == "skill: beta"
+    agents = client.get("/api/agents").json()
+    agent_row = next(item for item in agents["agents"] if item["session_id"] == "pod-step")
+    assert agent_row["current_step"] == "skill: beta"
+
+    with app_mod.db() as conn:
+        uses = conn.execute(
+            "SELECT skill FROM skill_uses WHERE session_id=? ORDER BY skill",
+            ("pod-step",),
+        ).fetchall()
+    assert [row["skill"] for row in uses] == ["alpha", "beta"]
+
+
+def test_pod_step_skips_heartbeat_resume_skill_scan(client, app_mod, monkeypatch):
+    app_mod.HEARTBEAT_BATCH_SECONDS = 0
+    _set_ingest_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:00:01+00:00",
+        "2026-06-12T00:03:02+00:00",
+    )
+    ev(client, session_id="resume-scan", status="done", current_step="turn end")
+    ev(client, session_id="resume-scan", status="done", current_step="skill: alpha", skill="alpha")
+    ev(client, session_id="resume-scan", status="done", current_step="skill: alpha", skill="alpha")
+
+    with app_mod.db() as conn:
+        rows = conn.execute(
+            "SELECT source,current_step FROM events WHERE session_id=? ORDER BY id",
+            ("resume-scan",),
+        ).fetchall()
+    assert [(row["source"], row["current_step"]) for row in rows] == [
+        ("heartbeat", "turn end"),
+        ("heartbeat", "skill: alpha"),
+        ("heartbeat_resume", "skill: alpha"),
+    ]
+
+    state = client.get("/api/state").json()
+    card = next(item for item in state["sessions"] if item["session_id"] == "resume-scan")
+    assert card["current_step"] == "skill: alpha"
+    assert card["pod_step"] == "turn end"
+    assert [item["current_step"] for item in state["feed"]].count("skill: alpha") == 1
+
+
+def test_pod_step_does_not_borrow_from_another_session(client):
+    ev(client, session_id="other-session", current_step="other session step")
+    ev(client, session_id="scan-only", status="done", current_step="skill: only", skill="only")
+
+    state = client.get("/api/state").json()
+    card = next(item for item in state["sessions"] if item["session_id"] == "scan-only")
+    assert card["current_step"] == "skill: only"
+    assert card["pod_step"] is None
+
+
+def test_pod_step_preserves_real_task_and_free_step(client):
+    ev(
+        client,
+        operator="bob",
+        session_id="doctor",
+        task="接入自检",
+        current_step="tf-doctor",
+    )
+
+    card = next(
+        item for item in client.get("/api/state").json()["sessions"]
+        if item["session_id"] == "doctor"
+    )
+    assert card["task"] == "接入自检"
+    assert card["current_step"] == "tf-doctor"
+    assert card["pod_step"] == "tf-doctor"
 
 
 # ---- /api/skills daily/operator_daily/funnel ----------------------------

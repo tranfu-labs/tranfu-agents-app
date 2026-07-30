@@ -41,6 +41,7 @@ export type AgentSession = {
   status: Status
   task?: string
   current_step?: string
+  pod_step?: string | null
   ts: string
   last_seen?: string
   fidelity?: string
