@@ -34,7 +34,7 @@ jobs:
       contents: read
     env:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-      ARTIFACT_DIR: ${{ runner.temp }}/token-usage-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+      ARTIFACT_DIR: /tmp/token-usage-recovery-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Validate recovery configuration
         shell: bash
