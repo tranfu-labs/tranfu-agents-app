@@ -24,7 +24,7 @@ agent 机器                         中心服务器(单容器)                 
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL;
   Skill 读模型保留 slug identity,并从 catalog/profile 统一附加 `display_name/display_name_zh` 与批量名称映射,
   `/api/operator/{name}` 以新增 `analysis` 承载 `w/wstart/wend/rt/src` 当前观察范围，旧顶层字段保持兼容，
-  可选 `/api/token-usage` 作为 Sub2API `/api/v1/admin/*` 的唯一浏览器可见 BFF 契约层，认证、分页、聚合、USD 单位、限并发、缓存、降级和脱敏由 `server/token_usage_sub2api.py` 负责；路由只校验查询参数与组装 HTTP 响应，
+  可选 `/api/token-usage` 作为 Sub2API `/api/v1/admin/*` 的唯一浏览器可见 BFF 契约层，认证、分页、聚合、USD 单位、进程级共享限并发、分阶段后台增强、有界 stale-while-revalidate 缓存、降级和脱敏由 `server/token_usage_sub2api.py` 负责；路由只校验查询参数与组装 HTTP 响应，
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   连续段内纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入;
   最后确认心跳取 SQLite/pending 较新值,同一事件 pending 入队单调不减,任何新行插入前固化旧行 pending,

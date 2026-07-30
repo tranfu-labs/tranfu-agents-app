@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeTokenUsagePayload, resolveTokenUsageDisplayState, tokenUsageUrl } from './tokenUsagePayload.ts'
+import { normalizeTokenUsagePayload, resolveTokenUsageDisplayState, tokenUsageSyncDelay, tokenUsageUrl } from './tokenUsagePayload.ts'
 import type { TokenUsagePayload } from './types.ts'
 
 test('token usage API request carries the comparison range in one request', () => {
@@ -76,4 +76,8 @@ test('token usage display state distinguishes all operational states', () => {
   assert.equal(resolveTokenUsageDisplayState(payload({ completeness: 'partial', warnings: [{ code: 'KEY_ENRICHMENT_FAILED' }] })), 'partial')
   assert.equal(resolveTokenUsageDisplayState(payload({ freshness: 'stale' })), 'stale')
   assert.equal(resolveTokenUsageDisplayState(null, 'tokenNoDataHint'), 'unconfigured')
+})
+
+test('token usage syncing uses a bounded retry delay', () => {
+  assert.deepEqual([0, 1, 2, 3, 20].map(tokenUsageSyncDelay), [1500, 3000, 5000, 5000, 5000])
 })

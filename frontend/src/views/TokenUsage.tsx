@@ -1206,13 +1206,14 @@ export function TokenUsageView({
   const refreshSelectedErrors = () => setErrorLogsReload((value) => value + 1)
   const isInitialLoading = loading && !payload
   const displayState = resolveTokenUsageDisplayState(data, error)
-  const statusLabel = displayState === 'syncing' ? 'SYNC' : displayState === 'partial' ? 'PARTIAL' : displayState === 'stale' ? 'STALE' : data?.configured ? (loading && payload ? 'LIVE ⟳' : 'LIVE') : undefined
+  const statusLabel = displayState === 'syncing' ? 'SYNC' : displayState === 'partial' ? 'PARTIAL' : displayState === 'stale' ? 'STALE' : data?.configured ? ((loading && payload) || data?.refreshing ? 'LIVE ⟳' : 'LIVE') : undefined
   const freshness = data?.fetched_at ? new Date(data.fetched_at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
   const freshnessText = [
     freshness ? `最后更新 ${freshness}` : '',
     displayState === 'stale' ? '上游异常' : displayState === 'partial' ? '上游部分异常' : data?.source === 'sub2api' || data?.source === 'upstream' ? '上游正常' : data?.source === 'demo' ? '演示数据' : '',
     data?.freshness === 'stale' ? '使用陈旧缓存' : data?.cached ? '后端缓存' : data?.source === 'sub2api' || data?.source === 'upstream' ? '实时读取' : '',
     displayState === 'syncing' ? '详细指标同步中' : displayState === 'partial' ? '部分详细指标不可用' : '',
+    data?.refreshing && displayState === 'complete' ? '后台刷新中' : '',
     data?.upstream_version ? `Sub2API ${data.upstream_version}` : '',
   ].filter(Boolean).join(' · ')
 

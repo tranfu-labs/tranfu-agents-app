@@ -698,6 +698,7 @@ export type TokenUsagePayload = {
   completeness?: 'complete' | 'partial' | 'stale' | string
   freshness?: 'fresh' | 'cached' | 'stale' | string
   cache_age_seconds?: number
+  refreshing?: boolean
   warnings?: Array<{ code: string; api_key_id?: number }>
   comparison?: {
     label: string

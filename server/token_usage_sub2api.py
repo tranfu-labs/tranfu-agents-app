@@ -21,6 +21,8 @@ SCHEMA_VERSION = 2
 _LIVE_TTL = 60.0
 _HISTORY_TTL = 900.0
 _STALE_TTL = 86400.0
+_METADATA_TTL = 300.0
+_CACHE_MAX_ENTRIES = 128
 _ERROR_PAGE_SIZE = 500
 _ERROR_BULK_LIMIT = 10000
 _LEGACY_QUOTA_PER_USD = 500000
@@ -69,6 +71,9 @@ _CACHE_LOCK = threading.Lock()
 _INFLIGHT: dict[tuple, threading.Event] = {}
 _ENRICHMENT_CONTEXT: dict[tuple, dict] = {}
 _ENRICHING: set[tuple] = set()
+_REFRESH_AFTER: dict[tuple, float] = {}
+_GATE_LOCK = threading.Lock()
+_UPSTREAM_GATES: dict[tuple, threading.BoundedSemaphore] = {}
 _STATUS_LOCK = threading.Lock()
 _STATUS = {
     "upstream_version": "",
@@ -108,6 +113,9 @@ def clear_caches():
         _INFLIGHT.clear()
         _ENRICHMENT_CONTEXT.clear()
         _ENRICHING.clear()
+        _REFRESH_AFTER.clear()
+    with _GATE_LOCK:
+        _UPSTREAM_GATES.clear()
     with _STATUS_LOCK:
         _STATUS.update({
             "upstream_version": "",
@@ -124,6 +132,16 @@ def _utc_iso() -> str:
 
 def _safe_text(value) -> str:
     return _JWT_PATTERN.sub("[redacted]", _SECRET_PATTERN.sub("[redacted]", str(value or "")))[:240]
+
+
+def _upstream_gate(cfg: Sub2APIConfig) -> threading.BoundedSemaphore:
+    key = (cfg.base_url, cfg.auth_mode, cfg.user_id, cfg.max_concurrency)
+    with _GATE_LOCK:
+        gate = _UPSTREAM_GATES.get(key)
+        if gate is None:
+            gate = threading.BoundedSemaphore(cfg.max_concurrency)
+            _UPSTREAM_GATES[key] = gate
+        return gate
 
 
 def _number(value, default=0):
@@ -190,10 +208,12 @@ class Sub2APIClient:
         if raw_body is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=raw_body, headers=headers, method=method)
+        gate = _upstream_gate(self.cfg)
         for attempt in range(2):
             try:
-                with urllib.request.urlopen(request, timeout=self.cfg.timeout) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
+                with gate:
+                    with urllib.request.urlopen(request, timeout=self.cfg.timeout) as response:
+                        payload = json.loads(response.read().decode("utf-8"))
                 break
             except urllib.error.HTTPError as exc:
                 code = "AUTH_FAILED" if exc.code in {401, 403} else "ENDPOINT_MISSING" if exc.code == 404 else "UPSTREAM_HTTP_ERROR"
@@ -534,7 +554,6 @@ def _build_window(
     start: int,
     end: int,
     granularity: str,
-    include_latency: bool,
     core: dict,
 ):
     summary, trends, models, warnings = [], [], [], []
@@ -545,19 +564,16 @@ def _build_window(
 
     def load(key):
         key_id = int(key["id"])
-        snapshot = client.key_snapshot(key_id, start, end, granularity)
+        snapshot = _cached_key_snapshot(client, key_id, start, end, granularity)
         meta, trend, model_rows, totals, top_model = _normalize_snapshot(key, snapshot, client.cfg)
-        latency = None
-        if include_latency:
-            latency = float(client.key_stats(key_id, start, end)["average_duration_ms"])
-        return meta, trend, model_rows, totals, top_model, latency
+        return meta, trend, model_rows, totals, top_model
 
     with ThreadPoolExecutor(max_workers=client.cfg.max_concurrency) as pool:
         future_keys = {pool.submit(load, key): key_id for key_id, key in keys.items()}
         for future in as_completed(future_keys):
             key_id = future_keys[future]
             try:
-                meta, trend, model_rows, totals, top_model, latency = future.result()
+                meta, trend, model_rows, totals, top_model = future.result()
             except Exception as exc:
                 warnings.append({"api_key_id": key_id, "code": getattr(exc, "code", "KEY_ENRICHMENT_FAILED")})
                 summary.append(deepcopy(core_rows[key_id]))
@@ -571,7 +587,7 @@ def _build_window(
                 "input_tokens": totals["input"],
                 "output_tokens": totals["output"],
                 "total_tokens": totals["tokens"],
-                "average_duration_ms": latency,
+                "average_duration_ms": None,
                 "top_model": top_model,
                 "model_count": len(model_rows),
             }
@@ -583,7 +599,7 @@ def _build_window(
                 "quota": _legacy_quota(row["actual_cost_usd"]),
                 "prompt_tokens": row["input_tokens"], "completion_tokens": row["output_tokens"],
                 "token_used": row["total_tokens"],
-                "avg_use_time": None if latency is None else latency / 1000,
+                "avg_use_time": None,
                 "last_used_at": _timestamp(meta["last_used_at_raw"], client.cfg),
             })
             summary.append(row)
@@ -592,7 +608,66 @@ def _build_window(
     return {"summary": summary, "trend": trends, "models": models}, warnings
 
 
-def _cache_load(key: tuple, ttl: float, loader):
+def _load_latencies(client: Sub2APIClient, keys: dict[int, dict], start: int, end: int):
+    values, warnings = {}, []
+
+    def load(key_id):
+        stats = _cached_key_stats(client, key_id, start, end)
+        return key_id, float(stats["average_duration_ms"])
+
+    with ThreadPoolExecutor(max_workers=client.cfg.max_concurrency) as pool:
+        future_keys = {pool.submit(load, key_id): key_id for key_id in keys}
+        for future in as_completed(future_keys):
+            key_id = future_keys[future]
+            try:
+                resolved_id, latency = future.result()
+                values[resolved_id] = latency
+            except Exception as exc:
+                warnings.append({"api_key_id": key_id, "code": getattr(exc, "code", "KEY_LATENCY_FAILED")})
+    return values, warnings
+
+
+def _apply_latencies(data: dict, latencies: dict[int, float]) -> None:
+    for row in data["summary"]:
+        latency = latencies.get(row["api_key_id"])
+        row["average_duration_ms"] = latency
+        row["avg_use_time"] = None if latency is None else latency / 1000
+
+
+def _apply_error_counts(data: dict, counts: dict[int, int]) -> None:
+    for row in data["summary"]:
+        row["error_count"] = counts.get(row["api_key_id"], 0)
+
+
+def _prune_cache_locked(now: float) -> None:
+    protected = set(_INFLIGHT) | _ENRICHING
+    expired = [
+        key for key, entry in _CACHE.items()
+        if key not in protected and now - entry.stored_at > _STALE_TTL
+    ]
+    for key in expired:
+        _CACHE.pop(key, None)
+        _ENRICHMENT_CONTEXT.pop(key, None)
+        _REFRESH_AFTER.pop(key, None)
+    overflow = len(_CACHE) - _CACHE_MAX_ENTRIES
+    if overflow <= 0:
+        return
+    candidates = sorted(
+        (entry.stored_at, key) for key, entry in _CACHE.items() if key not in protected
+    )
+    for _, key in candidates[:overflow]:
+        _CACHE.pop(key, None)
+        _ENRICHMENT_CONTEXT.pop(key, None)
+        _REFRESH_AFTER.pop(key, None)
+
+
+def _cache_store_locked(key: tuple, payload: dict, now: float | None = None) -> None:
+    stored_at = time.time() if now is None else now
+    _CACHE[key] = _CacheEntry(stored_at, deepcopy(payload))
+    _prune_cache_locked(stored_at)
+
+
+def _cache_load(key: tuple, ttl: float, loader, *, allow_stale: bool = True):
     now = time.time()
     owner = False
     with _CACHE_LOCK:
@@ -608,19 +683,20 @@ def _cache_load(key: tuple, ttl: float, loader):
         event.wait(120)
         with _CACHE_LOCK:
             entry = _CACHE.get(key)
-            if entry:
-                return deepcopy(entry.payload), True, now - entry.stored_at > ttl
+            age = None if entry is None else now - entry.stored_at
+            if entry and (age <= ttl or (allow_stale and age <= _STALE_TTL)):
+                return deepcopy(entry.payload), True, age > ttl
         raise Sub2APIError("REFRESH_FAILED", "Sub2API refresh failed")
     try:
         payload = loader()
         with _CACHE_LOCK:
-            _CACHE[key] = _CacheEntry(time.time(), deepcopy(payload))
+            _cache_store_locked(key, payload)
         return payload, False, False
     except Exception as exc:
         _mark_status(error_code=getattr(exc, "code", "UPSTREAM_FAILED"))
         with _CACHE_LOCK:
             entry = _CACHE.get(key)
-        if entry and now - entry.stored_at <= _STALE_TTL:
+        if allow_stale and entry and now - entry.stored_at <= _STALE_TTL:
             return deepcopy(entry.payload), True, True
         raise
     finally:
@@ -643,7 +719,88 @@ def _mark_status(*, version=None, success=False, error_code="", capabilities=Non
             _STATUS["last_error_at"] = _utc_iso()
 
 
-def _full_payload(client: Sub2APIClient, context: dict) -> dict:
+def _component_cache_key(prefix: str, client: Sub2APIClient, start: int, end: int, *parts) -> tuple:
+    cfg = client.cfg
+    date_range = _range_params(start, end, cfg)
+    return (
+        prefix,
+        cfg.base_url,
+        cfg.auth_mode,
+        cfg.user_id,
+        cfg.timezone_name,
+        date_range["start_date"],
+        date_range["end_date"],
+        *parts,
+    )
+
+
+def _component_ttl(end: int) -> float:
+    return _LIVE_TTL if end >= int(time.time()) - 300 else _HISTORY_TTL
+
+
+def _cached_key_trend(client: Sub2APIClient, start: int, end: int, granularity: str) -> list[dict]:
+    upstream_granularity = "hour" if granularity in {"hour", "four_hour"} else "day"
+    cache_key = _component_cache_key("key-trend", client, start, end, upstream_granularity)
+    payload, _, _ = _cache_load(
+        cache_key,
+        _component_ttl(end),
+        lambda: {"rows": client.key_trend(start, end, granularity)},
+        allow_stale=False,
+    )
+    return payload["rows"]
+
+
+def _cached_key_snapshot(client: Sub2APIClient, key_id: int, start: int, end: int, granularity: str) -> dict:
+    upstream_granularity = "hour" if granularity in {"hour", "four_hour"} else "day"
+    cache_key = _component_cache_key("key-snapshot", client, start, end, key_id, upstream_granularity)
+    payload, _, _ = _cache_load(
+        cache_key,
+        _component_ttl(end),
+        lambda: client.key_snapshot(key_id, start, end, granularity),
+        allow_stale=False,
+    )
+    return payload
+
+
+def _cached_key_stats(client: Sub2APIClient, key_id: int, start: int, end: int) -> dict:
+    cache_key = _component_cache_key("key-stats", client, start, end, key_id)
+    payload, _, _ = _cache_load(
+        cache_key,
+        _component_ttl(end),
+        lambda: client.key_stats(key_id, start, end),
+        allow_stale=False,
+    )
+    return payload
+
+
+def _comparison_payload(context: dict, data: dict | None) -> dict | None:
+    if data is None:
+        return None
+    return {
+        "data": data,
+        "range": {
+            "start_timestamp": context["comparison_start"],
+            "end_timestamp": context["comparison_end"],
+            "time_granularity": context["granularity"],
+        },
+    }
+
+
+def _stage_payload(context: dict, current: dict, previous: dict | None, warnings: list[dict], complete: bool) -> dict:
+    stage_warnings = list(warnings)
+    if not complete and not any(item.get("code") == "DETAILS_SYNCING" for item in stage_warnings):
+        stage_warnings.append({"code": "DETAILS_SYNCING"})
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "data": current,
+        "comparison": _comparison_payload(context, previous),
+        "upstream_version": context["version"],
+        "completeness": "complete" if complete and not stage_warnings else "partial",
+        "warnings": stage_warnings,
+    }
+
+
+def _full_payload(client: Sub2APIClient, context: dict, publish=None) -> dict:
     keys = context["keys"]
     current, current_warnings = _build_window(
         client,
@@ -651,15 +808,13 @@ def _full_payload(client: Sub2APIClient, context: dict) -> dict:
         context["start"],
         context["end"],
         context["granularity"],
-        True,
         context["current_core"],
     )
-    error_counts, _ = _all_errors(client, context["start"], context["end"], list(keys))
-    for row in current["summary"]:
-        row["error_count"] = error_counts.get(row["api_key_id"], 0)
-
-    comparison = None
     warnings = list(current_warnings)
+    previous = deepcopy(context["previous_core"]) if context["previous_core"] is not None else None
+    if publish:
+        publish(_stage_payload(context, current, previous, warnings, False))
+
     if context["comparison_start"] and context["comparison_end"]:
         previous, previous_warnings = _build_window(
             client,
@@ -667,34 +822,49 @@ def _full_payload(client: Sub2APIClient, context: dict) -> dict:
             context["comparison_start"],
             context["comparison_end"],
             context["granularity"],
-            False,
             context["previous_core"],
         )
-        previous_error_counts, _ = _all_errors(
-            client,
-            context["comparison_start"],
-            context["comparison_end"],
-            list(keys),
-        )
-        for row in previous["summary"]:
-            row["error_count"] = previous_error_counts.get(row["api_key_id"], 0)
-        comparison = {
-            "data": previous,
-            "range": {
-                "start_timestamp": context["comparison_start"],
-                "end_timestamp": context["comparison_end"],
-                "time_granularity": context["granularity"],
-            },
-        }
         warnings.extend(previous_warnings)
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "data": current,
-        "comparison": comparison,
-        "upstream_version": context["version"],
-        "completeness": "complete" if not warnings else "partial",
-        "warnings": warnings,
-    }
+        if publish:
+            publish(_stage_payload(context, current, previous, warnings, False))
+
+    ancillary = {}
+    workers = 3 if previous is not None else 2
+    with ThreadPoolExecutor(max_workers=min(workers, client.cfg.max_concurrency)) as pool:
+        ancillary[pool.submit(_load_latencies, client, keys, context["start"], context["end"])] = "latencies"
+        ancillary[pool.submit(_all_errors, client, context["start"], context["end"], list(keys))] = "current_errors"
+        if previous is not None:
+            ancillary[
+                pool.submit(
+                    _all_errors,
+                    client,
+                    context["comparison_start"],
+                    context["comparison_end"],
+                    list(keys),
+                )
+            ] = "previous_errors"
+        results = {ancillary[future]: future.result() for future in as_completed(ancillary)}
+
+    latencies, latency_warnings = results["latencies"]
+    _apply_latencies(current, latencies)
+    _apply_error_counts(current, results["current_errors"][0])
+    warnings.extend(latency_warnings)
+    if previous is not None:
+        _apply_error_counts(previous, results["previous_errors"][0])
+    return _stage_payload(context, current, previous, warnings, True)
+
+
+def _mark_enrichment_success() -> None:
+    _mark_status(
+        success=True,
+        capabilities={
+            "inventory": True,
+            "api_keys_trend": True,
+            "snapshot_v2": True,
+            "usage_stats": True,
+            "ops_errors": True,
+        },
+    )
 
 
 def _start_enrichment(cache_key: tuple, cfg: Sub2APIConfig) -> None:
@@ -705,21 +875,18 @@ def _start_enrichment(cache_key: tuple, cfg: Sub2APIConfig) -> None:
         context = deepcopy(_ENRICHMENT_CONTEXT[cache_key])
 
     def enrich():
-        try:
-            payload = _full_payload(Sub2APIClient(cfg), context)
+        def publish(payload):
             with _CACHE_LOCK:
-                _CACHE[cache_key] = _CacheEntry(time.time(), deepcopy(payload))
+                entry = _CACHE.get(cache_key)
+                if entry and entry.payload.get("completeness") != "complete":
+                    _cache_store_locked(cache_key, payload)
+
+        try:
+            payload = _full_payload(Sub2APIClient(cfg), context, publish)
+            with _CACHE_LOCK:
+                _cache_store_locked(cache_key, payload)
                 _ENRICHMENT_CONTEXT.pop(cache_key, None)
-            _mark_status(
-                success=True,
-                capabilities={
-                    "inventory": True,
-                    "api_keys_trend": True,
-                    "snapshot_v2": True,
-                    "usage_stats": True,
-                    "ops_errors": True,
-                },
-            )
+            _mark_enrichment_success()
         except Exception as exc:  # pragma: no cover - exercised through observable cache state
             code = getattr(exc, "code", "ENRICHMENT_FAILED")
             with _CACHE_LOCK:
@@ -729,12 +896,67 @@ def _start_enrichment(cache_key: tuple, cfg: Sub2APIConfig) -> None:
                     if not any(item.get("code") == code for item in warnings):
                         warnings.append({"code": code})
                     entry.payload["warnings"] = warnings
+                _ENRICHMENT_CONTEXT.pop(cache_key, None)
             _mark_status(error_code=code)
         finally:
             with _CACHE_LOCK:
                 _ENRICHING.discard(cache_key)
 
     threading.Thread(target=enrich, name="sub2api-token-usage-enrichment", daemon=True).start()
+
+
+def _start_refresh(cache_key: tuple, cfg: Sub2APIConfig, load_core) -> bool:
+    with _CACHE_LOCK:
+        if cache_key in _ENRICHING or time.time() < _REFRESH_AFTER.get(cache_key, 0):
+            return False
+        _ENRICHING.add(cache_key)
+
+    def refresh():
+        try:
+            load_core()
+            with _CACHE_LOCK:
+                context = deepcopy(_ENRICHMENT_CONTEXT[cache_key])
+            payload = _full_payload(Sub2APIClient(cfg), context)
+            with _CACHE_LOCK:
+                _cache_store_locked(cache_key, payload)
+                _ENRICHMENT_CONTEXT.pop(cache_key, None)
+                _REFRESH_AFTER.pop(cache_key, None)
+            _mark_enrichment_success()
+        except Exception as exc:  # pragma: no cover - exercised through observable cache state
+            code = getattr(exc, "code", "REFRESH_FAILED")
+            with _CACHE_LOCK:
+                entry = _CACHE.get(cache_key)
+                if entry:
+                    warnings = [item for item in entry.payload.setdefault("warnings", []) if item.get("code") != "DETAILS_SYNCING"]
+                    if not any(item.get("code") == "STALE_IF_ERROR" for item in warnings):
+                        warnings.append({"code": "STALE_IF_ERROR"})
+                    if not any(item.get("code") == code for item in warnings):
+                        warnings.append({"code": code})
+                    entry.payload["warnings"] = warnings
+                    entry.payload["completeness"] = "stale"
+                _ENRICHMENT_CONTEXT.pop(cache_key, None)
+                _REFRESH_AFTER[cache_key] = time.time() + _LIVE_TTL
+            _mark_status(error_code=code)
+        finally:
+            with _CACHE_LOCK:
+                _ENRICHING.discard(cache_key)
+
+    threading.Thread(target=refresh, name="sub2api-token-usage-refresh", daemon=True).start()
+    return True
+
+
+def _cached_metadata(client: Sub2APIClient) -> tuple[str, list[dict]]:
+    cfg = client.cfg
+    cache_key = ("metadata", cfg.base_url, cfg.auth_mode, cfg.user_id, cfg.timezone_name)
+
+    def load():
+        with ThreadPoolExecutor(max_workers=min(2, cfg.max_concurrency)) as pool:
+            version_future = pool.submit(client.version)
+            inventory_future = pool.submit(client.list_keys)
+            return {"version": version_future.result(), "inventory": inventory_future.result()}
+
+    payload, _, _ = _cache_load(cache_key, _METADATA_TTL, load, allow_stale=False)
+    return payload["version"], payload["inventory"]
 
 
 def get_usage(cfg: Sub2APIConfig, start: int, end: int, granularity: str, comparison_start: int | None = None, comparison_end: int | None = None):
@@ -749,10 +971,14 @@ def get_usage(cfg: Sub2APIConfig, start: int, end: int, granularity: str, compar
 
     def load_core():
         client = Sub2APIClient(cfg)
-        version = client.version()
-        inventory = client.list_keys()
-        current_discovery = client.key_trend(start, end, granularity)
-        previous_discovery = client.key_trend(comparison_start, comparison_end, granularity) if comparison_start and comparison_end else []
+        version, inventory = _cached_metadata(client)
+        with ThreadPoolExecutor(max_workers=min(2, cfg.max_concurrency)) as pool:
+            current_future = pool.submit(_cached_key_trend, client, start, end, granularity)
+            previous_future = None
+            if comparison_start and comparison_end:
+                previous_future = pool.submit(_cached_key_trend, client, comparison_start, comparison_end, granularity)
+            current_discovery = current_future.result()
+            previous_discovery = previous_future.result() if previous_future else []
         keys = {int(raw["id"]): raw for raw in inventory}
         for key_id, raw in {**_discovered_keys(current_discovery), **_discovered_keys(previous_discovery)}.items():
             keys.setdefault(key_id, raw)
@@ -788,21 +1014,34 @@ def get_usage(cfg: Sub2APIConfig, start: int, end: int, granularity: str, compar
             "warnings": [{"code": "DETAILS_SYNCING"}],
         }
 
-    try:
-        payload, cached, stale = _cache_load(key, ttl, load_core)
-    except Exception as exc:
-        _mark_status(error_code=getattr(exc, "code", "UPSTREAM_FAILED"))
-        raise
-    if payload.get("completeness") == "partial" and not stale:
-        _start_enrichment(key, cfg)
+    current_time = time.time()
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        cache_age = None if entry is None else current_time - entry.stored_at
+        reusable = entry is not None and ttl < cache_age <= _STALE_TTL
+        payload = deepcopy(entry.payload) if reusable else None
+    refresh_started = False
+    if reusable:
+        cached, stale = True, payload.get("completeness") == "stale"
+        refresh_started = _start_refresh(key, cfg, load_core)
+    else:
+        try:
+            payload, cached, stale = _cache_load(key, ttl, load_core)
+        except Exception as exc:
+            _mark_status(error_code=getattr(exc, "code", "UPSTREAM_FAILED"))
+            raise
+        if payload.get("completeness") == "partial" and not stale:
+            _start_enrichment(key, cfg)
     payload["cached"] = cached
     payload["freshness"] = "stale" if stale else "cached" if cached else "fresh"
     with _CACHE_LOCK:
         entry = _CACHE.get(key)
         payload["cache_age_seconds"] = 0 if not entry else max(0, int(time.time() - entry.stored_at))
+        payload["refreshing"] = refresh_started or key in _ENRICHING
     if stale:
         payload["completeness"] = "stale"
-        payload.setdefault("warnings", []).append({"code": "STALE_IF_ERROR"})
+        if not any(item.get("code") == "STALE_IF_ERROR" for item in payload.setdefault("warnings", [])):
+            payload["warnings"].append({"code": "STALE_IF_ERROR"})
     return payload
 
 
@@ -839,6 +1078,8 @@ def status_payload(cfg: Sub2APIConfig) -> dict:
     with _CACHE_LOCK:
         for entry in _CACHE.values():
             newest = max(newest, entry.stored_at)
+        cache_entries = len(_CACHE)
+        refreshing_queries = len(_ENRICHING)
     return {
         "schema_version": SCHEMA_VERSION,
         "provider": "sub2api",
@@ -850,4 +1091,6 @@ def status_payload(cfg: Sub2APIConfig) -> dict:
         "last_error_code": status["last_error_code"],
         "last_error_at": status["last_error_at"],
         "cache_age_seconds": None if not newest else max(0, int(time.time() - newest)),
+        "cache_entries": cache_entries,
+        "refreshing_queries": refreshing_queries,
     }

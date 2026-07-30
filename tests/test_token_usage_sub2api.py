@@ -124,7 +124,7 @@ def test_failed_key_enrichment_keeps_core_values_and_unknown_details(client, mon
     assert row["request_count"] == 2
     assert row["total_tokens"] == 30
     assert row["actual_cost_usd"] is None
-    assert row["average_duration_ms"] is None
+    assert row["average_duration_ms"] == 1250
     assert row["error_count"] == 1
     assert any(item.get("api_key_id") == 7 for item in body["warnings"])
 
@@ -153,6 +153,8 @@ def test_sub2api_status_is_diagnostic_but_secret_free(client, monkeypatch):
     assert body["upstream_version"] == "v0.1.166"
     assert body["auth_mode"] == "admin_key"
     assert body["capabilities"]["snapshot_v2"] is True
+    assert body["cache_entries"] >= 1
+    assert body["refreshing_queries"] == 0
     assert "admin-secret-value" not in response.text
 
 
@@ -478,11 +480,17 @@ def test_usage_stale_fallback_and_unconfigured_errors(monkeypatch):
             "completeness": "complete",
             "warnings": [],
         })
-    monkeypatch.setattr(sub2.Sub2APIClient, "version", lambda _self: (_ for _ in ()).throw(sub2.Sub2APIError("UPSTREAM_UNAVAILABLE", "down")))
+    monkeypatch.setattr(sub2, "_cached_metadata", lambda _client: (_ for _ in ()).throw(sub2.Sub2APIError("UPSTREAM_UNAVAILABLE", "down")))
+    payload = sub2.get_usage(cfg, start, end, "day")
+    assert payload["freshness"] == "cached"
+    assert payload["completeness"] == "complete"
+    assert payload["refreshing"] is True
+    _wait_for_enrichment()
     payload = sub2.get_usage(cfg, start, end, "day")
     assert payload["freshness"] == "stale"
     assert payload["completeness"] == "stale"
-    assert payload["warnings"][-1]["code"] == "STALE_IF_ERROR"
+    assert payload["refreshing"] is False
+    assert any(item["code"] == "STALE_IF_ERROR" for item in payload["warnings"])
     assert sub2.status_payload(cfg)["last_error_code"] == "UPSTREAM_UNAVAILABLE"
 
     unconfigured = sub2.Sub2APIConfig("", "", 0, "Asia/Shanghai", 1, 1)
@@ -504,3 +512,230 @@ def test_background_failure_is_recorded_without_replacing_core(monkeypatch):
         assert sub2._CACHE[key].payload["warnings"] == [{"code": "CONTRACT_MISMATCH"}]
     assert sub2.status_payload(cfg)["last_error_code"] == "CONTRACT_MISMATCH"
     sub2._start_enrichment(("missing",), cfg)
+
+
+def test_upstream_gate_limits_total_concurrency_across_clients(monkeypatch):
+    active = 0
+    maximum = 0
+    lock = threading.Lock()
+
+    class Response:
+        def __enter__(self):
+            nonlocal active, maximum
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            return self
+
+        def __exit__(self, *_args):
+            nonlocal active
+            with lock:
+                active -= 1
+            return False
+
+        def read(self):
+            time.sleep(0.02)
+            return json.dumps({"code": 0, "data": {"version": "v1"}}).encode()
+
+    monkeypatch.setattr(sub2.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    cfg = sub2.config_from_env()
+    clients = [sub2.Sub2APIClient(cfg) for _ in range(8)]
+    threads = [threading.Thread(target=client.version) for client in clients]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert maximum == cfg.max_concurrency == 2
+
+
+def test_core_metadata_and_comparison_trends_run_in_parallel(monkeypatch):
+    active = 0
+    maximum = 0
+    calls = {"version": 0, "inventory": 0, "trend": 0}
+    lock = threading.Lock()
+
+    def observed(name, value):
+        nonlocal active, maximum
+        with lock:
+            calls[name] += 1
+            active += 1
+            maximum = max(maximum, active)
+        time.sleep(0.02)
+        with lock:
+            active -= 1
+        return value
+
+    key = {"id": 7, "name": "key", "quota": 1, "quota_used": 0}
+    trend = [{"date": "2026-07-30", "api_key_id": 7, "key_name": "key", "requests": 1, "tokens": 2}]
+    monkeypatch.setattr(sub2.Sub2APIClient, "version", lambda _self: observed("version", "v1"))
+    monkeypatch.setattr(sub2.Sub2APIClient, "list_keys", lambda _self: observed("inventory", [key]))
+    monkeypatch.setattr(sub2.Sub2APIClient, "key_trend", lambda *_args: observed("trend", trend))
+    monkeypatch.setattr(sub2, "_start_enrichment", lambda *_args: None)
+    cfg = sub2.config_from_env()
+    payload = sub2.get_usage(cfg, 1785340800, 1785427200, "day", 1785254400, 1785340800)
+    assert payload["completeness"] == "partial"
+    assert maximum >= 2
+    assert calls == {"version": 1, "inventory": 1, "trend": 2}
+
+
+def test_metadata_cache_is_reused_across_usage_ranges(monkeypatch):
+    calls = {"version": 0, "inventory": 0, "trend": 0}
+    key = {"id": 7, "name": "key", "quota": 1, "quota_used": 0}
+
+    def version(_self):
+        calls["version"] += 1
+        return "v1"
+
+    def inventory(_self):
+        calls["inventory"] += 1
+        return [key]
+
+    def trend(*_args):
+        calls["trend"] += 1
+        return []
+
+    monkeypatch.setattr(sub2.Sub2APIClient, "version", version)
+    monkeypatch.setattr(sub2.Sub2APIClient, "list_keys", inventory)
+    monkeypatch.setattr(sub2.Sub2APIClient, "key_trend", trend)
+    monkeypatch.setattr(sub2, "_start_enrichment", lambda *_args: None)
+    cfg = sub2.config_from_env()
+    sub2.get_usage(cfg, 100, 200, "day")
+    sub2.get_usage(cfg, 300, 400, "day")
+    assert calls == {"version": 1, "inventory": 1, "trend": 1}
+
+
+def test_component_cache_reuses_per_key_data_across_minute_ranges(monkeypatch):
+    calls = {"version": 0, "inventory": 0, "trend": 0, "snapshot": 0, "stats": 0, "errors": 0}
+
+    def fake(self, method, path, params=None, body=None):
+        name = next((key for key in calls if path.endswith({
+            "version": "/system/version",
+            "inventory": "/api-keys",
+            "trend": "/api-keys-trend",
+            "snapshot": "/snapshot-v2",
+            "stats": "/usage/stats",
+            "errors": "/ops/errors",
+        }[key])), None)
+        if name:
+            calls[name] += 1
+        return _fake_request(self, method, path, params, body)
+
+    monkeypatch.setattr(sub2.Sub2APIClient, "_request", fake)
+    cfg = sub2.config_from_env()
+    first = sub2.get_usage(cfg, 1785340800, 1785420000, "hour")
+    assert first["completeness"] == "partial"
+    _wait_for_enrichment()
+    second = sub2.get_usage(cfg, 1785340860, 1785420060, "hour")
+    assert second["completeness"] == "partial"
+    _wait_for_enrichment()
+    complete = sub2.get_usage(cfg, 1785340860, 1785420060, "hour")
+    assert complete["data"]["summary"][0]["actual_cost_usd"] == pytest.approx(0.25)
+    assert calls == {"version": 1, "inventory": 1, "trend": 1, "snapshot": 1, "stats": 1, "errors": 2}
+
+
+def test_expired_complete_cache_returns_immediately_and_refreshes_single_flight(monkeypatch):
+    cfg = sub2.config_from_env()
+    start, end = 100, 200
+    cache_key = (
+        "usage", cfg.base_url, cfg.auth_mode, cfg.user_id, cfg.timezone_name,
+        start, end, "day", None, None,
+    )
+    complete = {
+        "schema_version": 2,
+        "data": {"summary": [{"api_key_id": 7, "actual_cost_usd": 1}], "trend": [], "models": []},
+        "comparison": None,
+        "completeness": "complete",
+        "warnings": [],
+    }
+    with sub2._CACHE_LOCK:
+        sub2._CACHE[cache_key] = sub2._CacheEntry(time.time() - 1000, complete)
+
+    started = threading.Event()
+    release = threading.Event()
+    trend_calls = 0
+
+    monkeypatch.setattr(sub2, "_cached_metadata", lambda _client: ("v1", [{"id": 7, "name": "key", "quota": 1, "quota_used": 0}]))
+
+    def trend(*_args):
+        nonlocal trend_calls
+        trend_calls += 1
+        started.set()
+        release.wait(1)
+        return []
+
+    monkeypatch.setattr(sub2.Sub2APIClient, "key_trend", trend)
+    monkeypatch.setattr(sub2, "_full_payload", lambda *_args, **_kwargs: {**complete, "data": {"summary": [{"api_key_id": 7, "actual_cost_usd": 2}], "trend": [], "models": []}})
+
+    before = time.perf_counter()
+    first = sub2.get_usage(cfg, start, end, "day")
+    elapsed = time.perf_counter() - before
+    assert elapsed < 0.1
+    assert first["data"]["summary"][0]["actual_cost_usd"] == 1
+    assert first["refreshing"] is True
+    assert started.wait(0.2)
+    second = sub2.get_usage(cfg, start, end, "day")
+    assert second["data"]["summary"][0]["actual_cost_usd"] == 1
+    assert trend_calls == 1
+    release.set()
+    _wait_for_enrichment()
+    refreshed = sub2.get_usage(cfg, start, end, "day")
+    assert refreshed["data"]["summary"][0]["actual_cost_usd"] == 2
+
+
+def test_current_cost_is_published_before_comparison_and_ancillary_metrics(monkeypatch):
+    cfg = sub2.config_from_env()
+    client = sub2.Sub2APIClient(cfg)
+    keys = {7: {"id": 7, "name": "key", "quota": 1, "quota_used": 0}}
+    core_trend = [{"date": "2026-07-30", "api_key_id": 7, "key_name": "key", "requests": 1, "tokens": 2}]
+    core = sub2._core_window(keys, core_trend, cfg)
+    context = {
+        "version": "v1", "keys": keys, "start": 1785340800, "end": 1785427200, "granularity": "day",
+        "comparison_start": 1785254400, "comparison_end": 1785340800,
+        "current_core": core, "previous_core": core,
+    }
+    comparison_started = threading.Event()
+    release = threading.Event()
+    snapshot_calls = 0
+    published = []
+
+    def snapshot(*_args):
+        nonlocal snapshot_calls
+        snapshot_calls += 1
+        if snapshot_calls == 2:
+            comparison_started.set()
+            release.wait(1)
+        return {
+            "trend": [{"date": "2026-07-30", "requests": 1, "input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "actual_cost": 0.25}],
+            "models": [{"model": "gpt-5", "requests": 1, "total_tokens": 2, "actual_cost": 0.25}],
+        }
+
+    monkeypatch.setattr(client, "key_snapshot", snapshot)
+    monkeypatch.setattr(client, "key_stats", lambda *_args: {"average_duration_ms": 10})
+    monkeypatch.setattr(client, "errors_page", lambda *_args, **_kwargs: {"items": [], "total": 0, "page": 1, "page_size": 500, "pages": 1})
+    result = {}
+
+    def run():
+        result["payload"] = sub2._full_payload(client, context, lambda payload: published.append(payload))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert comparison_started.wait(0.2)
+    assert published[0]["data"]["summary"][0]["actual_cost_usd"] == pytest.approx(0.25)
+    assert published[0]["comparison"]["data"]["summary"][0]["actual_cost_usd"] is None
+    release.set()
+    thread.join()
+    assert result["payload"]["completeness"] == "complete"
+    assert result["payload"]["data"]["summary"][0]["average_duration_ms"] == 10
+
+
+def test_cache_prunes_expired_and_oldest_entries(monkeypatch):
+    monkeypatch.setattr(sub2, "_CACHE_MAX_ENTRIES", 3)
+    for index in range(5):
+        sub2._cache_load(("bounded", index), 60, lambda index=index: {"value": index})
+    with sub2._CACHE_LOCK:
+        assert len(sub2._CACHE) == 3
+        assert ("bounded", 4) in sub2._CACHE
+        sub2._CACHE[("expired",)] = sub2._CacheEntry(time.time() - sub2._STALE_TTL - 1, {"value": 0})
+        sub2._cache_store_locked(("new",), {"value": 6})
+        assert ("expired",) not in sub2._CACHE
+        assert len(sub2._CACHE) == 3

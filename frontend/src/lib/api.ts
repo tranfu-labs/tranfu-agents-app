@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_STATE, demoSkillDetail, demoSkillsOverview } from './demo'
 import { createRevalidatedJsonFetcher } from './apiCache'
 import { makeTokenUsageComparisonRange } from './tokenUsageRange'
-import { normalizeTokenUsagePayload, tokenUsageUrl } from './tokenUsagePayload'
+import { normalizeTokenUsagePayload, tokenUsageSyncDelay, tokenUsageUrl } from './tokenUsagePayload'
 import type {
   AdminInventory,
   AdminPreview,
@@ -532,6 +532,7 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
   const cacheRef = useRef(new Map<string, { data: TokenUsagePayload; ts: number }>())
   const requestSeq = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
+  const syncAttemptRef = useRef(0)
   const queryKey = tokenUsageQueryKey(query)
 
   const refresh = useCallback(
@@ -590,10 +591,15 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
     }
   }, [enabled, queryKey, refresh])
   useEffect(() => {
-    const syncing = data?.warnings?.some((warning) => warning.code === 'DETAILS_SYNCING')
-    if (!enabled || !syncing) return
-    const timer = window.setTimeout(() => void refresh(true), 1500)
+    const syncing = data?.refreshing || data?.warnings?.some((warning) => warning.code === 'DETAILS_SYNCING')
+    if (!enabled || !syncing) {
+      syncAttemptRef.current = 0
+      return
+    }
+    const delay = tokenUsageSyncDelay(syncAttemptRef.current)
+    syncAttemptRef.current += 1
+    const timer = window.setTimeout(() => void refresh(true), delay)
     return () => window.clearTimeout(timer)
-  }, [data?.fetched_at, data?.warnings, enabled, refresh])
+  }, [data?.fetched_at, data?.refreshing, data?.warnings, enabled, refresh])
   return { data, loading, error, demo, refresh }
 }

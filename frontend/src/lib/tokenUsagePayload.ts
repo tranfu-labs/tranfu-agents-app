@@ -3,6 +3,12 @@ import type { TokenUsagePayload, TokenUsageQuery } from './types.ts'
 
 export type TokenUsageDisplayState = 'complete' | 'syncing' | 'partial' | 'stale' | 'unconfigured'
 
+const SYNC_DELAYS_MS = [1500, 3000, 5000]
+
+export function tokenUsageSyncDelay(attempt: number) {
+  return SYNC_DELAYS_MS[Math.min(Math.max(0, attempt), SYNC_DELAYS_MS.length - 1)]
+}
+
 export function resolveTokenUsageDisplayState(payload: TokenUsagePayload | null, error = ''): TokenUsageDisplayState {
   if (error === 'tokenNoDataHint' || payload?.configured === false) return 'unconfigured'
   if (payload?.freshness === 'stale' || payload?.completeness === 'stale') return 'stale'

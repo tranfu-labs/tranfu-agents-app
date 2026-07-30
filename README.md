@@ -109,7 +109,7 @@ Current Token Usage dashboard capabilities:
 - The KEY table supports sorting, quick personal/Dapp filters, hiding zero-spend KEYs, search highlighting, and CSV export.
 - The header shows freshness metadata: last update time, upstream status, and whether the response came from backend cache.
 
-The first cold response uses Sub2API inventory and API-key trend data. Per-key cost, model, latency, and error details are enriched in the background with bounded concurrency; unavailable details display as unknown instead of zero.
+The first cold response uses Sub2API inventory and API-key trend data. Per-key cost and model data are published before slower comparison, latency, and error details. All upstream work shares one process-wide concurrency limit, and date-based trend/snapshot/stats results are reused across minute-shifted page requests. After a complete cache expires, the page keeps the last complete values visible while a single background refresh runs; unavailable details display as unknown instead of zero.
 
 Post-deploy API check:
 
