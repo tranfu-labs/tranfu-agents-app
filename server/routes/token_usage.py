@@ -17,6 +17,8 @@ from threading import Lock
 from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
+from server import token_usage_sub2api as sub2api
+
 
 router = APIRouter()
 
@@ -29,6 +31,7 @@ _UPSTREAM_CACHE = {}
 _UPSTREAM_CACHE_LOCK = Lock()
 _ERROR_CACHE = {}
 _ERROR_CACHE_LOCK = Lock()
+_LEGACY_QUOTA_PER_USD = 500000
 
 
 def _env_bool(name, default):
@@ -40,6 +43,7 @@ def _env_bool(name, default):
 
 def _config():
     return {
+        "provider": os.environ.get("TF_TOKEN_USAGE_PROVIDER", "sub2api").strip().lower(),
         "base_url": os.environ.get("TF_TOKEN_USAGE_BASE_URL", _DEFAULT_BASE_URL).rstrip("/"),
         "path": os.environ.get("TF_TOKEN_USAGE_PATH", _DEFAULT_USAGE_PATH),
         "log_path": os.environ.get("TF_TOKEN_USAGE_LOG_PATH", _DEFAULT_LOG_PATH),
@@ -54,6 +58,7 @@ def _config():
 
 def _range(days):
     now = int(time.time())
+    now -= now % 60
     start = now - days * 86400
     return start, now
 
@@ -132,12 +137,67 @@ def _aggregate_trend(rows, granularity, timezone_offset_minutes):
             "error_count": 0,
             "quota": 0,
             "token_used": 0,
+            "request_count": 0,
+            "actual_cost_usd": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "_known": {
+                "error_count": True,
+                "quota": True,
+                "actual_cost_usd": True,
+                "input_tokens": True,
+                "output_tokens": True,
+            },
         })
         item["count"] += int(row.get("count") or 0)
+        for field in ("error_count", "quota", "actual_cost_usd", "input_tokens", "output_tokens"):
+            if row.get(field) is None:
+                item["_known"][field] = False
         item["error_count"] += int(row.get("error_count") or 0)
-        item["quota"] += int(row.get("quota") or 0)
+        item["quota"] += float(row.get("quota") or 0)
         item["token_used"] += int(row.get("token_used") or 0)
-    return sorted(grouped.values(), key=lambda item: (item["created_at"], -item["quota"]))
+        item["request_count"] += int(row.get("request_count") or row.get("count") or 0)
+        item["actual_cost_usd"] += float(row.get("actual_cost_usd") or 0)
+        item["input_tokens"] += int(row.get("input_tokens") or 0)
+        item["output_tokens"] += int(row.get("output_tokens") or 0)
+        item["total_tokens"] += int(row.get("total_tokens") or row.get("token_used") or 0)
+    for item in grouped.values():
+        known = item.pop("_known")
+        for field, is_known in known.items():
+            if not is_known:
+                item[field] = None
+    return sorted(grouped.values(), key=lambda item: (item["created_at"], -(item["quota"] or 0)))
+
+
+def _legacy_data_v2(data):
+    normalized = deepcopy(data)
+    for row in normalized.get("summary") or []:
+        key_id = int(row.get("token_id") or 0)
+        name = row.get("token_name") or f"#{key_id}"
+        row.update({
+            "api_key_id": key_id,
+            "api_key_name": name,
+            "actual_cost_usd": float(row.get("quota") or 0) / _LEGACY_QUOTA_PER_USD,
+            "quota_limit_usd": None,
+            "quota_used_lifetime_usd": float(row.get("used_quota") or 0) / _LEGACY_QUOTA_PER_USD,
+            "quota_remaining_usd": float(row.get("remain_quota") or 0) / _LEGACY_QUOTA_PER_USD,
+            "input_tokens": int(row.get("prompt_tokens") or 0),
+            "output_tokens": int(row.get("completion_tokens") or 0),
+            "total_tokens": int(row.get("token_used") or 0),
+            "average_duration_ms": float(row.get("avg_use_time") or 0) * 1000,
+        })
+    for collection in ("trend", "models"):
+        for row in normalized.get(collection) or []:
+            key_id = int(row.get("token_id") or 0)
+            row.update({
+                "api_key_id": key_id,
+                "api_key_name": row.get("token_name") or f"#{key_id}",
+                "actual_cost_usd": float(row.get("quota") or 0) / _LEGACY_QUOTA_PER_USD,
+                "request_count": int(row.get("count") or 0),
+                "total_tokens": int(row.get("token_used") or 0),
+            })
+    return normalized
 
 
 def _query_upstream(cfg, start, end, granularity, timezone_offset_minutes):
@@ -432,10 +492,53 @@ async def token_usage(
     end_timestamp: int | None = Query(None, ge=1),
     time_granularity: str = Query("day", pattern="^(hour|four_hour|day|week|month)$"),
     timezone_offset_minutes: int = Query(0, ge=-840, le=840),
+    comparison_start_timestamp: int | None = Query(None, ge=1),
+    comparison_end_timestamp: int | None = Query(None, ge=1),
 ):
     cfg = _config()
     start, end = _resolve_range(days, start_timestamp, end_timestamp)
     granularity = time_granularity
+    if bool(comparison_start_timestamp) != bool(comparison_end_timestamp):
+        raise HTTPException(status_code=400, detail="comparison range requires both start and end")
+    if comparison_start_timestamp and comparison_start_timestamp >= comparison_end_timestamp:
+        raise HTTPException(status_code=400, detail="comparison_start_timestamp must be before comparison_end_timestamp")
+
+    if cfg["provider"] == "sub2api":
+        upstream_cfg = sub2api.config_from_env()
+        try:
+            payload = await run_in_threadpool(
+                sub2api.get_usage,
+                upstream_cfg,
+                start,
+                end,
+                granularity,
+                comparison_start_timestamp,
+                comparison_end_timestamp,
+            )
+        except sub2api.Sub2APIError as exc:
+            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"code": "UPSTREAM_FAILED", "message": "Sub2API request failed"}) from exc
+        payload["data"]["trend"] = _aggregate_trend(payload["data"].get("trend") or [], granularity, timezone_offset_minutes)
+        comparison = payload.get("comparison")
+        if comparison:
+            comparison["data"]["trend"] = _aggregate_trend(comparison["data"].get("trend") or [], granularity, timezone_offset_minutes)
+        return {
+            "ok": True,
+            "source": "sub2api",
+            "configured": upstream_cfg.configured,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "range": {
+                "start_timestamp": start,
+                "end_timestamp": end,
+                "days": days,
+                "time_granularity": granularity,
+                "timezone_offset_minutes": timezone_offset_minutes,
+            },
+            **payload,
+        }
+    if cfg["provider"] != "legacy_newapi":
+        raise HTTPException(status_code=500, detail=f"unsupported token usage provider: {cfg['provider']}")
     warning = ""
     source = "upstream"
     configured = _configured(cfg)
@@ -465,11 +568,12 @@ async def token_usage(
             "time_granularity": granularity,
             "timezone_offset_minutes": timezone_offset_minutes,
         },
-        "data": {
+        "schema_version": 2,
+        "data": _legacy_data_v2({
             "summary": data.get("summary") or [],
             "trend": trend,
             "models": data.get("models") or [],
-        },
+        }),
     }
 
 
@@ -479,6 +583,7 @@ async def token_usage_errors(
     start_timestamp: int | None = Query(None, ge=1),
     end_timestamp: int | None = Query(None, ge=1),
     token_id: int | None = Query(None, ge=1),
+    api_key_id: int | None = Query(None, ge=1),
     token_name: str = Query("", max_length=200),
     model_name: str = Query("", max_length=120),
     group: str = Query("", max_length=120),
@@ -486,6 +591,28 @@ async def token_usage_errors(
 ):
     cfg = _config()
     start, end = _resolve_range(days, start_timestamp, end_timestamp)
+    resolved_key_id = api_key_id or token_id
+
+    if cfg["provider"] == "sub2api":
+        upstream_cfg = sub2api.config_from_env()
+        try:
+            data = await run_in_threadpool(sub2api.get_errors, upstream_cfg, start, end, resolved_key_id, page_size)
+        except sub2api.Sub2APIError as exc:
+            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
+        items = data.get("items") or []
+        return {
+            "ok": True,
+            "schema_version": sub2api.SCHEMA_VERSION,
+            "source": "sub2api",
+            "configured": upstream_cfg.configured,
+            "cached": bool(data.get("cached")),
+            "freshness": data.get("freshness", "fresh"),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "range": {"start_timestamp": start, "end_timestamp": end, "days": days},
+            "data": {**data, "summary": _summarize_error_logs(items)},
+        }
+    if cfg["provider"] != "legacy_newapi":
+        raise HTTPException(status_code=500, detail=f"unsupported token usage provider: {cfg['provider']}")
     warning = ""
     source = "upstream"
     configured = _configured(cfg)
@@ -497,7 +624,7 @@ async def token_usage_errors(
             start,
             end,
             token_name.strip(),
-            token_id,
+            resolved_key_id,
             model_name.strip(),
             group.strip(),
             page_size,
@@ -530,4 +657,23 @@ async def token_usage_errors(
             "page": data.get("page") or 1,
             "page_size": data.get("page_size") or page_size,
         },
+    }
+
+
+@router.get("/api/token-usage/status")
+async def token_usage_status():
+    cfg = _config()
+    if cfg["provider"] == "sub2api":
+        return {"ok": True, **sub2api.status_payload(sub2api.config_from_env())}
+    return {
+        "ok": True,
+        "schema_version": 1,
+        "provider": cfg["provider"],
+        "configured": _configured(cfg),
+        "upstream_version": "",
+        "capabilities": {"legacy_newapi": True},
+        "last_success_at": "",
+        "last_error_code": "",
+        "last_error_at": "",
+        "cache_age_seconds": None,
     }

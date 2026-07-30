@@ -24,6 +24,7 @@ agent 机器                         中心服务器(单容器)                 
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL;
   Skill 读模型保留 slug identity,并从 catalog/profile 统一附加 `display_name/display_name_zh` 与批量名称映射,
   `/api/operator/{name}` 以新增 `analysis` 承载 `w/wstart/wend/rt/src` 当前观察范围，旧顶层字段保持兼容，
+  可选 `/api/token-usage` 作为 Sub2API `/api/v1/admin/*` 的唯一浏览器可见 BFF 契约层，认证、分页、聚合、USD 单位、限并发、缓存、降级和脱敏由 `server/token_usage_sub2api.py` 负责；路由只校验查询参数与组装 HTTP 响应，
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   连续段内纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入;
   最后确认心跳取 SQLite/pending 较新值,同一事件 pending 入队单调不减,任何新行插入前固化旧行 pending,
@@ -34,10 +35,10 @@ agent 机器                         中心服务器(单容器)                 
   `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
   `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
   `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
-- **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
+- **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)；可选 Token Usage 只读 Sub2API Admin API，Admin Key 或迁移期登录 Access Token 仅来自服务端 Secret，Admin Key 优先。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`/`admin_trash`/`admin_audit`);
   浏览器(只读快照、Agents 指定窗口统计与 Skills 聚合);使用者机器(取 install/shim)。
-- **禁止依赖**:外部数据库/缓存/消息队列;任何 token/成本计算;读取使用者敏感内容(除非事件显式带 opt-in 字段);
+- **禁止依赖**:外部数据库/缓存/消息队列;Agent 遥测链路中的任何 token/成本计算；可选 Token Usage 只能在独立 BFF 模块只读聚合外部已有数据，不得写 SQLite 或进入事件/身份/session；读取使用者敏感内容(除非事件显式带 opt-in 字段);
   新增删除路径不得绕过 `_purge` 的级联、回收站与审计。
 
 ### M2 — 看板前端 (`frontend/`)
@@ -61,7 +62,7 @@ agent 机器                         中心服务器(单容器)                 
   `/agents`、`/agent/:key`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
   `/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/token-usage`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
 - **上游**:M1 的 `/api/state/stream`、`/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;状态流与 `/api/state` 取不到时退回内置演示数据,
-  SKILLS 接口取不到时显示错误/空态；`/api/token-usage` 只读外部分发平台数据，不进入 Agent 遥测数据模型。
+  SKILLS 接口取不到时显示错误/空态；`/api/token-usage` 只读外部分发平台数据，不进入 Agent 遥测数据模型；schema v2 使用 USD 明确字段，partial/stale 状态下未知详细指标显示为 `—`，不得变成 0。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
   独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。

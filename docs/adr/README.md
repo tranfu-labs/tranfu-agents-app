@@ -30,3 +30,4 @@
 | 0023 | 主题偏好的 localStorage 窄例外 | Proposed |
 | 0024 | Codex Hook 信任只对完整唯一纯换序自动恢复；新 hash 仍由用户确认 | Accepted |
 | 0025 | 并行 Agent session 运行时长逐 session 累加（取代 0013） | Accepted |
+| 0026 | Sub2API Token Usage 由 TranfuAgents BFF 提供稳定契约 | Accepted |

@@ -605,3 +605,15 @@
 - custom 半填写或倒序时不请求 API、显示范围提示且刷新不可用；切回普通预设后 URL 不含旧 `wstart/wend`。
 - 打开包含已失效 `model` 的链接时，payload 到达后回退到全部模型且 URL 清除该参数，不显示空选择或误导性空结果。
 - 从含筛选 query 的 Token Usage URL 刷新、复制到新标签或从其它页面后退返回时，筛选结果不得回到组件默认值。
+
+## Sub2API Token Usage 稳定契约（2026-07-30）
+
+- `/api/token-usage` MUST 是外部分发平台唯一浏览器可见边界；浏览器不得持有或直连分发平台凭证。
+- 默认 `sub2api` provider MUST 使用版本化 `/api/v1/admin/*` 与服务端 `x-api-key`。inventory 读取后 MUST 立即移除明文 `key`，日志、缓存、响应、错误信息和 CSV 不得包含完整 API Key 或 Admin Key。
+- schema v2 MUST 以稳定 `api_key_id` 聚合，并使用 `actual_cost_usd`、`quota_limit_usd`、`quota_used_lifetime_usd`、`request_count`、`error_count`、`input_tokens`、`output_tokens`、`total_tokens` 和 `average_duration_ms` 明确单位；不可得增强指标 MUST 为 `null`，前端 MUST 显示未知而非 0。
+- 当前 inventory MUST 与当前及上一窗口 `api-keys-trend` 发现的 Key 取并集；历史归属不得按 Key 当前 `user_id` 过滤。
+- 冷缓存 MUST 先返回 inventory/trend 核心数据并标记 partial，逐 Key snapshot/stats/errors 在后台增强。当前窗口缓存 60 秒，闭合历史缓存 15 分钟；缓存键包含范围、粒度、时区及适用的 `api_key_id`，相同查询 single-flight，逐 Key 调用遵守配置的并发上限。
+- 上游失败 MAY 返回 24 小时内最后成功快照，但 MUST 标记 stale 和缓存年龄；无可用快照、认证失败、必需端点缺失或契约不兼容 MUST 明确失败，不得静默切换 `legacy_newapi` 或 Demo。
+- `/api/token-usage/errors` MUST 接受规范 `api_key_id`，并在一个发布周期内兼容 `token_id`。`/api/token-usage/status` MUST 只暴露版本、能力、最近成功、缓存年龄和错误代码等诊断状态，不得暴露凭证或敏感上游响应。
+- Sub2API 候选版本 MUST 在预发布实例通过 `/health`、版本、Key 分页、trend、单 Key snapshot/stats 和 errors 过滤/分页的只读响应契约检查；允许新增未知字段，缺少或改名必需字段 MUST 阻止晋升。版本号只记录，不作为自动兼容判定。
+- `legacy_newapi` 仅可显式启用。Sub2API 新链路连续成功 7 天且完成一次候选升级演练后，MUST 通过后续变更删除旧 Header、Cookie/Access Token 配置、旧单位换算和兼容测试。

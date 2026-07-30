@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_STATE, demoSkillDetail, demoSkillsOverview } from './demo'
 import { createRevalidatedJsonFetcher } from './apiCache'
 import { makeTokenUsageComparisonRange } from './tokenUsageRange'
+import { normalizeTokenUsagePayload, tokenUsageUrl } from './tokenUsagePayload'
 import type {
   AdminInventory,
   AdminPreview,
@@ -42,21 +43,8 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-const TOKEN_USAGE_GRANULARITIES: TokenUsageQuery['timeGranularity'][] = ['hour', 'four_hour', 'day', 'week', 'month']
-
 function tokenUsageQueryKey(query: TokenUsageQuery) {
   return `${query.startTimestamp}:${query.endTimestamp}:${query.timeGranularity}`
-}
-
-function tokenUsageUrl(query: TokenUsageQuery) {
-  const timezoneOffsetMinutes = -new Date().getTimezoneOffset()
-  const params = new URLSearchParams({
-    start_timestamp: String(query.startTimestamp),
-    end_timestamp: String(query.endTimestamp),
-    time_granularity: query.timeGranularity,
-    timezone_offset_minutes: String(timezoneOffsetMinutes),
-  })
-  return `/api/token-usage?${params.toString()}`
 }
 
 function tokenUsageErrorsUrl(query: TokenUsageQuery, params: { tokenId?: number; tokenName?: string; modelName?: string; group?: string }) {
@@ -65,7 +53,7 @@ function tokenUsageErrorsUrl(query: TokenUsageQuery, params: { tokenId?: number;
     end_timestamp: String(query.endTimestamp),
     page_size: '30',
   })
-  if (params.tokenId) search.set('token_id', String(params.tokenId))
+  if (params.tokenId) search.set('api_key_id', String(params.tokenId))
   if (params.tokenName) search.set('token_name', params.tokenName)
   if (params.modelName) search.set('model_name', params.modelName)
   if (params.group) search.set('group', params.group)
@@ -73,7 +61,10 @@ function tokenUsageErrorsUrl(query: TokenUsageQuery, params: { tokenId?: number;
 }
 
 async function fetchTokenUsagePayload(query: TokenUsageQuery, signal?: AbortSignal) {
-  return fetchJson<TokenUsagePayload>(tokenUsageUrl(query), signal ? { signal } : undefined)
+  const response = await fetch(tokenUsageUrl(query), { cache: 'no-store', ...(signal ? { signal } : {}) })
+  const payload = await response.json() as TokenUsagePayload & { detail?: { code?: string } }
+  if (!response.ok) throw new Error(payload.detail?.code || String(response.status))
+  return normalizeTokenUsagePayload(payload)
 }
 
 export async function fetchTokenUsageErrors(query: TokenUsageQuery, params: { tokenId?: number; tokenName?: string; modelName?: string; group?: string }, signal?: AbortSignal) {
@@ -100,22 +91,9 @@ function emptySkillsEvidence(query: string): SkillsEvidencePayload {
 async function fetchTokenUsageWithComparison(query: TokenUsageQuery, signal?: AbortSignal) {
   const comparison = makeTokenUsageComparisonRange(query)
   const next = await fetchTokenUsagePayload(query, signal)
-  try {
-    const previous = await fetchTokenUsagePayload(comparison.query, signal)
-    return {
-      ...next,
-      comparison: {
-        label: comparison.label,
-        data: previous.data,
-        range: previous.range,
-        source: previous.source,
-        cached: previous.cached,
-      },
-    }
-  } catch (err) {
-    if ((err as Error)?.name === 'AbortError') throw err
-    return next
-  }
+  return next.comparison
+    ? { ...next, comparison: { ...next.comparison, label: comparison.label } }
+    : next
 }
 
 export async function fetchAdminInventory(key: string, q: string, limit = 200): Promise<AdminInventory> {
@@ -552,33 +530,9 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
   const cacheRef = useRef(new Map<string, { data: TokenUsagePayload; ts: number }>())
-  const prefetchingRef = useRef(new Set<string>())
   const requestSeq = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const queryKey = tokenUsageQueryKey(query)
-
-  const prefetchPeerGranularities = useCallback(
-    (baseQuery: TokenUsageQuery) => {
-      TOKEN_USAGE_GRANULARITIES.forEach((timeGranularity, index) => {
-        if (timeGranularity === baseQuery.timeGranularity) return
-        const nextQuery = { ...baseQuery, timeGranularity }
-        const nextKey = tokenUsageQueryKey(nextQuery)
-        if (cacheRef.current.has(nextKey) || prefetchingRef.current.has(nextKey)) return
-        prefetchingRef.current.add(nextKey)
-        window.setTimeout(() => {
-          void fetchTokenUsagePayload(nextQuery)
-            .then((next) => {
-              cacheRef.current.set(nextKey, { data: next, ts: Date.now() })
-            })
-            .catch(() => undefined)
-            .finally(() => {
-              prefetchingRef.current.delete(nextKey)
-            })
-        }, 200 + index * 120)
-      })
-    },
-    [],
-  )
 
   const refresh = useCallback(
     async (force = false) => {
@@ -589,7 +543,6 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
         setData(cached.data)
         setError('')
         setDemo(cached.data.source === 'demo')
-        prefetchPeerGranularities(query)
         if (!force && now - cached.ts < 55000) return
       }
       const seq = requestSeq.current + 1
@@ -615,17 +568,16 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
         setData(next)
         setError('')
         setDemo(next.source === 'demo')
-        prefetchPeerGranularities(query)
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return
         if (requestSeq.current !== seq) return
-        setError('loadError')
+        setError(err instanceof Error && err.message === 'NOT_CONFIGURED' ? 'tokenNoDataHint' : 'loadError')
         setDemo(false)
       } finally {
         if (requestSeq.current === seq) setLoading(false)
       }
     },
-    [enabled, prefetchPeerGranularities, query, queryKey],
+    [enabled, query, queryKey],
   )
   useEffect(() => {
     if (!enabled) return
@@ -637,5 +589,11 @@ export function useTokenUsage(enabled: boolean, query: TokenUsageQuery): Loadabl
       abortRef.current?.abort()
     }
   }, [enabled, queryKey, refresh])
+  useEffect(() => {
+    const syncing = data?.warnings?.some((warning) => warning.code === 'DETAILS_SYNCING')
+    if (!enabled || !syncing) return
+    const timer = window.setTimeout(() => void refresh(true), 1500)
+    return () => window.clearTimeout(timer)
+  }, [data?.fetched_at, data?.warnings, enabled, refresh])
   return { data, loading, error, demo, refresh }
 }

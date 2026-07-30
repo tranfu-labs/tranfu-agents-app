@@ -1,0 +1,41 @@
+name: Sub2API candidate contract gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment containing the pre-production Sub2API settings
+        required: true
+        default: staging
+        type: environment
+      candidate_digest:
+        description: Candidate Sub2API image digest being evaluated
+        required: true
+        type: string
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    env:
+      TF_TOKEN_USAGE_BASE_URL: ${{ vars.SUB2API_BASE_URL }}
+      TF_TOKEN_USAGE_SUB2API_USER_ID: ${{ vars.SUB2API_USER_ID || '1' }}
+      TF_TOKEN_USAGE_TIMEZONE: Asia/Shanghai
+      TF_TOKEN_USAGE_SUB2API_ADMIN_KEY: ${{ secrets.SUB2API_ADMIN_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate gate configuration
+        run: |
+          test -n "$TF_TOKEN_USAGE_BASE_URL" || { echo "::error::Missing environment variable SUB2API_BASE_URL"; exit 1; }
+          test -n "$TF_TOKEN_USAGE_SUB2API_ADMIN_KEY" || { echo "::error::Missing environment secret SUB2API_ADMIN_KEY"; exit 1; }
+          echo "Evaluating candidate digest: ${{ inputs.candidate_digest }}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run read-only Sub2API contract checks
+        run: python scripts/check_sub2api_contract.py

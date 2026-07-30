@@ -607,6 +607,8 @@ export type Loadable<T> = {
 }
 
 export type TokenUsageSummary = {
+  api_key_id?: number
+  api_key_name?: string
   token_id: number
   token_name: string
   username?: string
@@ -619,8 +621,8 @@ export type TokenUsageSummary = {
   created_time?: number
   accessed_time?: number
   expired_time?: number
-  request_count?: number
-  error_count?: number
+  request_count?: number | null
+  error_count?: number | null
   quota?: number
   prompt_tokens?: number
   completion_tokens?: number
@@ -629,21 +631,39 @@ export type TokenUsageSummary = {
   last_used_at?: number
   top_model?: string
   model_count?: number
+  status_text?: string
+  actual_cost_usd?: number | null
+  quota_limit_usd?: number | null
+  quota_used_lifetime_usd?: number | null
+  quota_remaining_usd?: number | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  total_tokens?: number | null
+  average_duration_ms?: number | null
 }
 
 export type TokenUsageTrend = {
+  api_key_id?: number
+  api_key_name?: string
   token_id: number
   token_name: string
   username?: string
   user_id?: number
   created_at: number
   count?: number
-  error_count?: number
+  error_count?: number | null
   quota?: number
   token_used?: number
+  request_count?: number | null
+  actual_cost_usd?: number | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  total_tokens?: number | null
 }
 
 export type TokenModelUsage = {
+  api_key_id?: number
+  api_key_name?: string
   token_id: number
   token_name: string
   username?: string
@@ -652,6 +672,9 @@ export type TokenModelUsage = {
   count?: number
   quota?: number
   token_used?: number
+  request_count?: number | null
+  actual_cost_usd?: number | null
+  total_tokens?: number | null
 }
 
 export type TokenUsageRangeMeta = {
@@ -663,12 +686,18 @@ export type TokenUsageRangeMeta = {
 }
 
 export type TokenUsagePayload = {
+  schema_version?: number
   ok: boolean
   source: 'upstream' | 'demo' | string
   configured?: boolean
   cached?: boolean
   warning?: string
   fetched_at?: string
+  upstream_version?: string
+  completeness?: 'complete' | 'partial' | 'stale' | string
+  freshness?: 'fresh' | 'cached' | 'stale' | string
+  cache_age_seconds?: number
+  warnings?: Array<{ code: string; api_key_id?: number }>
   comparison?: {
     label: string
     data: {

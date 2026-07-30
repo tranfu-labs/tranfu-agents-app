@@ -9,6 +9,7 @@ from server.routes import token_usage as tu
 @pytest.fixture(autouse=True)
 def clear_token_usage_cache(monkeypatch):
     for name in (
+        "TF_TOKEN_USAGE_PROVIDER",
         "TF_TOKEN_USAGE_BASE_URL",
         "TF_TOKEN_USAGE_PATH",
         "TF_TOKEN_USAGE_LOG_PATH",
@@ -18,8 +19,13 @@ def clear_token_usage_cache(monkeypatch):
         "TF_TOKEN_USAGE_TIMEOUT",
         "TF_TOKEN_USAGE_CACHE_TTL",
         "TF_TOKEN_USAGE_DEMO",
+        "TF_TOKEN_USAGE_SUB2API_ADMIN_KEY",
+        "TF_TOKEN_USAGE_SUB2API_USER_ID",
+        "TF_TOKEN_USAGE_TIMEZONE",
+        "TF_TOKEN_USAGE_MAX_CONCURRENCY",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("TF_TOKEN_USAGE_PROVIDER", "legacy_newapi")
     with tu._UPSTREAM_CACHE_LOCK:
         tu._UPSTREAM_CACHE.clear()
     with tu._ERROR_CACHE_LOCK:
@@ -47,6 +53,17 @@ def test_token_usage_explicit_range_validation(client):
     too_large = client.get("/api/token-usage?start_timestamp=1&end_timestamp=20000000")
     assert too_large.status_code == 400
     assert "too large" in too_large.json()["detail"]
+
+
+def test_relative_range_is_stable_within_the_same_minute(monkeypatch):
+    from server.routes import token_usage
+
+    monkeypatch.setattr(token_usage.time, "time", lambda: 1785381241.9)
+    first = token_usage._range(1)
+    monkeypatch.setattr(token_usage.time, "time", lambda: 1785381258.1)
+    second = token_usage._range(1)
+    assert first == second
+    assert first[1] % 60 == 0
 
 
 def test_token_usage_upstream_success_and_cache(client, monkeypatch):
@@ -243,3 +260,99 @@ def test_token_usage_granularity_helpers():
     assert first["error_count"] == 1
     assert first["quota"] == 50
     assert first["token_used"] == 500
+
+
+def test_legacy_helper_edge_cases(monkeypatch):
+    cfg = {
+        "base_url": "https://example.test",
+        "log_path": "/logs",
+        "access_token": "token",
+        "cookie": "",
+        "user_id": "1",
+        "timeout": 1,
+    }
+    monkeypatch.setattr(tu.urllib.request, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+    with pytest.raises(RuntimeError, match="offline"):
+        tu._read_json_url("https://example.test", cfg)
+
+    timestamp = 1764554400
+    assert tu._bucket_start(timestamp, "day", 480) == timestamp
+    assert tu._bucket_start(timestamp, "week", 480) <= timestamp
+    assert tu._bucket_start(timestamp, "month", 480) <= timestamp
+    assert tu._safe_json_map({"a": 1}) == {"a": 1}
+    assert tu._safe_json_map("") == {}
+    assert tu._safe_json_map("not-json") == {}
+    assert tu._safe_int([]) == 0
+    assert tu._error_reason_key({"content": "x" * 100}).endswith("...")
+    assert len(tu._demo_error_logs(1, 100, "", None)["items"]) == 3
+
+
+def test_legacy_error_query_filters_and_contract_edges(monkeypatch):
+    cfg = {
+        "base_url": "https://example.test",
+        "log_path": "/logs",
+        "access_token": "token",
+        "cookie": "",
+        "user_id": "1",
+        "timeout": 1,
+    }
+    with pytest.raises(RuntimeError, match="credentials"):
+        tu._query_error_logs({**cfg, "access_token": "", "user_id": ""}, 1, 2, "", None, "", "", 10)
+
+    monkeypatch.setattr(tu, "_read_json_url", lambda *_args: {"success": False, "message": "denied"})
+    with pytest.raises(RuntimeError, match="denied"):
+        tu._query_error_logs(cfg, 1, 2, "name", 7, "model", "group", 10)
+
+    seen = {}
+
+    def read(url, _cfg):
+        seen["url"] = url
+        return {"success": True, "data": {"items": "invalid", "total": 8}}
+
+    monkeypatch.setattr(tu, "_read_json_url", read)
+    empty = tu._query_error_logs(cfg, 1, 2, "", None, "model", "group", 10)
+    assert empty["items"] == []
+    assert empty["total"] == 8
+    assert "model_name=model" in seen["url"]
+    assert "group=group" in seen["url"]
+
+    monkeypatch.setattr(tu, "_read_json_url", lambda *_args: {
+        "success": True,
+        "data": {"items": [{"token_id": 7}, {"token_id": 8}], "total": 2},
+    })
+    filtered = tu._query_error_logs(cfg, 1, 2, "", 7, "", "", 10)
+    assert filtered["total"] == 1
+    assert filtered["items"][0]["token_id"] == 7
+
+
+def test_provider_route_error_branches(client, monkeypatch):
+    monkeypatch.setenv("TF_TOKEN_USAGE_PROVIDER", "unsupported")
+    assert client.get("/api/token-usage").status_code == 500
+    assert client.get("/api/token-usage/errors").status_code == 500
+
+    monkeypatch.setenv("TF_TOKEN_USAGE_PROVIDER", "sub2api")
+    monkeypatch.setenv("TF_TOKEN_USAGE_SUB2API_ADMIN_KEY", "admin-secret-value")
+    monkeypatch.setattr(tu.sub2api, "get_usage", lambda *_args: (_ for _ in ()).throw(RuntimeError("unexpected")))
+    response = client.get("/api/token-usage")
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "UPSTREAM_FAILED"
+
+    monkeypatch.setattr(
+        tu.sub2api,
+        "get_errors",
+        lambda *_args: (_ for _ in ()).throw(tu.sub2api.Sub2APIError("AUTH_FAILED", "denied")),
+    )
+    response = client.get("/api/token-usage/errors")
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "AUTH_FAILED"
+
+
+def test_legacy_error_demo_and_status(client, monkeypatch):
+    monkeypatch.setenv("TF_TOKEN_USAGE_PROVIDER", "legacy_newapi")
+    body = client.get("/api/token-usage/errors?token_id=7&token_name=demo").json()
+    assert body["source"] == "demo"
+    assert body["warning"]
+    assert body["data"]["items"][0]["token_id"] == 7
+    status = client.get("/api/token-usage/status").json()
+    assert status["provider"] == "legacy_newapi"
+    assert status["capabilities"]["legacy_newapi"] is True

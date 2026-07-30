@@ -65,34 +65,38 @@ The `:8788` is the container's internal port; public traffic still uses HTTPS on
 
 The **Token 用量** tab is isolated from the existing Pods, Agents, SKILLS, and Admin tabs. Deploying this version does not change the agent event protocol or the local SQLite telemetry store.
 
-By default the Token Usage tab does not read your distribution platform. To show real KEY usage, set these server-side environment variables in Coolify or your runtime environment, then redeploy:
+The one core production credential is `TF_TOKEN_USAGE_SUB2API_ADMIN_KEY`. It is the only Token Usage setting without a usable default and must be stored as a server-side Coolify Secret. Create it in Sub2API at **Admin Settings -> Security & Authentication -> Admin API Key** (`https://api.tranfu.com/admin/settings`). Do not use the displayed API keys from `/keys`; those are consumer keys, not the Admin API Key required by this integration.
+
+Recommended explicit Coolify configuration:
 
 ```bash
+TF_TOKEN_USAGE_PROVIDER=sub2api
 TF_TOKEN_USAGE_BASE_URL=https://api.tranfu.com
-TF_TOKEN_USAGE_PATH=/api/data/keys
-TF_TOKEN_USAGE_LOG_PATH=/api/log/
-TF_TOKEN_USAGE_USER_ID=<distribution-platform-user-id>
-TF_TOKEN_USAGE_ACCESS_TOKEN=<long-lived-read-token>
-TF_TOKEN_USAGE_DEMO=0
+TF_TOKEN_USAGE_SUB2API_ADMIN_KEY=<server-only-admin-api-key>
+TF_TOKEN_USAGE_SUB2API_USER_ID=1
+TF_TOKEN_USAGE_TIMEZONE=Asia/Shanghai
+TF_TOKEN_USAGE_MAX_CONCURRENCY=4
 ```
 
-If your distribution platform does not provide a long-lived read token yet, you can temporarily use a login cookie instead:
+Only the Admin Key is secret and mandatory. The other values above have defaults (`sub2api`, `https://api.tranfu.com`, user `1`, `Asia/Shanghai`, concurrency `4`) but are shown explicitly so the deployment target is auditable. After saving them in the **server service** environment, redeploy the service.
 
-```bash
-TF_TOKEN_USAGE_COOKIE=<distribution-platform-login-cookie>
-TF_TOKEN_USAGE_DEMO=0
-```
+During migration only, a current Sub2API login Access Token can be supplied as `TF_TOKEN_USAGE_SUB2API_ACCESS_TOKEN`; an existing `TF_TOKEN_USAGE_ACCESS_TOKEN` is also recognized. Do not configure a login Access Token for a normal production deployment. Admin Key takes precedence, while login tokens expire and are not a replacement for the Admin Key used by the release gate.
 
-For production, prefer `TF_TOKEN_USAGE_ACCESS_TOKEN` or a dedicated service account token. Cookies can expire and should not be committed to GitHub, Docker images, README examples, or frontend code.
+The browser calls only TranfuAgents `/api/token-usage`; it never calls Sub2API directly and never receives either credential. Do not put credentials in frontend code, GitHub variables, images, logs, or documentation. Production read failures return an explicit error or a marked cache snapshot up to 24 hours old; they never manufacture Demo data.
 
 Optional tuning:
 
 ```bash
 TF_TOKEN_USAGE_TIMEOUT=15
-TF_TOKEN_USAGE_CACHE_TTL=90
 ```
 
-After deploy, open `/token-usage`. If credentials are missing or expired, the rest of the dashboard still works; only the Token Usage tab will be unable to show real distribution usage.
+After deploy, verify the stable BFF status endpoint before opening `/token-usage`:
+
+```bash
+curl -fsS https://your-dashboard.example/api/token-usage/status
+```
+
+The response must contain `"configured": true`, `"provider": "sub2api"`, `"auth_mode": "admin_key"`, and `"error_code": null`. If credentials are missing or expired, the rest of the dashboard still works; only the Token Usage tab will be unable to show real distribution usage.
 
 Current Token Usage dashboard capabilities:
 
@@ -105,13 +109,16 @@ Current Token Usage dashboard capabilities:
 - The KEY table supports sorting, quick personal/Dapp filters, hiding zero-spend KEYs, search highlighting, and CSV export.
 - The header shows freshness metadata: last update time, upstream status, and whether the response came from backend cache.
 
-These analytics are computed from the existing distribution-platform response. No extra environment variables are required beyond the Token Usage credentials above.
+The first cold response uses Sub2API inventory and API-key trend data. Per-key cost, model, latency, and error details are enriched in the background with bounded concurrency; unavailable details display as unknown instead of zero.
 
 Post-deploy API check:
 
 ```bash
 curl -sS "https://your-domain.example/api/token-usage?days=1&time_granularity=hour" | head
+curl -sS "https://your-domain.example/api/token-usage/status"
 ```
+
+Before promoting a candidate Sub2API image, run the manual **Sub2API candidate contract gate** workflow against the Coolify staging instance. The workflow uses environment secret `SUB2API_ADMIN_KEY`, variable `SUB2API_BASE_URL`, and optional variable `SUB2API_USER_ID`; only a passing candidate digest may be promoted.
 
 Upgrade an existing deployment:
 
