@@ -1,0 +1,315 @@
+name: Recover Token Usage credential
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Generate a recovery bundle or apply an encrypted Admin Key
+        required: true
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - apply
+      bundle_run_id:
+        description: Prepare workflow run ID containing the sealed private key
+        required: false
+        default: ""
+        type: string
+      ciphertext_b64:
+        description: RSA-OAEP-SHA256 encrypted Sub2API Admin Key, base64 encoded
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  prepare:
+    if: ${{ inputs.mode == 'prepare' }}
+    runs-on: ubuntu-latest
+    environment: main
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      ARTIFACT_DIR: ${{ runner.temp }}/token-usage-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Validate recovery configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$COOLIFY_API_TOKEN" ]]; then
+            echo "::error::Missing required environment secret COOLIFY_API_TOKEN"
+            exit 1
+          fi
+
+      - name: Generate and seal one-time RSA key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          private_dir="$(mktemp -d "${RUNNER_TEMP}/token-usage-private.XXXXXX")"
+          cleanup() {
+            rm -rf "$private_dir"
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$ARTIFACT_DIR"
+          chmod 700 "$private_dir" "$ARTIFACT_DIR"
+
+          private_key="$private_dir/private-key.pem"
+          public_key="$ARTIFACT_DIR/public-key.pem"
+          sealed_private_key="$ARTIFACT_DIR/private-key.pem.enc"
+
+          openssl genpkey \
+            -algorithm RSA \
+            -pkeyopt rsa_keygen_bits:2048 \
+            -out "$private_key" >/dev/null 2>&1
+          chmod 600 "$private_key"
+
+          openssl pkey \
+            -in "$private_key" \
+            -pubout \
+            -out "$public_key" >/dev/null 2>&1
+
+          openssl enc \
+            -aes-256-cbc \
+            -pbkdf2 \
+            -iter 200000 \
+            -md sha256 \
+            -salt \
+            -in "$private_key" \
+            -out "$sealed_private_key" \
+            -pass env:COOLIFY_API_TOKEN
+          chmod 600 "$public_key" "$sealed_private_key"
+
+          rm -f "$private_key"
+
+      - name: Upload one-time public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-usage-public-key
+          path: ${{ env.ARTIFACT_DIR }}/public-key.pem
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload sealed private key
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-usage-sealed-private-key
+          path: ${{ env.ARTIFACT_DIR }}/private-key.pem.enc
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove temporary artifacts
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$ARTIFACT_DIR"
+
+  apply:
+    if: ${{ inputs.mode == 'apply' }}
+    runs-on: ubuntu-latest
+    environment: main
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      COOLIFY_BASE_URL: ${{ secrets.COOLIFY_BASE_URL }}
+      COOLIFY_APP_UUID: ${{ vars.COOLIFY_APP_UUID }}
+      BUNDLE_RUN_ID: ${{ inputs.bundle_run_id }}
+      CIPHERTEXT_B64: ${{ inputs.ciphertext_b64 }}
+    steps:
+      - name: Validate recovery inputs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$COOLIFY_API_TOKEN" ]]; then
+            echo "::error::Missing required environment secret COOLIFY_API_TOKEN"
+            exit 1
+          fi
+          if [[ -z "$COOLIFY_BASE_URL" ]]; then
+            echo "::error::Missing required environment secret COOLIFY_BASE_URL"
+            exit 1
+          fi
+          if [[ -z "$COOLIFY_APP_UUID" ]]; then
+            echo "::error::Missing required environment variable COOLIFY_APP_UUID"
+            exit 1
+          fi
+          if [[ ! "$BUNDLE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::bundle_run_id must be a workflow run ID"
+            exit 1
+          fi
+          if [[ -z "$CIPHERTEXT_B64" ]]; then
+            echo "::error::ciphertext_b64 is required in apply mode"
+            exit 1
+          fi
+
+      - name: Download sealed private key
+        uses: actions/download-artifact@v4
+        with:
+          name: token-usage-sealed-private-key
+          path: ${{ runner.temp }}/token-usage-sealed-private-key
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.bundle_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply credential and deploy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          work_dir="$(mktemp -d "${RUNNER_TEMP}/token-usage-apply.XXXXXX")"
+          ADMIN_KEY=""
+          cleanup() {
+            ADMIN_KEY=""
+            rm -rf "$work_dir"
+          }
+          trap cleanup EXIT
+          chmod 700 "$work_dir"
+
+          sealed_private_key="${RUNNER_TEMP}/token-usage-sealed-private-key/private-key.pem.enc"
+          private_key="$work_dir/private-key.pem"
+          ciphertext="$work_dir/ciphertext.bin"
+          admin_key_file="$work_dir/admin-key.txt"
+          payload_file="$work_dir/env-payload.json"
+          response_file="$work_dir/coolify-response.json"
+          curl_error_file="$work_dir/curl-error.txt"
+
+          if [[ ! -s "$sealed_private_key" ]]; then
+            echo "::error::Sealed private key artifact is missing or empty"
+            exit 1
+          fi
+
+          : > "$private_key"
+          : > "$ciphertext"
+          : > "$admin_key_file"
+          : > "$payload_file"
+          : > "$response_file"
+          : > "$curl_error_file"
+          chmod 600 \
+            "$private_key" \
+            "$ciphertext" \
+            "$admin_key_file" \
+            "$payload_file" \
+            "$response_file" \
+            "$curl_error_file"
+
+          openssl enc \
+            -d \
+            -aes-256-cbc \
+            -pbkdf2 \
+            -iter 200000 \
+            -md sha256 \
+            -in "$sealed_private_key" \
+            -out "$private_key" \
+            -pass env:COOLIFY_API_TOKEN
+
+          printf '%s' "$CIPHERTEXT_B64" | base64 --decode > "$ciphertext"
+          unset CIPHERTEXT_B64
+
+          openssl pkeyutl \
+            -decrypt \
+            -inkey "$private_key" \
+            -in "$ciphertext" \
+            -out "$admin_key_file" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256
+
+          ADMIN_KEY="$(<"$admin_key_file")"
+          printf '::add-mask::%s\n' "$ADMIN_KEY"
+          if [[ "$ADMIN_KEY" != admin-?* || "$ADMIN_KEY" == *$'\n'* || "$ADMIN_KEY" == *$'\r'* ]]; then
+            echo "::error::Decrypted value is not a valid Sub2API Admin Key"
+            exit 1
+          fi
+          printf '%s' "$ADMIN_KEY" > "$admin_key_file"
+          ADMIN_KEY=""
+
+          jq -n \
+            --rawfile value "$admin_key_file" \
+            '{key: "TF_TOKEN_USAGE_SUB2API_ADMIN_KEY", value: $value, is_literal: true}' \
+            > "$payload_file"
+
+          base_url="$COOLIFY_BASE_URL"
+          while [[ "$base_url" == */ ]]; do
+            base_url="${base_url%/}"
+          done
+          if [[ -z "$base_url" ]]; then
+            echo "::error::Invalid COOLIFY_BASE_URL"
+            exit 1
+          fi
+
+          env_url="$base_url/api/v1/applications/$COOLIFY_APP_UUID/envs"
+          if ! patch_code="$(curl -sS \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --oauth2-bearer "$COOLIFY_API_TOKEN" \
+              -H 'Content-Type: application/json' \
+              -X PATCH \
+              --data-binary "@$payload_file" \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              "$env_url" \
+              2>"$curl_error_file")"; then
+            echo "::error::Coolify env PATCH request failed"
+            exit 1
+          fi
+          echo "Coolify env PATCH HTTP $patch_code"
+
+          if [[ "$patch_code" == "404" ]]; then
+            if ! post_code="$(curl -sS \
+                --connect-timeout 10 \
+                --max-time 30 \
+                --oauth2-bearer "$COOLIFY_API_TOKEN" \
+                -H 'Content-Type: application/json' \
+                -X POST \
+                --data-binary "@$payload_file" \
+                --output "$response_file" \
+                --write-out '%{http_code}' \
+                "$env_url" \
+                2>"$curl_error_file")"; then
+              echo "::error::Coolify env POST request failed"
+              exit 1
+            fi
+            echo "Coolify env POST HTTP $post_code"
+            if [[ ! "$post_code" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Coolify env creation failed"
+              exit 1
+            fi
+          elif [[ ! "$patch_code" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::Coolify env update failed"
+            exit 1
+          fi
+
+          if ! deploy_code="$(curl -sS \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --oauth2-bearer "$COOLIFY_API_TOKEN" \
+              -X POST \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              "$base_url/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false" \
+              2>"$curl_error_file")"; then
+            echo "::error::Coolify deploy request failed"
+            exit 1
+          fi
+          echo "Coolify deploy HTTP $deploy_code"
+          if [[ ! "$deploy_code" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::Coolify deployment trigger failed"
+            exit 1
+          fi
+
+      - name: Remove downloaded sealed key
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${RUNNER_TEMP}/token-usage-sealed-private-key"
