@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { QBar, ShimPill } from '../Common'
 import { agentSignals, agentSuccessRate, type AgentDirectoryRow } from '../../lib/agentsDashboard'
 import { statusName } from '../../lib/i18n'
+import { formatAgentStep } from '../../lib/agentStep'
 import type { AgentSession, Lang } from '../../lib/types'
 import { ago, dur, encodePathParam, hashHue, initials, keyOf, LIVE } from '../../lib/utils'
 
@@ -57,6 +58,7 @@ export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabe
             const identity = keyOf(item)
             const name = labels[identity] || item.agent || t('agentUnnamed')
             const lastSeen = item.last_seen || item.ts
+            const step = formatAgentStep(item.runtime, item.current_step, item.status, lang)
             return (
               <tr
                 key={identity}
@@ -73,7 +75,7 @@ export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabe
                   <span className="agent-directory-main">
                     <span className="agent-directory-name"><b title={name}>{name}</b><span className="agent-status"><i className="dot" style={{ background: statusColor(item.status) }} />{statusName(lang, item.status)}</span></span>
                     <span className="agent-directory-task" title={item.task || t('agentNoTask')}>{item.task || t('agentNoTask')}</span>
-                    <span className="agent-directory-step" title={item.current_step || t('agentNoStep')}>{item.current_step ? `▸ ${item.current_step}` : t('agentNoStep')}</span>
+                    <span className="agent-directory-step" title={step || t('agentNoStep')}>{step ? `▸ ${step}` : t('agentNoStep')}</span>
                   </span>
                 </td>
                 <td className="agent-directory-operator" data-label={t('operatorName')}><b>{item.operator || t('agentUnassigned')}</b></td>

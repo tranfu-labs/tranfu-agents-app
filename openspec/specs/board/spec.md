@@ -137,6 +137,17 @@
 25. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
 
+26. 步骤展示必须保留 canonical `current_step` 原文供 API 搜索与兼容消费者使用。`_snapshot` 取卡片
+    最新事件时,若最新行是 `status=done` 且 `current_step` 以 `skill:` 开头的 Skill 扫描标记,必须在同一
+    `operator + runtime + agent||runtime + session_id` 内回退到最近非扫描步骤;该候选必须在同一条 SQL
+    中批量选出,不得在身份卡循环中执行 N+1 查询。没有候选时保留空值,不改变状态、Skill 统计、质量或活跃时长。
+    Pods 卡片、活动流、Agent 详情和 Agents 明细表统一调用前端 `formatAgentStep(runtime,current_step,status,lang)`;
+    当服务端为完成态卡片回退历史工具步骤时,已知工具必须显示完成式“已完成/Finished …”,不得显示“正在…”;
+    `display_current_step` 仅为 SQL 内部别名,不得出现在任何 API 响应。
+    生命周期步骤(`session start`/`turn end`/`session end`)与完成态 Skill 扫描不显示为当前步骤;已登记工具映射
+    只输出人话,未知非 MCP 工具保留原文,未知 `mcp__<server>__<tool>` 按服务器与工具结构化显示。映射只读
+    工具名,不展示命令、路径、参数、对象或其它内容;本规则不改协议字段,也不包含命令级白名单。
+
 ## 部署/运维
 - `TF_STATE_TTL`:`/api/state` 与 `/api/state/stream` 共用快照缓存 TTL(秒,float),默认 `1.5`。区间建议 `0.5~3.0`。
 - Docker healthcheck 配置目标:`Timeout=10s`、`Retries=5`、`Interval=30s`、`StartPeriod=10s`。

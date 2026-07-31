@@ -162,6 +162,63 @@ def test_state_now_field_present_and_iso(client):
     assert isinstance(body["now"], str) and "T" in body["now"]
 
 
+def test_snapshot_keeps_latest_session_step_when_skill_scan_is_newest(client):
+    ev(client, agent="scanner", session_id="old", current_step="tool: Read")
+    ev(client, agent="scanner", session_id="new", current_step="tool: Bash")
+    ev(client, agent="scanner", session_id="new", status="done",
+       current_step="skill: current", skill="current")
+
+    body = client.get("/api/state").json()
+    card = next(c for c in body["sessions"] if c["agent"] == "scanner")
+    assert card["session_id"] == "new"
+    assert card["current_step"] == "tool: Bash"
+    assert "display_current_step" not in card
+
+    agents = client.get("/api/agents?w=today").json()["agents"]
+    agent = next(row for row in agents if row["agent"] == "scanner")
+    assert agent["current_step"] == "tool: Bash"
+    assert "display_current_step" not in agent
+
+    detail = client.get("/api/agent/alice%3A%3Ascanner").json()
+    assert detail["current_step"] == "tool: Bash"
+    assert "display_current_step" not in detail
+
+
+def test_snapshot_skips_consecutive_skill_scans_without_n_plus_one_fallback(client):
+    ev(client, agent="scanner", session_id="scans", current_step="tool: Read")
+    ev(client, agent="scanner", session_id="scans", status="done",
+       current_step="skill: first", skill="first")
+    ev(client, agent="scanner", session_id="scans", status="done",
+       current_step="skill: second", skill="second")
+
+    body = client.get("/api/state").json()
+    card = next(c for c in body["sessions"] if c["agent"] == "scanner")
+    assert card["current_step"] == "tool: Read"
+    assert card["status"] == "done"
+    assert {row["name"] for row in body["skills"]} >= {"first", "second"}
+
+
+def test_snapshot_skips_empty_heartbeat_before_skill_scan(client):
+    ev(client, agent="scanner", session_id="blank", current_step="tool: Read")
+    ev(client, agent="scanner", session_id="blank", current_step="")
+    ev(client, agent="scanner", session_id="blank", status="done",
+       current_step="skill: blank", skill="blank")
+
+    body = client.get("/api/state").json()
+    card = next(c for c in body["sessions"] if c["agent"] == "scanner")
+    assert card["current_step"] == "tool: Read"
+
+
+def test_snapshot_skill_scan_without_previous_step_has_empty_step(client):
+    ev(client, agent="scan-only", session_id="scan-only", status="done",
+       current_step="skill: only", skill="only")
+
+    body = client.get("/api/state").json()
+    card = next(c for c in body["sessions"] if c["agent"] == "scan-only")
+    assert card["current_step"] is None
+    assert card["status"] == "done"
+
+
 # ---- /api/skills daily/operator_daily/funnel ----------------------------
 def test_skills_overview_includes_runtime_and_operator(client):
     ev(client, session_id="s", current_step="x", skill="vis-skill")

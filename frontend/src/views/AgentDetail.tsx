@@ -3,6 +3,7 @@ import { Contrib, Empty, ShimPill } from '../components/Common'
 import { DEMO_CONFIG, DEMO_MEMORY } from '../lib/demo'
 import { ACT_DAYS, dur, hashHue, initials, keyOf, LIVE, RT, shimState, shortShim } from '../lib/utils'
 import { statusName } from '../lib/i18n'
+import { formatAgentStep } from '../lib/agentStep'
 import type { AgentConfig, AgentMemory, Lang, SkillRef, StatePayload } from '../lib/types'
 import { skillDisplayName } from '../lib/skillNames'
 
@@ -100,6 +101,7 @@ export function AgentDetail({ data, lang, t }: { data: StatePayload; lang: Lang;
   const nmem = memory ? (memory.conventions || []).length + (memory.learned || []).length : 0
   const risk = /write|autonomous/i.test(JSON.stringify(config)) || mcp.length >= 3
   const skillCount = (skills.local || []).length + (skills.cross || []).length
+  const step = formatAgentStep(agent.runtime, agent.current_step, agent.status, lang)
 
   return (
     <>
@@ -122,7 +124,7 @@ export function AgentDetail({ data, lang, t }: { data: StatePayload; lang: Lang;
       </div>
       <div className="dsub">
         {agent.task || ''}
-        {agent.current_step ? ` · ▸ ${agent.current_step}` : ''}
+        {step ? ` · ▸ ${step}` : ''}
       </div>
       <div className="govbar">
         <span className="gv">

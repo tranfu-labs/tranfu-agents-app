@@ -1922,10 +1922,52 @@ def skill_detail_payload(conn, name):
 # ---------------------------------------------------------------- read: snapshot
 def _snapshot(conn):
     sessions = conn.execute("""
-      SELECT e.* FROM events e
-      JOIN (SELECT operator,runtime,COALESCE(agent,runtime) ag,MAX(id) mid FROM events
-            WHERE source IN ('heartbeat','heartbeat_resume') GROUP BY operator,runtime,ag) last
-      ON e.id = last.mid ORDER BY e.operator ASC, e.id DESC LIMIT 200""").fetchall()
+      WITH latest AS (
+        SELECT operator, runtime, COALESCE(agent,runtime) ag, MAX(id) mid
+        FROM events
+        WHERE source IN ('heartbeat','heartbeat_resume')
+        GROUP BY operator, runtime, ag
+      ),
+      latest_rows AS (
+        SELECT e.*
+        FROM events e
+        JOIN latest ON e.id = latest.mid
+      ),
+      previous_steps AS (
+        SELECT e.operator, e.runtime, COALESCE(e.agent,e.runtime) ag, e.session_id,
+               e.current_step,
+               ROW_NUMBER() OVER (
+                 PARTITION BY e.operator, e.runtime, COALESCE(e.agent,e.runtime), e.session_id
+                 ORDER BY e.id DESC
+               ) step_rank
+        FROM events e
+        JOIN latest_rows latest
+          ON latest.operator = e.operator
+         AND latest.runtime = e.runtime
+         AND COALESCE(latest.agent,latest.runtime) = COALESCE(e.agent,e.runtime)
+         AND latest.session_id = e.session_id
+        WHERE e.source IN ('heartbeat','heartbeat_resume')
+          AND TRIM(COALESCE(e.current_step,'')) <> ''
+          AND NOT (
+            e.status = 'done'
+            AND LOWER(TRIM(COALESCE(e.current_step,''))) LIKE 'skill:%'
+          )
+      )
+      SELECT latest_rows.*,
+             CASE
+               WHEN latest_rows.status = 'done'
+                AND LOWER(TRIM(COALESCE(latest_rows.current_step,''))) LIKE 'skill:%'
+               THEN previous_steps.current_step
+               ELSE latest_rows.current_step
+             END AS display_current_step
+      FROM latest_rows
+      LEFT JOIN previous_steps
+        ON previous_steps.operator = latest_rows.operator
+       AND previous_steps.runtime = latest_rows.runtime
+       AND previous_steps.ag = COALESCE(latest_rows.agent,latest_rows.runtime)
+       AND previous_steps.session_id = latest_rows.session_id
+       AND previous_steps.step_rank = 1
+      ORDER BY latest_rows.operator ASC, latest_rows.id DESC LIMIT 200""").fetchall()
     feed = conn.execute("""SELECT * FROM events WHERE source='heartbeat'
       ORDER BY id DESC LIMIT 40""").fetchall()
     dur, qual = metrics(conn)
@@ -1939,6 +1981,8 @@ def _snapshot(conn):
 
     def card(r):
         d = dict(r)
+        d["current_step"] = r["display_current_step"]
+        d.pop("display_current_step", None)
         d["meta"] = json.loads(d["meta"]) if d.get("meta") else None
         d["fidelity"] = "coarse" if r["runtime"] in CLOUD_RUNTIMES else "full"
         ak = (r["agent"] if "agent" in r.keys() else None) or r["runtime"] or ""
