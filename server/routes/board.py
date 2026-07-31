@@ -23,8 +23,8 @@ from server.catalog import (
     _installed_skill_names, _skill_display_fields, _skill_name_map, _skill_source,
 )
 from server.config import (
-    ACTIVE_ST, CATALOG_COMPANY_TYPES, CATALOG_SOURCE_UNKNOWN, CLOUD_RUNTIMES, LIVE_ST,
-    PROFILE_KEYS, SKILL_MODES, STALE_SECONDS, WINDOW_DAYS,
+    ACTIVE_SEGMENT_GAP_SECONDS, ACTIVE_ST, CATALOG_COMPANY_TYPES, CATALOG_SOURCE_UNKNOWN,
+    CLOUD_RUNTIMES, LIVE_ST, PROFILE_KEYS, SKILL_MODES, STALE_SECONDS, WINDOW_DAYS,
 )
 from server.db import STATS_TZ, _age, _day_cutoff, _parse, db, now_iso, stats_now, stats_today
 from server.profile import _skill_names, _skill_use_name, load_profiles, load_shim_versions, reuse_map
@@ -94,7 +94,7 @@ def _iter_sessions(conn):
 
 
 def _session_active_intervals(rows):
-    """Build confirmed active intervals, splitting gaps beyond the stale limit."""
+    """Build active intervals, splitting historical gaps beyond the duration fallback."""
     intervals = []
     active_start = active_last = None
     for r in rows:
@@ -103,7 +103,7 @@ def _session_active_intervals(rows):
         status = r["status"]
 
         if (active_start is not None
-                and (event_time - active_last).total_seconds() > STALE_SECONDS):
+                and (event_time - active_last).total_seconds() > ACTIVE_SEGMENT_GAP_SECONDS):
             if active_last > active_start:
                 intervals.append((active_start, active_last))
             active_start = active_last = None
@@ -1946,20 +1946,22 @@ def _snapshot(conn):
          AND latest.runtime = e.runtime
          AND COALESCE(latest.agent,latest.runtime) = COALESCE(e.agent,e.runtime)
          AND latest.session_id = e.session_id
-        WHERE e.source IN ('heartbeat','heartbeat_resume')
+         AND e.id < latest.id
           AND TRIM(COALESCE(e.current_step,'')) <> ''
           AND NOT (
-            e.status = 'done'
+            e.source IN ('heartbeat','heartbeat_resume')
+            AND e.status = 'done'
             AND LOWER(TRIM(COALESCE(e.current_step,''))) LIKE 'skill:%'
           )
       )
       SELECT latest_rows.*,
              CASE
-               WHEN latest_rows.status = 'done'
+               WHEN latest_rows.source IN ('heartbeat','heartbeat_resume')
+                AND latest_rows.status = 'done'
                 AND LOWER(TRIM(COALESCE(latest_rows.current_step,''))) LIKE 'skill:%'
                THEN previous_steps.current_step
                ELSE latest_rows.current_step
-             END AS display_current_step
+             END AS pod_step
       FROM latest_rows
       LEFT JOIN previous_steps
         ON previous_steps.operator = latest_rows.operator
@@ -1981,8 +1983,6 @@ def _snapshot(conn):
 
     def card(r):
         d = dict(r)
-        d["current_step"] = r["display_current_step"]
-        d.pop("display_current_step", None)
         d["meta"] = json.loads(d["meta"]) if d.get("meta") else None
         d["fidelity"] = "coarse" if r["runtime"] in CLOUD_RUNTIMES else "full"
         ak = (r["agent"] if "agent" in r.keys() else None) or r["runtime"] or ""

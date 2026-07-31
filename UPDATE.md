@@ -34,6 +34,36 @@ sudo systemctl restart tranfu
 
 ## 3. 确认后端真的通了(关键 —— 线上现在卡的就是这步)
 
+### Token Usage 从 NewAPI 升级到 Sub2API
+
+本次升级不改 Agent 事件、shim 或 SQLite。读取真实数据的核心部署配置是 `TF_TOKEN_USAGE_SUB2API_ADMIN_KEY`，不是 `/keys` 页面里的用户消费 Key，也不需要从浏览器提取登录 Token。管理员在 `https://api.tranfu.com/admin/settings` 的「安全与认证」中创建 Admin API Key，并将其作为 Coolify Secret 配置到 TranfuAgents 的 `server` service。
+
+推荐显式配置如下；只有 Admin Key 没有默认值且必须保密：
+
+```bash
+TF_TOKEN_USAGE_PROVIDER=sub2api
+TF_TOKEN_USAGE_BASE_URL=https://api.tranfu.com
+TF_TOKEN_USAGE_SUB2API_ADMIN_KEY=<仅存 Coolify Secret 的 Admin API Key>
+TF_TOKEN_USAGE_SUB2API_USER_ID=1
+TF_TOKEN_USAGE_TIMEZONE=Asia/Shanghai
+TF_TOKEN_USAGE_MAX_CONCURRENCY=4
+```
+
+保存变量后必须重新部署 `server` service，旧容器不会自动读取新 Secret。迁移期可临时设置 `TF_TOKEN_USAGE_SUB2API_ACCESS_TOKEN`，已有的 `TF_TOKEN_USAGE_ACCESS_TOKEN` 也会被识别；正常生产部署不要设置 Access Token，Admin Key 存在时始终优先。网页登录令牌会过期，401 必须更新令牌或切换 Admin Key。不要把任何凭证写入前端、仓库变量或 Cookie。旧接口只在显式设置 `TF_TOKEN_USAGE_PROVIDER=legacy_newapi` 时作为一个发布周期内的回滚路径；Sub2API 失败不会自动切到旧平台或 Demo。
+
+升级前先把候选 Sub2API 镜像部署到 Coolify 预发布实例，在 GitHub 手动运行 **Sub2API candidate contract gate**，填写候选镜像 digest。workflow 所选 environment 需要 `SUB2API_BASE_URL`、`SUB2API_USER_ID` 变量和 `SUB2API_ADMIN_KEY` Secret。门禁通过后才按该 digest 晋升生产，并保留上一生产 digest。
+
+上线后检查：
+
+```bash
+curl -fsS https://你的看板/api/token-usage/status
+curl -fsS 'https://你的看板/api/token-usage?days=1&time_granularity=hour'
+```
+
+`schema_version` 必须为 `2`，Key 列表非空；冷启动可短暂显示 `completeness=partial` 和“详细指标同步中”，随后刷新为 complete。`freshness=stale` 表示正在使用 24 小时内最后成功缓存。核心接口 502、空 Key、契约字段缺失或响应中出现完整 Key 时，立即回滚上一镜像 digest。
+
+`/api/token-usage/status` 还必须返回 `configured=true`、`provider=sub2api`、`auth_mode=admin_key` 和 `error_code=null`。若 `configured=false`，优先检查 Admin Key 是否配置在正确的 `server` service；若 `auth_mode=access_token`，说明仍在使用迁移兼容凭证，尚未完成生产认证切换。
+
 页面显示「未连接服务端」= 浏览器没拿到后端的 `/api/state`。逐条确认:
 
 ```bash

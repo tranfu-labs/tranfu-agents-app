@@ -99,7 +99,7 @@
 | 编号 | 元素 | 状态/交互 | 数据来源 | 引用控件 |
 |---|---|---|---|---|
 | ① | 头部 dhead：头像/agent 名/运行时徽章/调度员/状态点 | 静态 | `/api/state` 命中的 session | dhead |
-| ② | 任务行 dsub：task · 人话化步骤（未知原文回退） | 静态 | 同一 session 的 canonical `current_step` | dsub |
+| ② | 任务行 dsub：task · 人话化步骤（完成态使用已完成文案，未知原文回退） | 静态 | 同一 session 的 `pod_step`（缺失时回退 canonical `current_step`） | dsub |
 | ③ | 治理条 govbar：运行时/模型数/SHIM/MCP 触达/记忆数/风险 | SHIM 旧或 MCP≥3 高亮 warn | session + shim.version | govbar |
 | ④ | 能力与擅长（about/tips） | 静态 | session.about / tips | panel |
 | ⑤ | 系统配置：版本/角色/终端/IM/模型/shim 及 config K-V | 静态 | session.cf / config / models | panel · ShimPill |

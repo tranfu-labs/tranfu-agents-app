@@ -147,7 +147,7 @@ def test_agent_duration_sums_overlapping_sessions_across_all_consumers(client, a
     assert detail["today_active"] == 4 * 3600
 
 
-def test_agent_duration_splits_historical_gap_and_late_terminal(client, app_mod, monkeypatch):
+def test_agent_duration_uses_wide_historical_gap_and_late_terminal(client, app_mod, monkeypatch):
     monkeypatch.setattr(app_mod, "datetime", _fixed_datetime(datetime(2026, 7, 14, 12, tzinfo=timezone.utc)))
     with app_mod.db() as conn:
         _insert_event(conn, "alice", "builder", "gap-recovery",
@@ -171,10 +171,28 @@ def test_agent_duration_splits_historical_gap_and_late_terminal(client, app_mod,
     by_key = {row["key"]: row["active_seconds"] for row in body["agents"]}
 
     assert by_key == {
-        "alice::builder": 3 * 60,
-        "bob::reviewer": 60,
+        "alice::builder": 12 * 60,
+        "bob::reviewer": 10 * 60,
     }
-    assert body["summary"]["active_seconds"] == 4 * 60
+    assert body["summary"]["active_seconds"] == 22 * 60
+
+
+def test_agent_duration_splits_only_after_independent_segment_gap():
+    rows = [
+        {"rt_time": "2026-07-14T01:00:00+00:00", "ls": "2026-07-14T01:01:00+00:00", "status": "running"},
+        {"rt_time": "2026-07-14T01:16:00+00:00", "ls": "2026-07-14T01:16:00+00:00", "status": "running"},
+        {"rt_time": "2026-07-14T01:31:01+00:00", "ls": "2026-07-14T01:31:01+00:00", "status": "running"},
+        {"rt_time": "2026-07-14T01:32:01+00:00", "ls": "2026-07-14T01:32:01+00:00", "status": "running"},
+    ]
+
+    intervals = board._session_active_intervals(rows)
+
+    assert intervals == [
+        (board._parse("2026-07-14T01:00:00+00:00"),
+         board._parse("2026-07-14T01:16:00+00:00")),
+        (board._parse("2026-07-14T01:31:01+00:00"),
+         board._parse("2026-07-14T01:32:01+00:00")),
+    ]
 
 
 def test_agent_duration_allows_more_than_one_day_for_many_overlapping_sessions(client, app_mod, monkeypatch):

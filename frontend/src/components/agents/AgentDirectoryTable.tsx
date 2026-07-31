@@ -58,7 +58,8 @@ export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabe
             const identity = keyOf(item)
             const name = labels[identity] || item.agent || t('agentUnnamed')
             const lastSeen = item.last_seen || item.ts
-            const step = formatAgentStep(item.runtime, item.current_step, item.status, lang)
+            const sourceStep = item.pod_step !== undefined ? item.pod_step : item.current_step
+            const step = formatAgentStep(item.runtime, sourceStep, item.status, lang)
             return (
               <tr
                 key={identity}
@@ -75,7 +76,7 @@ export function AgentDirectoryTable({ rows, labels, latestShim, lang, windowLabe
                   <span className="agent-directory-main">
                     <span className="agent-directory-name"><b title={name}>{name}</b><span className="agent-status"><i className="dot" style={{ background: statusColor(item.status) }} />{statusName(lang, item.status)}</span></span>
                     <span className="agent-directory-task" title={item.task || t('agentNoTask')}>{item.task || t('agentNoTask')}</span>
-                    <span className="agent-directory-step" title={step || t('agentNoStep')}>{step ? `▸ ${step}` : t('agentNoStep')}</span>
+                    <span className="agent-directory-step" title={step.text || t('agentNoStep')}>{step.showMarker ? `▸ ${step.text}` : step.text || t('agentNoStep')}</span>
                   </span>
                 </td>
                 <td className="agent-directory-operator" data-label={t('operatorName')}><b>{item.operator || t('agentUnassigned')}</b></td>

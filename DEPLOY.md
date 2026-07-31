@@ -319,3 +319,40 @@ docker compose cp server:/data/tf.db ./tf-backup-$(date +%F).db
 > 活跃时长按 **Asia/Shanghai 日/周** 统计,每个 session 跨天时按上海自然日边界拆分后累加;
 > 同一 Agent 的重叠 session 不去重,因此单日可超过 24 小时。超过 180 秒的心跳断档仍停在
 > 最后确认心跳;具体时间戳仍以 UTC instant 存储。
+
+## H. Sub2API Token Usage（可选）
+
+Token Usage 与 Agent 遥测、shim 和 SQLite 隔离。**读取真实数据的核心配置只有 `TF_TOKEN_USAGE_SUB2API_ADMIN_KEY`**：它是唯一没有可用默认值的必需项，必须作为 Coolify Secret 配置到 TranfuAgents 的 `server` service。它不是 `/keys` 页面展示的用户消费 Key。
+
+### H1. 获取并配置核心凭证
+
+1. 使用管理员账号打开 `https://api.tranfu.com/admin/settings`。
+2. 进入「安全与认证」，创建「管理员 API Key」。创建后立即保存到 Coolify Secret；不要写入 `.env.example`、GitHub 变量、前端代码、截图或日志。
+3. 在 Coolify 的 TranfuAgents `server` service 环境变量中填写下面配置，然后重新部署：
+
+```bash
+# 唯一必需且必须保密的配置
+TF_TOKEN_USAGE_SUB2API_ADMIN_KEY=<Sub2API 管理员 API Key>
+
+# 有默认值，但生产建议显式配置
+TF_TOKEN_USAGE_PROVIDER=sub2api
+TF_TOKEN_USAGE_BASE_URL=https://api.tranfu.com
+TF_TOKEN_USAGE_SUB2API_USER_ID=1
+TF_TOKEN_USAGE_TIMEZONE=Asia/Shanghai
+TF_TOKEN_USAGE_MAX_CONCURRENCY=4
+```
+
+`TF_TOKEN_USAGE_SUB2API_USER_ID` 指定 inventory 起始管理员用户，当前公司实例使用 `1`。默认值分别为 `sub2api`、`https://api.tranfu.com`、`1`、`Asia/Shanghai` 和 `4`，所以最小可运行配置只有 Admin Key；显式填写其它值是为了让部署目标和统计口径可审计。
+
+迁移期允许以 Secret 形式临时配置 `TF_TOKEN_USAGE_SUB2API_ACCESS_TOKEN`，并兼容已有 `TF_TOKEN_USAGE_ACCESS_TOKEN`。正常生产部署不要配置 Access Token，也不要同时维护两套凭证；Admin Key 始终优先，网页登录令牌过期会返回明确诊断且不会自动回退。浏览器只访问同源 `/api/token-usage`，不得持有或直连任何 Sub2API 凭证。
+
+### H2. 部署后验收
+
+```bash
+curl -fsS https://你的看板/api/token-usage/status
+curl -fsS 'https://你的看板/api/token-usage?days=1&time_granularity=hour'
+```
+
+第一条响应必须同时满足 `configured=true`、`provider=sub2api`、`auth_mode=admin_key`、`error_code=null`；第二条响应必须为 `schema_version=2` 且 `data.summary` 非空。状态不满足时先检查 Secret 是否配置在 `server` service 并已重新部署，不要把 Admin Key 放到浏览器或请求参数中。
+
+候选 Sub2API 版本先部署到 Coolify 预发布实例，再运行 `.github/workflows/sub2api-contract.yml`。该门禁验证真实响应契约，不按 SemVer 猜兼容性；通过后按候选镜像 digest 晋升，保留上一生产 digest 供立即回滚。详细升级与验收步骤见 `UPDATE.md`。

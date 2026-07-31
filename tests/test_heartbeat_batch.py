@@ -215,7 +215,7 @@ def test_state_change_persists_pending_endpoint_before_new_row(client, app_mod, 
     agents = client.get(
         "/api/agents?w=custom&wstart=1781193600&wend=1781193600",
     ).json()
-    assert agents["summary"]["active_seconds"] == 120
+    assert agents["summary"]["active_seconds"] == 600
 
 
 def test_pending_endpoint_survives_interleaved_state_change_and_adds_parallel_session(
@@ -252,11 +252,11 @@ def test_pending_endpoint_survives_interleaved_state_change_and_adds_parallel_se
     agents = client.get(
         "/api/agents?w=custom&wstart=1781193600&wend=1781193600",
     ).json()
-    assert agents["summary"]["active_seconds"] == 300
+    assert agents["summary"]["active_seconds"] == 780
     assert agents["summary"]["active_agents"] == 1
-    assert agents["agents"][0]["active_seconds"] == 300
-    assert agents["daily"][0]["active_seconds"] == 300
-    assert agents["ranking"][0]["active_seconds"] == 300
+    assert agents["agents"][0]["active_seconds"] == 780
+    assert agents["daily"][0]["active_seconds"] == 780
+    assert agents["ranking"][0]["active_seconds"] == 780
 
 
 def test_old_and_out_of_order_pending_do_not_duplicate_parallel_session_time(

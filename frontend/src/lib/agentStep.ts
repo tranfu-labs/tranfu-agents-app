@@ -1,6 +1,8 @@
-import type { Lang, Status } from './types'
+import { statusName } from './i18n.ts'
+import type { Lang, Status } from './types.ts'
 
 export type StepCopy = { zh: string; en: string }
+export type AgentStepPresentation = { text: string; showMarker: boolean }
 
 const copy = (zh: string, en: string): StepCopy => ({ zh, en })
 
@@ -118,29 +120,33 @@ function withoutDonePrefix(value: string) {
   return value.replace(/^done\//i, '').trim()
 }
 
-function isSkillScan(value: string, status: Status) {
-  return String(status || '').toLocaleLowerCase() === 'done' && /^skill\s*:/i.test(withoutDonePrefix(value))
+function isSkillScan(value: string) {
+  return /^skill\s*:/i.test(withoutDonePrefix(value))
 }
 
-export function formatAgentStep(runtime: string, currentStep: string | null | undefined, status: Status, lang: Lang): string | null {
-  if (!currentStep || !currentStep.trim()) return null
+function fallback(status: Status, lang: Lang): AgentStepPresentation {
+  return { text: statusName(lang, status), showMarker: false }
+}
+
+export function formatAgentStep(runtime: string, currentStep: string | null | undefined, status: Status, lang: Lang): AgentStepPresentation {
+  if (!currentStep || !currentStep.trim()) return fallback(status, lang)
   const raw = currentStep.trim()
   const lifecycle = withoutDonePrefix(raw).toLocaleLowerCase()
-  if (isSkillScan(raw, status) || LIFECYCLE_STEPS.has(lifecycle)) return null
+  if (isSkillScan(raw) || LIFECYCLE_STEPS.has(lifecycle)) return fallback(status, lang)
 
   const toolMatch = TOOL_STEP.exec(raw)
-  if (!toolMatch) return raw
+  if (!toolMatch) return { text: currentStep, showMarker: true }
   const prefix = toolMatch[1].toLocaleLowerCase()
   const toolName = toolMatch[2]
   const action = actionFor(runtime, toolName)
   const completed = String(status || '').toLocaleLowerCase() === 'done' || prefix === 'tool done'
-  if (action) return (completed ? finished(action) : action)[lang]
+  if (action) return { text: (completed ? finished(action) : action)[lang], showMarker: true }
 
   const mcpMatch = MCP_STEP.exec(toolName)
   if (mcpMatch) {
     const mcpAction = normalizedAction(MCP_STEP_ACTIONS[runtime.trim().toLocaleLowerCase()], toolName)
     const copyText = mcpAction || genericMcpCopy(mcpMatch)
-    return (completed ? finished(copyText) : copyText)[lang]
+    return { text: (completed ? finished(copyText) : copyText)[lang], showMarker: true }
   }
-  return raw
+  return { text: currentStep, showMarker: true }
 }

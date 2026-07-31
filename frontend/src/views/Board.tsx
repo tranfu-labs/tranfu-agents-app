@@ -8,7 +8,8 @@ import type { AgentSession, Lang, StatePayload } from '../lib/types'
 function AgentCard({ agent, latestShim, lang, t }: { agent: AgentSession; latestShim?: string; lang: Lang; t: (key: string) => string }) {
   const tag = agent.agent || RT[agent.runtime] || agent.runtime
   const skillCount = (agent.skills?.local || []).length + (agent.skills?.cross || []).length
-  const step = formatAgentStep(agent.runtime, agent.current_step, agent.status, lang)
+  const sourceStep = agent.pod_step !== undefined ? agent.pod_step : agent.current_step
+  const step = formatAgentStep(agent.runtime, sourceStep, agent.status, lang)
   return (
     <Link className={`card s-${agent.status}`} to={`/agent/${encodePathParam(keyOf(agent))}`}>
       <div className="crow">
@@ -20,7 +21,7 @@ function AgentCard({ agent, latestShim, lang, t }: { agent: AgentSession; latest
         <span className="age mono">{ago(agent.ts)}</span>
       </div>
       <div className="task">{agent.task || '—'}</div>
-      <div className="step">{step ? `▸ ${step}` : statusName(lang, agent.status)}</div>
+      <div className="step">{step.showMarker ? `▸ ${step.text}` : step.text}</div>
       <div className="chips">
         {(agent.models || []).slice(0, 3).map((model) => (
           <span className="chip" key={model}>
@@ -52,7 +53,7 @@ function FeedItem({ item, index, lang }: { item: StatePayload['feed'][number]; i
           {item.agent ? ` · ${item.agent}` : ''} <span className="stx">{statusName(lang, item.status)}</span>
         </div>
         <div className="sub">
-          {RT[item.runtime] || item.runtime} — {step || item.task || statusName(lang, item.status)}
+          {RT[item.runtime] || item.runtime} — {step.showMarker ? `▸ ${step.text}` : step.text || item.task || statusName(lang, item.status)}
         </div>
       </div>
     </div>

@@ -5,7 +5,10 @@
 ## 接口
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
-  因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。
+  因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。`sessions[]` 保留原始
+  `current_step`,并可返回只读派生字段 `pod_step?: string | null`;该字段不是 TATP 写协议、
+  不由 shim 上报或落库,供 Pods 卡片、AgentDetail、Agents 明细表与活动流的统一步骤展示层使用。
+  旧服务端缺失此字段时,需要派生步骤的入口兼容回退 `current_step`。
 - `GET /api/state/stream` → `text/event-stream`。连接建立后先发送一条 `event: state` 完整快照,
   payload 与 `/api/state` 同结构;后续由写侧 dirty 标记触发合并推送,长时间无业务事件时发送 SSE comment keepalive。
   SSE 失败不得影响 `/api/state` 普通 HTTP 请求。
@@ -51,10 +54,12 @@
    复用(跨人技能重叠),以及该身份最新 profile 字段。
 3. **掉线判定**:`running/started` 且距 `last_seen` 超过 `STALE_SECONDS=180` 秒 → 展示为 `idle`。
 4. 活跃统计窗口 `WINDOW_DAYS=90`,按服务端统计时区 `Asia/Shanghai` 日。时长先按 `session_id` 从服务端
-   `recv/last_seen` 构造连续段:相邻事件距最后确认心跳 `> STALE_SECONDS=180` 秒时,旧段停在最后确认心跳,
+   `recv/last_seen` 构造连续段:相邻事件距最后确认心跳 `> ACTIVE_SEGMENT_GAP_SECONDS=900` 秒时,旧段停在最后确认心跳,
    后续存活事件从自身 `recv` 开新段,迟到终态不得回填断线期间。每个 session 的连续段独立按上海日边界拆分,
    再按最终身份 `(operator, agent‖runtime)` 逐 session 累加;不同 session 的重叠区间不得去重或封顶,
    单 Agent 单统计日允许超过 86,400 秒。同一 session 的重复心跳只推进最后确认时间,不得按事件条数重复计时。
+   `ACTIVE_SEGMENT_GAP_SECONDS` 仅用于活跃时长历史连续段重算;在线卡片掉线判定仍使用
+   `STALE_SECONDS=180`,因此放宽历史切段不会延长已退出 Agent 的 Live 展示。
 5. `totals.live` 仅计 `status ∈ {running, started, waiting}`。
 6. `feed` 为真实状态转变(非心跳),倒序;同状态长断档恢复的内部 `heartbeat_resume` 计时边界不得进入 feed。
 7. leverage = `{assets, skills_week}`。`assets` 为 `skill_uses WHERE mode='used'` 的 distinct skill 数;
@@ -136,15 +141,18 @@
     慢 SSE client 不得拖慢全局推送;实现优先保留最新快照,允许丢弃该 client 队列里的旧快照。
 25. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
-
 26. 步骤展示必须保留 canonical `current_step` 原文供 API 搜索与兼容消费者使用。`_snapshot` 取卡片
-    最新事件时,若最新行是 `status=done` 且 `current_step` 以 `skill:` 开头的 Skill 扫描标记,必须在同一
-    `operator + runtime + agent||runtime + session_id` 内回退到最近非扫描步骤;该候选必须在同一条 SQL
-    中批量选出,不得在身份卡循环中执行 N+1 查询。没有候选时保留空值,不改变状态、Skill 统计、质量或活跃时长。
-    Pods 卡片、活动流、Agent 详情和 Agents 明细表统一调用前端 `formatAgentStep(runtime,current_step,status,lang)`;
+    最新事件时,若最新行同时满足 `source IN ('heartbeat','heartbeat_resume')`、`status='done'` 且
+    `TRIM(current_step)` 以 `skill:` 开头的 Skill 扫描标记,必须在同一
+    `operator + runtime + agent||runtime + session_id` 内跳过连续 Skill 扫描行,取最近的非扫描、非空
+    `current_step`;没有安全前序时 `pod_step` 显式为 `null`,不得从另一 session 借步骤。该候选必须在同一条
+    SQL 中批量选出,不得在身份卡循环中执行 N+1 查询。原始 `current_step`、事件、Skill 统计、状态与身份
+    合并均不改义。`pod_step` 对普通最新事件等于原始 `current_step`,仅作为只读投影字段。
+    Pods 卡片、活动流、Agent 详情和 Agents 明细表统一调用前端 `formatAgentStep(runtime,step,status,lang)`;
+    Pods 卡片、Agent 详情与 Agents 明细表在 `pod_step !== undefined` 时使用该字段（包括显式 `null`），
+    旧服务端缺失字段时回退 `current_step`;活动流继续使用其事件原始 `current_step`。
     当服务端为完成态卡片回退历史工具步骤时,已知工具必须显示完成式“已完成/Finished …”,不得显示“正在…”;
-    `display_current_step` 仅为 SQL 内部别名,不得出现在任何 API 响应。
-    生命周期步骤(`session start`/`turn end`/`session end`)与完成态 Skill 扫描不显示为当前步骤;已登记工具映射
+    生命周期步骤(`session start`/`turn end`/`session end`)与 Skill 扫描不显示为步骤 marker;已登记工具映射
     只输出人话,未知非 MCP 工具保留原文,未知 `mcp__<server>__<tool>` 按服务器与工具结构化显示。映射只读
     工具名,不展示命令、路径、参数、对象或其它内容;本规则不改协议字段,也不包含命令级白名单。
 
@@ -161,6 +169,12 @@
   fallback polling 首次加载立即请求;页面可见且 `totals.live > 0` 时约 3 秒刷新;页面可见且 `totals.live == 0`
   时约 15 秒刷新;页面隐藏时暂停或降到约 60 秒刷新;任一时刻不得并发叠加多个 `/api/state` 请求。
   TopBar、Pods 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询；Agents 页面主体独立读取 `/api/agents`,但不得因此另建 `/api/state` 轮询。
+- Pods 卡片、活动流、AgentDetail 和 Agents 明细表的步骤文案统一经 `formatAgentStep` 展示。Pods 卡片、
+  AgentDetail 与 Agents 明细表在 `pod_step !== undefined` 时使用该字段（包括显式 `null`）,只有字段缺失
+  才兼容回退原始 `current_step`;活动流使用事件自己的原始 `current_step`。`tool:` / `tool done:` 必须分别
+  投影为双语的人类可读开始/完成短语并保留工具对象；`turn end`、`session start`、`session end`、`skill:`、
+  缺失或空步骤不得作为步骤直出,改显示本地化状态且不带步骤 marker；未识别自由文本必须逐字保留。
+  该规则不得处理 task,不得展示命令、路径、参数或工具对象内容。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
@@ -333,6 +347,16 @@
 - 前端源码在 `frontend/`;生产由 Docker/CI 构建 `frontend/dist`,运行容器不依赖 node,仓库不提交 dist。
 
 ## 可验证行为
+- 中文 `/` 对应看板步骤行：`tool: Bash` → `▸ 正在执行命令`,
+  `tool done: Bash` → `▸ 已完成执行命令`；切换英文后分别为
+  `▸ Running a command` / `▸ Finished running a command`，步骤行不再出现原始工具前缀。
+- 同 session 上报 `done / turn end` → 对应 Pod 卡片步骤行显示本地化状态而不显示 `turn end`;
+  随后连续上报 `skill: alpha`、`skill: beta` → 卡片仍显示终态，原始 `current_step` 仍为
+  `skill: beta`，Skill 统计仍含 alpha / beta。
+- 同一 Skill 扫描跨 180 秒恢复并产生 `source=heartbeat_resume` → `pod_step` 仍跳过扫描行;
+  Activity 保留普通 `heartbeat` 的原始工具、生命周期和 Skill 摘要,不新增 `heartbeat_resume`。
+- `task="接入自检",current_step="tf-doctor"` → 对应 Pod 卡片 task 与步骤均原样显示;
+  再上报未知自由文本 `同步发布说明 · 等待复核` → 步骤行逐字保留。
 - 同一 agent 跑多次/多 session → 看板仅一张卡,随最新状态刷新。
 - 某 agent 3 分钟无心跳 → 卡片转 `idle`(灰)。
 - 造数据:skill A 的 `used` 在 31 天前 1 个会话、5 天前 2 个会话(2 个不同 operator)使用 →
@@ -616,3 +640,17 @@
 - custom 半填写或倒序时不请求 API、显示范围提示且刷新不可用；切回普通预设后 URL 不含旧 `wstart/wend`。
 - 打开包含已失效 `model` 的链接时，payload 到达后回退到全部模型且 URL 清除该参数，不显示空选择或误导性空结果。
 - 从含筛选 query 的 Token Usage URL 刷新、复制到新标签或从其它页面后退返回时，筛选结果不得回到组件默认值。
+
+## Sub2API Token Usage 稳定契约（2026-07-30）
+
+- `/api/token-usage` MUST 是外部分发平台唯一浏览器可见边界；浏览器不得持有或直连分发平台凭证。
+- 默认 `sub2api` provider MUST 使用版本化 `/api/v1/admin/*` 与服务端 `x-api-key`。inventory 读取后 MUST 立即移除明文 `key`，日志、缓存、响应、错误信息和 CSV 不得包含完整 API Key 或 Admin Key。
+- schema v2 MUST 以稳定 `api_key_id` 聚合，并使用 `actual_cost_usd`、`quota_limit_usd`、`quota_used_lifetime_usd`、`request_count`、`error_count`、`input_tokens`、`output_tokens`、`total_tokens` 和 `average_duration_ms` 明确单位；不可得增强指标 MUST 为 `null`，前端 MUST 显示未知而非 0。
+- 当前 inventory MUST 与当前及上一窗口 `api-keys-trend` 发现的 Key 取并集；历史归属不得按 Key 当前 `user_id` 过滤。
+- 冷缓存 MUST 先返回 inventory/trend 核心数据并标记 partial；当前窗口 snapshot 完成后 MUST 在对比、延迟和错误统计完成前可见。complete 缓存到期 MUST 继续提供旧完整数据并后台 single-flight 刷新，不得回退到 partial。当前窗口缓存 60 秒，闭合历史缓存 15 分钟；缓存键包含范围、粒度、时区及适用的 `api_key_id`，缓存有过期和容量淘汰，所有查询与后台任务合计的 Sub2API 请求 MUST 遵守进程级共享并发上限。
+- 上游失败 MAY 返回 24 小时内最后成功快照，但 MUST 标记 stale 和缓存年龄；无可用快照、认证失败、必需端点缺失或契约不兼容 MUST 明确失败，不得静默切换 `legacy_newapi` 或 Demo。
+- `/api/token-usage/errors` MUST 接受规范 `api_key_id`，并在一个发布周期内兼容 `token_id`。`/api/token-usage/status` MUST 只暴露版本、能力、最近成功、缓存年龄和错误代码等诊断状态，不得暴露凭证或敏感上游响应。
+- Sub2API 候选版本 MUST 在预发布实例通过 `/health`、版本、Key 分页、trend、单 Key snapshot/stats 和 errors 过滤/分页的只读响应契约检查；允许新增未知字段，缺少或改名必需字段 MUST 阻止晋升。版本号只记录，不作为自动兼容判定。
+- `legacy_newapi` 仅可显式启用。Sub2API 新链路连续成功 7 天且完成一次候选升级演练后，MUST 通过后续变更删除旧 Header、Cookie/Access Token 配置、旧单位换算和兼容测试。
+- 前端对 partial 或后台 refreshing 状态 MUST 使用有界退避刷新；complete 后台刷新期间 MUST 保留已有金额和模型，不得清空或显示为 0。
+- trend/snapshot/stats MAY 按 Sub2API 实际日期参数、Key 和粒度复用跨分钟组件缓存；errors MUST 保留精确开始和结束时间，不能因复用而改变错误统计范围。

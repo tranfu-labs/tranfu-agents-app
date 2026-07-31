@@ -101,7 +101,8 @@ export function AgentDetail({ data, lang, t }: { data: StatePayload; lang: Lang;
   const nmem = memory ? (memory.conventions || []).length + (memory.learned || []).length : 0
   const risk = /write|autonomous/i.test(JSON.stringify(config)) || mcp.length >= 3
   const skillCount = (skills.local || []).length + (skills.cross || []).length
-  const step = formatAgentStep(agent.runtime, agent.current_step, agent.status, lang)
+  const sourceStep = agent.pod_step !== undefined ? agent.pod_step : agent.current_step
+  const step = formatAgentStep(agent.runtime, sourceStep, agent.status, lang)
 
   return (
     <>
@@ -124,7 +125,7 @@ export function AgentDetail({ data, lang, t }: { data: StatePayload; lang: Lang;
       </div>
       <div className="dsub">
         {agent.task || ''}
-        {step ? ` · ▸ ${step}` : ''}
+        {step.showMarker ? ` · ▸ ${step.text}` : step.text ? ` · ${step.text}` : ''}
       </div>
       <div className="govbar">
         <span className="gv">

@@ -24,6 +24,7 @@ agent 机器                         中心服务器(单容器)                 
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL revalidate 但不得未经业务确认引入跳过服务端校验的 TTL;
   Skill 读模型保留 slug identity,并从 catalog/profile 统一附加 `display_name/display_name_zh` 与批量名称映射,
   `/api/operator/{name}` 以新增 `analysis` 承载 `w/wstart/wend/rt/src` 当前观察范围，旧顶层字段保持兼容，
+  可选 `/api/token-usage` 作为 Sub2API `/api/v1/admin/*` 的唯一浏览器可见 BFF 契约层，认证、分页、聚合、USD 单位、进程级共享限并发、分阶段后台增强、有界 stale-while-revalidate 缓存、降级和脱敏由 `server/token_usage_sub2api.py` 负责；路由只校验查询参数与组装 HTTP 响应，
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   连续段内纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入;
   最后确认心跳取 SQLite/pending 较新值,同一事件 pending 入队单调不减,任何新行插入前固化旧行 pending,
@@ -34,10 +35,10 @@ agent 机器                         中心服务器(单容器)                 
   `GET /api/operator/{name}`、`GET /api/agent/{key}`、`GET /api/admin/inventory`、`POST /api/admin/preview`、
   `DELETE /api/admin/data`、`GET /api/admin/trash`、`POST /api/admin/restore`、`GET /api/admin/export`、`GET /healthz`、`GET /` 与 SPA 深链(看板)、
   `GET /assets/*`、`GET /install.sh`、`GET /shims/manifest`、`GET /shims/{path}`。
-- **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)。
+- **上游**:shim 发来的事件(不可信输入,需鉴权 + 校验)；可选 Token Usage 只读 Sub2API Admin API，Admin Key 或迁移期登录 Access Token 仅来自服务端 Secret，Admin Key 优先。
 - **下游**:SQLite(`$TF_DB`,含 `events`/`profiles`/`skills_seen`/`skill_uses`/`admin_trash`/`admin_audit`);
   浏览器(只读快照、Agents 指定窗口统计与 Skills 聚合);使用者机器(取 install/shim)。
-- **禁止依赖**:外部数据库/缓存/消息队列;任何 token/成本计算;读取使用者敏感内容(除非事件显式带 opt-in 字段);
+- **禁止依赖**:外部数据库/缓存/消息队列;Agent 遥测链路中的任何 token/成本计算；可选 Token Usage 只能在独立 BFF 模块只读聚合外部已有数据，不得写 SQLite 或进入事件/身份/session；读取使用者敏感内容(除非事件显式带 opt-in 字段);
   新增删除路径不得绕过 `_purge` 的级联、回收站与审计。
 
 ### M2 — 看板前端 (`frontend/`)
@@ -56,14 +57,15 @@ agent 机器                         中心服务器(单容器)                 
   `/token-usage` 独立读取 `/api/token-usage`，以 `w/wstart/wend/g/kind/model/risk/topn/q/hz/sort/dir` 保存全部可见筛选与排序，变化使用 replace，临时 KEY 抽屉/忽略状态不持久化；
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS/Token Usage search params。
   `/agents`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并请求各自 API。
-  Pods 卡片、活动流、Agent 详情和 Agents 明细表的步骤文案必须统一经 `formatAgentStep` 映射;未知非 MCP 工具回退
-  canonical 原文,未知 MCP 工具按结构化服务器/工具文案显示。前端只读工具名,不得展示命令、路径、参数或对象内容。
+  Pods 卡片、活动流、Agent 详情和 Agents 明细表的步骤文案必须统一经 `formatAgentStep` 映射;卡片/详情/Agents 明细优先消费可选
+  `pod_step`,字段缺失才回退 `current_step`,活动流消费事件原始 `current_step`;未知非 MCP 工具回退 canonical 原文,
+  未知 MCP 工具按结构化服务器/工具文案显示。前端只读工具名,不得展示命令、路径、参数或对象内容。
   SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自
   `/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/token-usage`、`/api/skill/{name}`、`/api/operator/{name}`、`/api/admin/*`(同源相对路径)。
 - **上游**:M1 的 `/api/state/stream`、`/api/state`、`/api/agents`、`/api/skills`、`/api/skills/evidence`、`/api/skill/{name}`、`/api/operator/{name}`;状态流与 `/api/state` 取不到时退回内置演示数据,
-  SKILLS 接口取不到时显示错误/空态；`/api/token-usage` 只读外部分发平台数据，不进入 Agent 遥测数据模型。
+  SKILLS 接口取不到时显示错误/空态；`/api/token-usage` 只读外部分发平台数据，不进入 Agent 遥测数据模型；schema v2 使用 USD 明确字段，partial/stale 状态下未知详细指标显示为 `—`，不得变成 0。
 - **下游**:无(纯展示);`/api/agent/{key}` 可选,默认用 `/api/state` 里合并好的 session 数据。
 - **禁止依赖**:浏览器本地存储(例外:主题模式仅可用 `tf-theme-mode` localStorage 保存 `system|light|dark`;`/admin` 仅可用 sessionStorage 暂存本会话管理钥匙);
   独立前端运行服务或运行期 node 依赖;后端端口写死(必须走相对路径)。
@@ -76,6 +78,8 @@ agent 机器                         中心服务器(单容器)                 
     并在版本一致但文件缺失/哈希不符时补齐目标文件;
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
+  - `tf_heartbeat.py` 为 Claude Code / Codex 每个 session 维护 detached turn 心跳;周期 `running` 事件走 no-spool,
+    Stop/SessionEnd 只写 drain 标记,宿主检查可靠时 daemon 自续租,宿主消失或不可用 TTL 到期发送一次 `idle` 关段;
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
   - `tf_hook.py` Claude Code / Codex / Hermes 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
     Claude Code 识别 `Skill` 工具调用,并在 `Stop` / `SessionEnd` 按位置守门扫描 transcript 里的真实斜杠 skill,
