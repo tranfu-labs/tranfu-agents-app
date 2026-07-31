@@ -67,6 +67,13 @@
     JSON/调用边界破损或超过读取上限时必须静默跳过;现有开关、长度、去重与失败静默规则保持不变。
     该链路不得提供或执行批量历史回填,也不得主动遍历未被当前 hook 指向的历史 session;旧会话被续聊后
     因正常结束事件重扫完整 rollout 而自然补记属于允许行为,无需引入持久化游标或升级截止点。
+14. **turn heartbeat 为可丢弃的纯 running 事件。** Claude Code / Codex 的 shim 可在
+    `UserPromptSubmit` / `PreToolUse` 后启动按 session 隔离的 detached 心跳器,以既有事件协议发送
+    `status=running`;周期 heartbeat 使用客户端 `tf_report.py --no-spool` 路径,失败时直接丢弃当前轮,
+    不得进入共享 spool,以免断网期间挤掉 `done`、`error` 或 skill 事件。`Stop` / `SessionEnd` 仍由
+    hook 发送正常终态,心跳器收到 drain 后不得再开新 heartbeat;宿主消失或 TTL 兜底退出时只发送一次
+    `status=idle` 关段,不得制造 error 质量计数。该心跳器失败、退出或清理状态文件都必须静默,不得阻塞
+    使用者 agent。
 
 ## 签发端点防爆破(SHOULD)
 - `POST /v1/enroll`(凭 `TF_KEY` 签发持久 per-operator token)应纳入与管理接口同类的按 IP 速率限制

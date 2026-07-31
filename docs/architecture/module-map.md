@@ -75,6 +75,8 @@ agent 机器                         中心服务器(单容器)                 
     并在版本一致但文件缺失/哈希不符时补齐目标文件;
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
+  - `tf_heartbeat.py` 为 Claude Code / Codex 每个 session 维护 detached turn 心跳;周期 `running` 事件走 no-spool,
+    Stop/SessionEnd 只写 drain 标记,宿主检查可靠时 daemon 自续租,宿主消失或不可用 TTL 到期发送一次 `idle` 关段;
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
   - `tf_hook.py` Claude Code / Codex / Hermes 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
     Claude Code 识别 `Skill` 工具调用,并在 `Stop` / `SessionEnd` 按位置守门扫描 transcript 里的真实斜杠 skill,

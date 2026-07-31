@@ -28,6 +28,11 @@ python3 ~/.tranfu/tf_hooks.py --target codex restore
 
 `session_id` 优先取自事件 stdin JSON,因此同一会话所有事件归到同一张卡。
 
+在 `UserPromptSubmit` / `PreToolUse` 后,分发器会为该 session 启动 detached turn 心跳器,默认每 60 秒发送一次 `running`。
+周期心跳失败不会写入共享 spool;`Stop` / `SessionEnd` 只写 drain 标记并立即返回,不会阻塞 Codex。
+宿主被 kill 或无法可靠检查且 TTL 到期时,心跳器最多发送一次 `idle` 关段事件,不计为 error/run 质量异常。
+不会额外安装 `PostToolUse`。
+
 ## 验证
 重启 Codex,随便跑一步,然后刷新看板。首次运行新增 hook 时,Codex 可能要求信任该 hook;确认一次即可。
 
