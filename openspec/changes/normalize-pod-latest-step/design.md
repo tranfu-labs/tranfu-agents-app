@@ -107,8 +107,9 @@ API 继续保留原始 `current_step`，但 `/` Pods 卡片、`/agents` 明细�
 
 ### 3. 活动流范围判断
 
-活动流仍以 `item.current_step || item.task || ''` 的原始事件字段为输入，但与其它入口复用同一个
-`formatAgentStep` 展示函数。这样不会把 `pod_step` 的卡片回退值借入历史流，也不会改变事件/API 的原文；
+活动流仍以事件自己的原始 `item.current_step` 为输入，但与其它入口复用同一个 `formatAgentStep`
+展示函数；空步骤由 formatter 直接返回本地化状态，`task` 不进入步骤规则。这样不会把 `pod_step` 的卡片
+回退值借入历史流，也不会改变事件/API 的原文；
 前端只对工具前缀做同一套人话化，并隐藏生命周期与 Skill 扫描的步骤 marker。普通 `heartbeat` scan 行
 继续进入 feed，`heartbeat_resume` 继续按 ADR-0003 被排除。本变更的测试要同时锁定原始 API 字段、
 同一格式化函数和恢复边界，避免把历史事件与卡片派生步骤混为一谈。
@@ -165,7 +166,7 @@ done    / skill: beta  + skill=beta
 覆盖：
 
 - `tool:` / `tool done:` 中英文；
-- 工具名与对象文本保留；
+- 已知 canonical 工具名映射；未知非 MCP 工具保留 canonical 原文；不展示参数、命令、路径或对象载荷；
 - `turn end` / `skill:` / 空值回退本地化状态；
 - `接入自检`、`tf-doctor`、带标点和空白的未知自由文本原样返回；
 - 未知 status 继续沿用 `statusName` 的安全退化。

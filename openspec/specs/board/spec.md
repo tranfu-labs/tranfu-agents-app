@@ -7,7 +7,8 @@
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。`sessions[]` 保留原始
   `current_step`,并可返回只读派生字段 `pod_step?: string | null`;该字段不是 TATP 写协议、
-  不由 shim 上报或落库,供 Pods 卡片、AgentDetail、Agents 明细表与活动流的统一步骤展示层使用。
+  不由 shim 上报或落库,供 Pods 卡片、AgentDetail、Agents 明细表选择步骤来源；活动流不消费该字段，
+  只把事件原始 `current_step` 交给同一 formatter。
   旧服务端缺失此字段时,需要派生步骤的入口兼容回退 `current_step`。
 - `GET /api/state/stream` → `text/event-stream`。连接建立后先发送一条 `event: state` 完整快照,
   payload 与 `/api/state` 同结构;后续由写侧 dirty 标记触发合并推送,长时间无业务事件时发送 SSE comment keepalive。

@@ -60,8 +60,9 @@
 ### Requirement: 活动流不继承卡片的 pod_step 回退来源
 
 本变更 MUST NOT 把卡片的 `pod_step` 回退值借入活动流。`/api/state.feed` 继续表示原始真实事件变化，
-前端 Feed 以原始 `current_step || task` 为格式化输入，并与其它入口复用同一展示函数；如需改变 API
-事件原文或历史记录事实，MUST 另行确认产品范围。
+前端 Feed 以事件自己的原始 `current_step` 为格式化输入，并与其它入口复用同一展示函数；空步骤由
+formatter 直接返回本地化状态，`task` 不进入步骤规则。如需改变 API 事件原文或历史记录事实，MUST
+另行确认产品范围。
 
 #### Scenario: 同页卡片与活动流边界不同
 
