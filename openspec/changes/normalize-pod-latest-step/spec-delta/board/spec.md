@@ -1,4 +1,4 @@
-# board 规格增量：Pods 卡片最新步骤归一
+# board 规格增量：看板步骤归一
 
 ## ADDED Requirements
 
@@ -31,7 +31,7 @@
 - **THEN** 步骤行 MUST NOT 显示 `turn end`
 - **AND** MUST 使用既有本地化状态表达终态
 
-#### Scenario: Skill 扫描不覆盖卡片步骤来源
+#### Scenario: Skill 扫描不覆盖看板步骤来源
 
 - **GIVEN** 同一 identity、同一 session 已有非扫描事件
 - **AND** 终态后追加一条或多条
@@ -44,7 +44,8 @@
 - **AND** `heartbeat` 与 `heartbeat_resume` 两种扫描来源 MUST 使用同一判定
 - **AND** 原始 events、`current_step`、`skill_uses` 与 `/api/state.feed` MUST 保持不变
 - **AND** `source=heartbeat` 的扫描行可保留在 feed，`heartbeat_resume` MUST 继续按既有规则被 feed 排除
-- **AND** AgentDetail、Agents 等既有消费者 MUST 继续使用原始 `current_step`
+- **AND** AgentDetail、Agents 等 API 响应 MUST 继续返回原始 `current_step`；其页面步骤展示 MUST
+  按入口规则消费 `pod_step`（字段缺失时回退）
 - **AND** 无前序非扫描事件时 `pod_step` MUST 为 `null`，不得抛错
 
 #### Scenario: 真实任务与自由文本安全退化

@@ -172,9 +172,10 @@
 - Pods 卡片、活动流、AgentDetail 和 Agents 明细表的步骤文案统一经 `formatAgentStep` 展示。Pods 卡片、
   AgentDetail 与 Agents 明细表在 `pod_step !== undefined` 时使用该字段（包括显式 `null`）,只有字段缺失
   才兼容回退原始 `current_step`;活动流使用事件自己的原始 `current_step`。`tool:` / `tool done:` 必须分别
-  投影为双语的人类可读开始/完成短语并保留工具对象；`turn end`、`session start`、`session end`、`skill:`、
-  缺失或空步骤不得作为步骤直出,改显示本地化状态且不带步骤 marker；未识别自由文本必须逐字保留。
-  该规则不得处理 task,不得展示命令、路径、参数或工具对象内容。
+  读取前缀后的 canonical 工具名并投影为双语的人类可读开始/完成短语；未知非 MCP 工具可保留包含工具名的
+  canonical 原文作为回退，但不得展示工具参数、命令、路径或对象载荷。`turn end`、`session start`、
+  `session end`、`skill:`、缺失或空步骤不得作为步骤直出,改显示本地化状态且不带步骤 marker；未识别自由文本
+  必须逐字保留。该规则不得处理 task。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
@@ -354,7 +355,8 @@
   随后连续上报 `skill: alpha`、`skill: beta` → 卡片仍显示终态，原始 `current_step` 仍为
   `skill: beta`，Skill 统计仍含 alpha / beta。
 - 同一 Skill 扫描跨 180 秒恢复并产生 `source=heartbeat_resume` → `pod_step` 仍跳过扫描行;
-  Activity 保留普通 `heartbeat` 的原始工具、生命周期和 Skill 摘要,不新增 `heartbeat_resume`。
+  `/api/state.feed` 保留普通 `heartbeat` 的原始工具、生命周期和 Skill 事件事实,不新增
+  `heartbeat_resume`;页面 Activity 仍以原始步骤为 formatter 输入，不把生命周期或 Skill 显示为步骤 marker。
 - `task="接入自检",current_step="tf-doctor"` → 对应 Pod 卡片 task 与步骤均原样显示;
   再上报未知自由文本 `同步发布说明 · 等待复核` → 步骤行逐字保留。
 - 同一 agent 跑多次/多 session → 看板仅一张卡,随最新状态刷新。

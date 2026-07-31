@@ -24,8 +24,8 @@ Pods 卡片把 `/api/state.sessions[].current_step` 直接显示为 `▸ ${curre
 
 - `tool: Bash` 显示为中文「正在执行命令」、英文「Running a command」；
 - `tool done: Bash` 显示为中文「已完成执行命令」、英文「Finished running a command」；
-- `turn end` 不作为步骤文案显示，由卡片现有本地化状态表达终态；
-- Skill 扫描事件不再成为卡片步骤来源；即使连续补采多个 Skill，也不显示 `skill: ...`；
+- `turn end` 不作为四个入口的步骤文案显示，由现有本地化状态表达终态；
+- Skill 扫描事件不再成为看板步骤来源；即使连续补采多个 Skill，也不显示 `skill: ...`；
 - `接入自检` 等真实 `task` 原样保留；
 - 未识别的自由文本原样显示，不截断、不翻译、不丢失信息；
 - 无步骤、被抑制的生命周期步骤或无可回退步骤时，沿用现状显示本地化状态。

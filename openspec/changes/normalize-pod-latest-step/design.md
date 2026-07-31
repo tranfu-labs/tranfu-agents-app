@@ -2,9 +2,11 @@
 
 ## 锁定范围
 
-本变更只处理 `/` Pods 卡片的步骤行，不借机实现结构化活动协议或单次运行耗时。
+本变更处理 `/` Pods 卡片、`/agents` 明细、`/agent/:key` 详情和 `/` Activity 的步骤行，
+不借机实现结构化活动协议或单次运行耗时。四个入口都经同一 formatter；前三者选择
+`pod_step`（字段缺失才回退 `current_step`），Activity 使用自己的事件 `current_step` 作为输入。
 
-| 输入 / 场景 | Pods 卡片步骤行（中文） | Pods 卡片步骤行（英文） |
+| 输入 / 场景 | 看板步骤行（中文） | 看板步骤行（英文） |
 |---|---|---|
 | `tool: Bash` | `▸ 正在执行命令` | `▸ Running a command` |
 | `tool done: Bash` | `▸ 已完成执行命令` | `▸ Finished running a command` |
@@ -26,7 +28,7 @@
 - `task`、原始 `current_step`、profile、shim、质量与活跃时长；
 - 按 `(operator, agent || runtime)` 合并卡片。
 
-为 `/api/state.sessions[]` 增加仅供 Pods 展示的可选派生字段：
+为 `/api/state.sessions[]` 增加供看板展示的可选派生字段：
 
 ```text
 pod_step: string | null
@@ -54,12 +56,13 @@ current_step starts with "skill: "
 - 正常写入 / 幂等更新 `skill_uses`；
 - 保持 `/api/state.feed` 既有来源规则：`source=heartbeat` 的扫描行保留在历史流，
   `source=heartbeat_resume` 仍作为内部恢复边界被 feed 排除；
-- 原样保留在 `sessions[].current_step`，供 AgentDetail、Agents 和其它既有消费者继续使用；
+- 原样保留在 `sessions[].current_step`，供 API 搜索、调试和兼容消费者继续使用；AgentDetail、Agents
+  页面步骤显示按入口规则消费 `pod_step`，字段缺失时才回退原始值；
 - 继续参与既有终态质量事实，不改变 `status=done`。
 
-实现应把扫描判定收进一个窄、可测的服务端 helper，并同时覆盖 `heartbeat` / `heartbeat_resume`，
-避免在 SQL 多处复制字符串条件。可采用一次有界补查或等价 SQL 投影；不得为此把全历史 events 拉入
-Python。`/api/state` 最多 200 张卡，补查须限定 identity、session 和倒序首条，并利用现有事件查询路径。
+实现应在一条 SQL CTE/窗口查询中批量完成扫描判定与同 session 候选选择，同时覆盖 `heartbeat` /
+`heartbeat_resume`；不得在身份卡循环中查询，也不得把全历史 events 拉入 Python。查询须限定 identity、
+session 和倒序首条，保持 `/api/state` 最多 200 张卡的既有边界。
 
 `pod_step` 是 board 只读 API 的加法字段，不是 TATP 写协议字段：shim 不上报它，ingest 不接收或落库它。
 旧客户端忽略未知字段；前端类型把它声明为可选以兼容尚未升级的服务端。
@@ -75,15 +78,15 @@ formatAgentStep(runtime: string, step: string | null | undefined, status: Status
 
 规则顺序：
 
-1. 精确识别 `tool done:`，保留冒号后的工具对象，输出本地化「已完成命令 / Finished command」；
-2. 精确识别 `tool:`，输出本地化「正在运行命令 / Running command」；
+1. 精确识别 `tool done:`，读取冒号后的 canonical 工具名并输出完成态映射；不展示工具参数、载荷或对象内容；
+2. 精确识别 `tool:`，读取冒号后的 canonical 工具名并输出进行中映射；不展示工具参数、载荷或对象内容；
 3. 精确识别生命周期 `turn end`，返回本地化状态且不显示步骤 marker；
 4. 防御性识别 `skill:`，返回本地化状态且不显示步骤 marker，覆盖无前序事件或旧服务端 payload；
 5. 缺失或只有空白时返回本地化状态且不显示步骤 marker；
 6. 其它自由文本返回原始输入并显示步骤 marker，不做大小写、空白、截断或翻译改写。
 
 识别时可对前缀做大小写不敏感和外围空白容错，但未知文本的返回值必须是原始值，保证安全退化不丢信息。
-`AgentCard` 使用：
+Pods 卡片、AgentDetail、Agents 明细使用：
 
 ```ts
 const step = agent.pod_step !== undefined ? agent.pod_step : agent.current_step
@@ -181,7 +184,7 @@ done    / skill: beta  + skill=beta
 实现完成后由 @qa 在真实运行应用逐条复核；仅测试 / build 通过不能替代这些观察：
 
 1. **工具开始**
-- 入口：打开 `/`、`/agents` 或 `/agent/:key`，切中文；
+- 入口：打开 `/`、`/agents` 或 `/agent/:key`，切中文；Activity 在 `/` 同步观察；
    - 操作：向同一 session 上报 `status=running,current_step="tool: Bash"`；
 - 断言：对应入口步骤行显示 `▸ 正在执行命令`，该步骤行内不出现原文
      `tool: Bash`；Activity 是否出现原文不属于此断言。
@@ -191,12 +194,12 @@ done    / skill: beta  + skill=beta
      `tool done: Bash`，且不增加 shell 命令详情。
 3. **终态**
    - 操作：同 session 上报 `status=done,current_step="turn end"`；
-   - 断言：对应 Pod 卡片步骤行内不出现 `turn end`，而显示中文终态 `完成`；
-     同卡片底部既有状态仍为 `完成`。
+   - 断言：对应入口步骤行内不出现 `turn end`，而显示中文终态 `完成`；
+     同卡片/详情/明细既有状态仍为 `完成`。
 4. **Skill 扫描不覆盖**
    - 操作：终态后连续上报 `skill: alpha`、`skill: beta`，分别携带同名 `skill`；
-   - 断言：对应 Pod 卡片步骤行内不出现 `skill: alpha/beta`，仍表达终态；
-     Activity 可保留原文，SKILLS 统计可查到 alpha / beta。
+   - 断言：对应四个入口的步骤行内不出现 `skill: alpha/beta`，仍表达终态；
+     API/feed 原始事件与 SKILLS 统计仍可查到 alpha / beta。
 5. **真实任务与安全退化**
    - 操作：另一个身份上报 `task="接入自检",current_step="tf-doctor"`，再用自由文本
      `current_step="同步发布说明 · 等待复核"` 复核；
@@ -208,8 +211,9 @@ done    / skill: beta  + skill=beta
      该步骤行内不出现 `tool:` / `tool done:` 原始前缀。
 7. **范围守门**
    - 入口：仍在 `/` 查看右侧 Activity；
-   - 断言：Activity 容器内继续展示 `tool done: Bash`、`turn end`、`skill: alpha/beta` 等原始历史
-     事件摘要；同时对应 Pod 卡片步骤行保持上述归一结果。
+   - 断言：Activity 以自己的原始 `current_step` 为 formatter 输入：工具事件显示人话映射，
+     `turn end` / `skill: alpha/beta` 不作为步骤 marker；API/feed 仍保留这些原始事件事实，
+     且不借用卡片 `pod_step`。
 
 ## 权衡
 
@@ -227,7 +231,8 @@ done    / skill: beta  + skill=beta
   事件与 feed 不丢。
 - **并发 session 串步**：回退查询必须限定同一 session，不允许从同身份其它 session 借步骤。
 - **前序事件缺失**：返回空步骤并由状态兜底，不抛错、不显示扫描文案。
-- **查询开销**：只对最新行命中扫描模式的卡片做有界首条补查；实现后用测试确认没有全表 Python 扫描。
+- **查询开销**：由单条 CTE/窗口查询批量选取最新行和同 session 前序步骤；实现后用测试确认没有
+  身份卡循环查询或全表 Python 扫描。
 - **新旧服务端混用**：`pod_step` 可选；字段缺失时前端回退原始 `current_step`，同时纯函数防御性抑制
   `skill:`。字段显式为 `null` 时不得回退原始值。
 - **回滚**：删除 `pod_step` 投影与前端纯函数接入即可；无迁移、无数据回写。
