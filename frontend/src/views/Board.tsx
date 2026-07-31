@@ -2,14 +2,14 @@ import { Link } from 'react-router-dom'
 import { Empty, SectionTitle, ShimPill, SparkMini } from '../components/Common'
 import { ago, dur, encodePathParam, hashHue, initials, keyOf, LIVE, RT } from '../lib/utils'
 import { statusName } from '../lib/i18n'
-import { presentPodStep } from '../lib/podStepPresentation'
+import { formatAgentStep } from '../lib/agentStep'
 import type { AgentSession, Lang, StatePayload } from '../lib/types'
 
 function AgentCard({ agent, latestShim, lang, t }: { agent: AgentSession; latestShim?: string; lang: Lang; t: (key: string) => string }) {
   const tag = agent.agent || RT[agent.runtime] || agent.runtime
   const skillCount = (agent.skills?.local || []).length + (agent.skills?.cross || []).length
   const sourceStep = agent.pod_step !== undefined ? agent.pod_step : agent.current_step
-  const step = presentPodStep(sourceStep, agent.status, lang)
+  const step = formatAgentStep(agent.runtime, sourceStep, agent.status, lang)
   return (
     <Link className={`card s-${agent.status}`} to={`/agent/${encodePathParam(keyOf(agent))}`}>
       <div className="crow">
@@ -42,28 +42,29 @@ function AgentCard({ agent, latestShim, lang, t }: { agent: AgentSession; latest
   )
 }
 
+function FeedItem({ item, index, lang }: { item: StatePayload['feed'][number]; index: number; lang: Lang }) {
+  const step = formatAgentStep(item.runtime, item.current_step, item.status, lang)
+  return (
+    <div className="feed-item" key={`${item.ts}-${index}`}>
+      <span className="ft">{ago(item.ts)}</span>
+      <div className="fmain">
+        <div className="l1">
+          {item.operator}
+          {item.agent ? ` · ${item.agent}` : ''} <span className="stx">{statusName(lang, item.status)}</span>
+        </div>
+        <div className="sub">
+          {RT[item.runtime] || item.runtime} — {step.showMarker ? `▸ ${step.text}` : step.text || item.task || statusName(lang, item.status)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Feed({ data, lang, t }: { data: StatePayload; lang: Lang; t: (key: string) => string }) {
   if (!data.feed.length) {
     return <Empty title={t('silent')} />
   }
-  return (
-    <>
-      {data.feed.map((item, index) => (
-        <div className="feed-item" key={`${item.ts}-${index}`}>
-          <span className="ft">{ago(item.ts)}</span>
-          <div className="fmain">
-            <div className="l1">
-              {item.operator}
-              {item.agent ? ` · ${item.agent}` : ''} <span className="stx">{statusName(lang, item.status)}</span>
-            </div>
-            <div className="sub">
-              {RT[item.runtime] || item.runtime} — {item.current_step || item.task || ''}
-            </div>
-          </div>
-        </div>
-      ))}
-    </>
-  )
+  return <>{data.feed.map((item, index) => <FeedItem item={item} index={index} lang={lang} key={`${item.ts}-${index}`} />)}</>
 }
 
 export function Board({ data, lang, t }: { data: StatePayload; lang: Lang; t: (key: string) => string }) {

@@ -57,6 +57,9 @@ agent 机器                         中心服务器(单容器)                 
   `/token-usage` 独立读取 `/api/token-usage`，以 `w/wstart/wend/g/kind/model/risk/topn/q/hz/sort/dir` 保存全部可见筛选与排序，变化使用 replace，临时 KEY 抽屉/忽略状态不持久化；
   暗亮三态主题(`system`/`light`/`dark`,仅主题模式可用 `tf-theme-mode` localStorage 窄例外持久化)、中英、手机适配;path 深链与 SKILLS/Token Usage search params。
   `/agents`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name` 与 `/operator/:name` 不得等待全局 `/api/state` 首包后才挂载;这些路由先渲染自身 loading/skeleton 并请求各自 API。
+  Pods 卡片、活动流、Agent 详情和 Agents 明细表的步骤文案必须统一经 `formatAgentStep` 映射;卡片/详情/Agents 明细优先消费可选
+  `pod_step`,字段缺失才回退 `current_step`,活动流消费事件原始 `current_step`;未知非 MCP 工具回退 canonical 原文,
+  未知 MCP 工具按结构化服务器/工具文案显示。前端只读工具名,不得展示命令、路径、参数或对象内容。
   SKILLS GET 请求按完整 URL 做 in-flight 去重与 ETag revalidate;返回页或刷新可先展示同 URL 已校验 payload 作为过渡态,但后台仍必须向服务端校验。
 - **入口**:源码在 `frontend/`;Docker/CI 运行 `npm run build` 生成 `frontend/dist`,由 M1 在 `/`、
   `/agents`、`/agent/:key`、`/skills`、`/skills/new`、`/skills/evidence`、`/skills/clues/:kind`、`/token-usage`、`/skill/:name`、`/operator/:name`、`/admin` 及其它非 API 深链提供;数据来自

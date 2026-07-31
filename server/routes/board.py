@@ -1920,48 +1920,56 @@ def skill_detail_payload(conn, name):
 
 
 # ---------------------------------------------------------------- read: snapshot
-_POD_SKILL_SCAN_SOURCES = ("heartbeat", "heartbeat_resume")
-_POD_SKILL_SCAN_STATUS = "done"
-_POD_SKILL_SCAN_PREFIX = "skill: "
-
-
-def _is_pod_skill_scan(row):
-    step = row["current_step"] or ""
-    return (
-        row["source"] in _POD_SKILL_SCAN_SOURCES
-        and row["status"] == _POD_SKILL_SCAN_STATUS
-        and step.casefold().startswith(_POD_SKILL_SCAN_PREFIX)
-    )
-
-
-def _pod_step(conn, row):
-    """Return the Pods-only step projection without rewriting current_step."""
-    if not _is_pod_skill_scan(row):
-        return row["current_step"]
-    agent_key = row["agent"] or row["runtime"] or ""
-    previous = conn.execute("""
-      SELECT current_step FROM events
-      WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=?
-        AND session_id=? AND id<?
-        AND NOT (
-          source IN (?,?)
-          AND COALESCE(status,'')=?
-          AND LOWER(COALESCE(current_step,'')) LIKE ?
-        )
-      ORDER BY id DESC LIMIT 1
-    """, (
-        row["operator"], row["runtime"], agent_key, row["session_id"], row["id"],
-        *_POD_SKILL_SCAN_SOURCES, _POD_SKILL_SCAN_STATUS, _POD_SKILL_SCAN_PREFIX + "%",
-    )).fetchone()
-    return previous["current_step"] if previous is not None else None
-
-
 def _snapshot(conn):
     sessions = conn.execute("""
-      SELECT e.* FROM events e
-      JOIN (SELECT operator,runtime,COALESCE(agent,runtime) ag,MAX(id) mid FROM events
-            WHERE source IN ('heartbeat','heartbeat_resume') GROUP BY operator,runtime,ag) last
-      ON e.id = last.mid ORDER BY e.operator ASC, e.id DESC LIMIT 200""").fetchall()
+      WITH latest AS (
+        SELECT operator, runtime, COALESCE(agent,runtime) ag, MAX(id) mid
+        FROM events
+        WHERE source IN ('heartbeat','heartbeat_resume')
+        GROUP BY operator, runtime, ag
+      ),
+      latest_rows AS (
+        SELECT e.*
+        FROM events e
+        JOIN latest ON e.id = latest.mid
+      ),
+      previous_steps AS (
+        SELECT e.operator, e.runtime, COALESCE(e.agent,e.runtime) ag, e.session_id,
+               e.current_step,
+               ROW_NUMBER() OVER (
+                 PARTITION BY e.operator, e.runtime, COALESCE(e.agent,e.runtime), e.session_id
+                 ORDER BY e.id DESC
+               ) step_rank
+        FROM events e
+        JOIN latest_rows latest
+          ON latest.operator = e.operator
+         AND latest.runtime = e.runtime
+         AND COALESCE(latest.agent,latest.runtime) = COALESCE(e.agent,e.runtime)
+         AND latest.session_id = e.session_id
+         AND e.id < latest.id
+          AND TRIM(COALESCE(e.current_step,'')) <> ''
+          AND NOT (
+            e.source IN ('heartbeat','heartbeat_resume')
+            AND e.status = 'done'
+            AND LOWER(TRIM(COALESCE(e.current_step,''))) LIKE 'skill:%'
+          )
+      )
+      SELECT latest_rows.*,
+             CASE
+               WHEN latest_rows.source IN ('heartbeat','heartbeat_resume')
+                AND latest_rows.status = 'done'
+                AND LOWER(TRIM(COALESCE(latest_rows.current_step,''))) LIKE 'skill:%'
+               THEN previous_steps.current_step
+               ELSE latest_rows.current_step
+             END AS pod_step
+      FROM latest_rows
+      LEFT JOIN previous_steps
+        ON previous_steps.operator = latest_rows.operator
+       AND previous_steps.runtime = latest_rows.runtime
+       AND previous_steps.ag = COALESCE(latest_rows.agent,latest_rows.runtime)
+       AND previous_steps.session_id = latest_rows.session_id
+       AND previous_steps.step_rank = 1
+      ORDER BY latest_rows.operator ASC, latest_rows.id DESC LIMIT 200""").fetchall()
     feed = conn.execute("""SELECT * FROM events WHERE source='heartbeat'
       ORDER BY id DESC LIMIT 40""").fetchall()
     dur, qual = metrics(conn)
@@ -1975,7 +1983,6 @@ def _snapshot(conn):
 
     def card(r):
         d = dict(r)
-        d["pod_step"] = _pod_step(conn, r)
         d["meta"] = json.loads(d["meta"]) if d.get("meta") else None
         d["fidelity"] = "coarse" if r["runtime"] in CLOUD_RUNTIMES else "full"
         ak = (r["agent"] if "agent" in r.keys() else None) or r["runtime"] or ""

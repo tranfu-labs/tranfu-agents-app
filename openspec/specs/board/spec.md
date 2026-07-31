@@ -6,8 +6,10 @@
 - `GET /api/state` → `{ now, sessions[], feed[], leverage, skills[], shim, totals }`。服务端对响应做进程内 TTL 缓存,
   默认 `STATE_TTL_SECONDS=1.5`,可由 `TF_STATE_TTL` 环境变量覆盖;同一 TTL 窗口内复用上一次快照,
   因此 `now` 表示"上次服务端计算时间",而非"本次请求的服务端时间"。`sessions[]` 保留原始
-  `current_step`,并可返回 Pods 专用只读派生字段 `pod_step?: string | null`;该字段不是 TATP 写协议、
-  不由 shim 上报或落库,旧服务端缺失此字段时前端兼容回退 `current_step`。
+  `current_step`,并可返回只读派生字段 `pod_step?: string | null`;该字段不是 TATP 写协议、
+  不由 shim 上报或落库,供 Pods 卡片、AgentDetail、Agents 明细表选择步骤来源；活动流不消费该字段，
+  只把事件原始 `current_step` 交给同一 formatter。
+  旧服务端缺失此字段时,需要派生步骤的入口兼容回退 `current_step`。
 - `GET /api/state/stream` → `text/event-stream`。连接建立后先发送一条 `event: state` 完整快照,
   payload 与 `/api/state` 同结构;后续由写侧 dirty 标记触发合并推送,长时间无业务事件时发送 SSE comment keepalive。
   SSE 失败不得影响 `/api/state` 普通 HTTP 请求。
@@ -140,13 +142,20 @@
     慢 SSE client 不得拖慢全局推送;实现优先保留最新快照,允许丢弃该 client 队列里的旧快照。
 25. `/healthz` 必须是 async handler,响应体固定 `ok`,不依赖 DB 或重模块状态;其响应时间不得受
     `/api/state` 聚合压力影响。在 100 并发 `/api/state` 期间,`/healthz` 单请求响应时间应 < 50ms。
-26. `/api/state.sessions[].pod_step` 只为 `/` Pods 卡片投影最新有效步骤。普通卡片行取原始
-    `current_step`;若该身份最新事件同时满足 `source IN ('heartbeat','heartbeat_resume')`、
-    `status='done'` 且步骤以 `skill: ` 起头,则必须在同一
-    `operator + runtime + (agent‖runtime) + session_id` 内跳过连续 Skill 扫描行,取最近非扫描事件的
-    `current_step`;没有安全前序时显式返回 `null`,不得从另一 session 借步骤。原始 `current_step`、
-    事件、Skill 统计、状态与身份合并均不改义。feed 保留普通 `heartbeat` 的原始事件摘要,
-    `heartbeat_resume` 继续作为内部恢复边界被排除。
+26. 步骤展示必须保留 canonical `current_step` 原文供 API 搜索与兼容消费者使用。`_snapshot` 取卡片
+    最新事件时,若最新行同时满足 `source IN ('heartbeat','heartbeat_resume')`、`status='done'` 且
+    `TRIM(current_step)` 以 `skill:` 开头的 Skill 扫描标记,必须在同一
+    `operator + runtime + agent||runtime + session_id` 内跳过连续 Skill 扫描行,取最近的非扫描、非空
+    `current_step`;没有安全前序时 `pod_step` 显式为 `null`,不得从另一 session 借步骤。该候选必须在同一条
+    SQL 中批量选出,不得在身份卡循环中执行 N+1 查询。原始 `current_step`、事件、Skill 统计、状态与身份
+    合并均不改义。`pod_step` 对普通最新事件等于原始 `current_step`,仅作为只读投影字段。
+    Pods 卡片、活动流、Agent 详情和 Agents 明细表统一调用前端 `formatAgentStep(runtime,step,status,lang)`;
+    Pods 卡片、Agent 详情与 Agents 明细表在 `pod_step !== undefined` 时使用该字段（包括显式 `null`），
+    旧服务端缺失字段时回退 `current_step`;活动流继续使用其事件原始 `current_step`。
+    当服务端为完成态卡片回退历史工具步骤时,已知工具必须显示完成式“已完成/Finished …”,不得显示“正在…”;
+    生命周期步骤(`session start`/`turn end`/`session end`)与 Skill 扫描不显示为步骤 marker;已登记工具映射
+    只输出人话,未知非 MCP 工具保留原文,未知 `mcp__<server>__<tool>` 按服务器与工具结构化显示。映射只读
+    工具名,不展示命令、路径、参数、对象或其它内容;本规则不改协议字段,也不包含命令级白名单。
 
 ## 部署/运维
 - `TF_STATE_TTL`:`/api/state` 与 `/api/state/stream` 共用快照缓存 TTL(秒,float),默认 `1.5`。区间建议 `0.5~3.0`。
@@ -161,10 +170,13 @@
   fallback polling 首次加载立即请求;页面可见且 `totals.live > 0` 时约 3 秒刷新;页面可见且 `totals.live == 0`
   时约 15 秒刷新;页面隐藏时暂停或降到约 60 秒刷新;任一时刻不得并发叠加多个 `/api/state` 请求。
   TopBar、Pods 与 AgentDetail 必须复用同一份 state 数据源,不得各自建立独立 `/api/state` 轮询；Agents 页面主体独立读取 `/api/agents`,但不得因此另建 `/api/state` 轮询。
-- Pods `AgentCard` 的步骤行在 `pod_step !== undefined` 时使用该字段（包括显式 `null`）,只有字段缺失
-  才兼容回退原始 `current_step`。`tool:` / `tool done:` 必须分别投影为双语的人类可读开始/完成短语并
-  保留工具对象；`turn end`、`skill:`、缺失或空步骤不得作为步骤直出,改显示本地化状态且不带步骤 marker；
-  未识别自由文本必须逐字保留。该规则不得处理 task,不得接入 Feed、AgentDetail 或 Agents。
+- Pods 卡片、活动流、AgentDetail 和 Agents 明细表的步骤文案统一经 `formatAgentStep` 展示。Pods 卡片、
+  AgentDetail 与 Agents 明细表在 `pod_step !== undefined` 时使用该字段（包括显式 `null`）,只有字段缺失
+  才兼容回退原始 `current_step`;活动流使用事件自己的原始 `current_step`。`tool:` / `tool done:` 必须分别
+  读取前缀后的 canonical 工具名并投影为双语的人类可读开始/完成短语；未知非 MCP 工具可保留包含工具名的
+  canonical 原文作为回退，但不得展示工具参数、命令、路径或对象载荷。`turn end`、`session start`、
+  `session end`、`skill:`、缺失或空步骤不得作为步骤直出,改显示本地化状态且不带步骤 marker；未识别自由文本
+  必须逐字保留。该规则不得处理 task。
 - 视图:Pods 看板(按 operator 分组,人=调度员,其 agent=编队)/ Agents 列表 / SKILLS 总览 / 治理详情 / Skill 详情 / Operator 详情。
 - 路由:Pods 看板 `/`;Agents 列表 `/agents`;治理详情 `/agent/:key`;SKILLS 总览 `/skills`;新增发布 Skill 列表 `/skills/new`;SKILLS 记录页 `/skills/evidence`;SKILLS 治理线索详情 `/skills/clues/:kind`;
   Skill 详情 `/skill/:name`;Operator 详情 `/operator/:name`;刷新、前进后退、复制链接必须保持当前视图。
@@ -337,14 +349,15 @@
 - 前端源码在 `frontend/`;生产由 Docker/CI 构建 `frontend/dist`,运行容器不依赖 node,仓库不提交 dist。
 
 ## 可验证行为
-- 中文 `/` 对应 Pod 卡片步骤行：`tool: Bash` → `▸ 正在运行命令 Bash`,
-  `tool done: Bash` → `▸ 已完成命令 Bash`；切换英文后分别为
-  `▸ Running command Bash` / `▸ Finished command Bash`，步骤行不再出现原始工具前缀。
+- 中文 `/` 对应看板步骤行：`tool: Bash` → `▸ 正在执行命令`,
+  `tool done: Bash` → `▸ 已完成执行命令`；切换英文后分别为
+  `▸ Running a command` / `▸ Finished running a command`，步骤行不再出现原始工具前缀。
 - 同 session 上报 `done / turn end` → 对应 Pod 卡片步骤行显示本地化状态而不显示 `turn end`;
   随后连续上报 `skill: alpha`、`skill: beta` → 卡片仍显示终态，原始 `current_step` 仍为
   `skill: beta`，Skill 统计仍含 alpha / beta。
 - 同一 Skill 扫描跨 180 秒恢复并产生 `source=heartbeat_resume` → `pod_step` 仍跳过扫描行;
-  Activity 保留普通 `heartbeat` 的原始工具、生命周期和 Skill 摘要,不新增 `heartbeat_resume`。
+  `/api/state.feed` 保留普通 `heartbeat` 的原始工具、生命周期和 Skill 事件事实,不新增
+  `heartbeat_resume`;页面 Activity 仍以原始步骤为 formatter 输入，不把生命周期或 Skill 显示为步骤 marker。
 - `task="接入自检",current_step="tf-doctor"` → 对应 Pod 卡片 task 与步骤均原样显示;
   再上报未知自由文本 `同步发布说明 · 等待复核` → 步骤行逐字保留。
 - 同一 agent 跑多次/多 session → 看板仅一张卡,随最新状态刷新。
