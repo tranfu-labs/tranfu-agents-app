@@ -49,6 +49,8 @@ MAP = {
 }
 PRE_TOOL = ("PreToolUse", "pre_tool_call")
 POST_TOOL = ("PostToolUse", "post_tool_call")
+TURN_HEARTBEAT_START_EVENTS = ("UserPromptSubmit", "PreToolUse")
+TURN_HEARTBEAT_STOP_EVENTS = ("Stop", "SessionEnd")
 SKILL_TOOLS = {"skill", "skill_view"}
 # Self-update checks piggy-back on these hook events. SessionStart is the
 # canonical trigger; UserPromptSubmit / Stop / SessionEnd are added so that
@@ -201,6 +203,38 @@ def _run_report(rargs, ev=None, tool=None, sid=None, skill=None):
     except Exception as e:
         err = type(e).__name__
     _hook_log(ev, tool, sid, skill, rargs, rc, err)
+
+
+def _heartbeat_action(action, d):
+    ev = _event_name(d)
+    if ev not in TURN_HEARTBEAT_START_EVENTS + TURN_HEARTBEAT_STOP_EVENTS:
+        return
+    sid = _session_id(d)
+    if not sid:
+        return
+    script = os.path.join(HERE, "tf_heartbeat.py")
+    if not os.path.exists(script):
+        return
+    args = ["python3", script, action, "--session", str(sid)]
+    if action == "start":
+        try:
+            # Only pass the immediate parent here. Wrapper climbing and the
+            # ps start-token lookup happen in the detached start helper, never
+            # on the host hook's synchronous path.
+            owner = os.getppid()
+        except Exception:
+            owner = 0
+        if owner > 0:
+            args += ["--owner-pid", str(owner)]
+    try:
+        # The hook only launches the tiny state-file operation. It never waits
+        # for the daemon or its HTTP request; Stop's drain marker is consumed
+        # asynchronously by the daemon.
+        subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         close_fds=True, start_new_session=True)
+    except Exception:
+        pass
 
 
 def _spawn_selfupdate(d):
@@ -393,11 +427,15 @@ def main():
         tool = d.get("tool_name") or d.get("tool") or ""
         if isinstance(tool, dict):
             tool = tool.get("name") or tool.get("tool_name") or ""
+        if ev in TURN_HEARTBEAT_STOP_EVENTS:
+            _heartbeat_action("stop", d)
         _run_report(rargs,
                     ev=ev,
                     tool=str(tool) if tool else "",
                     sid=_session_id(d),
                     skill=_skill_name(d, ev, tool))
+        if ev in TURN_HEARTBEAT_START_EVENTS:
+            _heartbeat_action("start", d)
     try:
         scan_codex_skills(d)
     except Exception:

@@ -126,6 +126,8 @@ def main():
     ap.add_argument("--profile", action="store_true", help="attach auto-detected profile")
     ap.add_argument("--shim-version", dest="shim_version", default="",
                     help="attach shim_version without the full profile collect()")
+    ap.add_argument("--no-spool", action="store_true",
+                    help="drop this event on transport failure; reserved for periodic heartbeats")
     ap.add_argument("--print", dest="dry", action="store_true", help="print payload, don't POST")
     a = ap.parse_args()
 
@@ -180,6 +182,13 @@ def main():
 
     if a.dry or not server:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    # Periodic turn heartbeats are deliberately lossy: a later heartbeat
+    # supersedes a failed one and they must never evict done/error/skill rows
+    # from the bounded shared spool. Normal events retain at-least-once.
+    if a.no_spool:
+        _post(server, payload)
         return
 
     # §3: flush any backlog first, then send; on failure spool (at-least-once).

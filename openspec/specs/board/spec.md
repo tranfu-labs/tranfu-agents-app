@@ -51,10 +51,12 @@
    复用(跨人技能重叠),以及该身份最新 profile 字段。
 3. **掉线判定**:`running/started` 且距 `last_seen` 超过 `STALE_SECONDS=180` 秒 → 展示为 `idle`。
 4. 活跃统计窗口 `WINDOW_DAYS=90`,按服务端统计时区 `Asia/Shanghai` 日。时长先按 `session_id` 从服务端
-   `recv/last_seen` 构造连续段:相邻事件距最后确认心跳 `> STALE_SECONDS=180` 秒时,旧段停在最后确认心跳,
+   `recv/last_seen` 构造连续段:相邻事件距最后确认心跳 `> ACTIVE_SEGMENT_GAP_SECONDS=900` 秒时,旧段停在最后确认心跳,
    后续存活事件从自身 `recv` 开新段,迟到终态不得回填断线期间。每个 session 的连续段独立按上海日边界拆分,
    再按最终身份 `(operator, agent‖runtime)` 逐 session 累加;不同 session 的重叠区间不得去重或封顶,
    单 Agent 单统计日允许超过 86,400 秒。同一 session 的重复心跳只推进最后确认时间,不得按事件条数重复计时。
+   `ACTIVE_SEGMENT_GAP_SECONDS` 仅用于活跃时长历史连续段重算;在线卡片掉线判定仍使用
+   `STALE_SECONDS=180`,因此放宽历史切段不会延长已退出 Agent 的 Live 展示。
 5. `totals.live` 仅计 `status ∈ {running, started, waiting}`。
 6. `feed` 为真实状态转变(非心跳),倒序;同状态长断档恢复的内部 `heartbeat_resume` 计时边界不得进入 feed。
 7. leverage = `{assets, skills_week}`。`assets` 为 `skill_uses WHERE mode='used'` 的 distinct skill 数;

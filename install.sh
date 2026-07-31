@@ -159,7 +159,7 @@ PY
 }
 
 if ! _install_from_manifest; then
-  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py tf_codex_hook_guard.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
+  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_heartbeat.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py tf_codex_hook_guard.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
     curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
   done
   rm -f ~/.tranfu/manifest.json

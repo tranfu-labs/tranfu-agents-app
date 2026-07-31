@@ -68,6 +68,12 @@
     `frontend/dist` 根目录提供,并走白名单与路径穿越保护。
     TRANFU//AGENTS head/manifest 引用到的浏览器与 PWA icon 文件包括未版本化兼容文件与版本化实体文件;
     带点静态路径不得落入 SPA fallback。
+13. **turn heartbeat shim 的生命周期必须按 session 隔离。** `UserPromptSubmit` / `PreToolUse` 触发
+    start/touch,`Stop` / `SessionEnd` 只写目标 session 的 drain 标记并立即返回,不等待 daemon ack、网络
+    请求或秒级退出;daemon 以不超过 250ms 的控制轮询停止后续 heartbeat。重复 start 只能保留一个 daemon,
+    不同 session 可并发。daemon 每轮可靠检查宿主 PID 及启动身份时自续租;仅在宿主检查不可用时 TTL 才
+    作为绝对孤儿兜底。宿主明确消失或 TTL 到期时发送一次 `idle` 后退出并清理状态,不发送 `error`。
+    不接入 `PostToolUse`,所有进程、信号、文件、网络失败必须静默且不得阻塞宿主 agent。
 
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
