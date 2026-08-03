@@ -29,6 +29,7 @@ LOCK_WAIT_SECONDS = 0.5
 LOCK_STALE_SECONDS = 10.0
 CONTROL_POLL_SECONDS = 0.25
 REPORT_TIMEOUT_SECONDS = 8.0
+TOMBSTONE_SECONDS = 86400.0
 
 
 def _env_float(name, default, minimum):
@@ -45,6 +46,18 @@ def _interval_seconds():
 
 def _ttl_seconds():
     return _env_float("TF_HEARTBEAT_TTL_SECONDS", 1800.0, 1.0)
+
+
+def _max_silence_seconds():
+    return _env_float("TF_HEARTBEAT_MAX_SILENCE_SECONDS", 14400.0, 60.0)
+
+
+def _request_ns(value=None):
+    try:
+        parsed = int(value)
+        return parsed if parsed > 0 else time.time_ns()
+    except Exception:
+        return time.time_ns()
 
 
 def _state_key(session_id):
@@ -99,6 +112,26 @@ def _remove_if_same(path, generation, pid):
         pass
 
 
+def _finalize_state(session_id, generation, pid):
+    """Remove an active generation or retain its short terminal tombstone."""
+    with _state_lock(session_id) as acquired:
+        if not acquired:
+            return
+        path = _state_path(session_id)
+        state = _read_json(path)
+        if not _state_matches(state, session_id, generation, pid):
+            return
+        if state.get("stop_requested") or state.get("stopped_at_ns"):
+            state = dict(state)
+            state["pid"] = 0
+            state["lease_expires"] = 0
+            state["activity_deadline"] = 0
+            state["tombstone_expires"] = time.time() + TOMBSTONE_SECONDS
+            _write_json(path, state)
+        else:
+            path.unlink(missing_ok=True)
+
+
 @contextmanager
 def _state_lock(session_id):
     """Short directory lock; stale lock recovery is bounded and fail-silent."""
@@ -131,6 +164,37 @@ def _state_lock(session_id):
                 path.rmdir()
             except Exception:
                 pass
+
+
+def _prune_expired_tombstones():
+    """Best-effort hourly cleanup; never remove a live daemon generation."""
+    try:
+        _ensure_state_dir()
+        marker = STATE_DIR / ".tombstone-prune"
+        now = time.time()
+        try:
+            if now - marker.stat().st_mtime < 3600:
+                return
+        except FileNotFoundError:
+            pass
+        marker.touch()
+        for path in STATE_DIR.glob("*.json"):
+            state = _read_json(path)
+            if not state or not state.get("stop_requested"):
+                continue
+            if float(state.get("tombstone_expires") or 0) > now:
+                continue
+            session_id = state.get("session_id")
+            if not session_id:
+                continue
+            with _state_lock(session_id) as acquired:
+                latest = _read_json(path) if acquired else None
+                if (latest and latest.get("stop_requested")
+                        and float(latest.get("tombstone_expires") or 0) <= now
+                        and not _pid_alive(latest.get("pid"))):
+                    path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _pid_alive(pid):
@@ -276,6 +340,54 @@ def _renew_lease(session_id, generation, state):
         _write_json(path, latest)
 
 
+def _ensure_activity_deadline(session_id, generation, state):
+    """Upgrade a legacy state once; daemon renewals never move this deadline."""
+    try:
+        deadline = float(state.get("activity_deadline") or 0)
+    except Exception:
+        deadline = 0
+    if deadline > 0:
+        return deadline
+    with _state_lock(session_id) as acquired:
+        if not acquired:
+            return time.time() + _max_silence_seconds()
+        path = _state_path(session_id)
+        latest = _read_json(path)
+        if not _state_matches(latest, session_id, generation) or latest.get("stop_requested"):
+            return 0
+        try:
+            deadline = float(latest.get("activity_deadline") or 0)
+        except Exception:
+            deadline = 0
+        if deadline <= 0:
+            trusted = time.time()
+            latest = dict(latest)
+            latest["last_trusted_activity"] = trusted
+            latest["activity_deadline"] = trusted + _max_silence_seconds()
+            _write_json(path, latest)
+            deadline = latest["activity_deadline"]
+        return deadline
+
+
+def _mark_terminal(session_id, generation, reason, request_at_ns=None):
+    """Claim one terminal transition before reporting it."""
+    with _state_lock(session_id) as acquired:
+        if not acquired:
+            return False
+        path = _state_path(session_id)
+        state = _read_json(path)
+        if not _state_matches(state, session_id, generation):
+            return False
+        if state.get("stop_requested") or state.get("stopped_at_ns"):
+            return False
+        state = dict(state)
+        state["stop_requested"] = True
+        state["stopped_at_ns"] = _request_ns(request_at_ns)
+        state["terminal_reason"] = reason
+        _write_json(path, state)
+        return True
+
+
 def _wait_for_next(session_id, generation, interval, stop_flag):
     deadline = time.monotonic() + interval
     while time.monotonic() < deadline:
@@ -305,18 +417,26 @@ def _daemon(session_id, generation):
             if stop_flag[0] or state.get("stop_requested"):
                 return
 
+            now = time.time()
+            deadline = _ensure_activity_deadline(session_id, generation, state)
+            if deadline <= 0:
+                return
+            if now >= deadline:
+                if _mark_terminal(session_id, generation, "activity_deadline"):
+                    _terminal_idle(session_id, "heartbeat activity deadline")
+                return
+
             owner_state, reliable = _owner_status(state)
             if owner_state == "dead":
-                if not _stop_requested(session_id, generation):
+                if _mark_terminal(session_id, generation, "owner_exited"):
                     _terminal_idle(session_id, "heartbeat owner exited")
                 return
-            now = time.time()
             if reliable:
                 # The daemon, not a rare hook event, keeps a healthy long turn
                 # alive. This is deliberately the only normal lease renewal.
                 _renew_lease(session_id, generation, state)
             elif now >= float(state.get("lease_expires") or 0):
-                if not _stop_requested(session_id, generation):
+                if _mark_terminal(session_id, generation, "ttl_expired"):
                     _terminal_idle(session_id, "heartbeat ttl expired")
                 return
 
@@ -327,22 +447,34 @@ def _daemon(session_id, generation):
     except Exception:
         return
     finally:
-        _remove_if_same(path, generation, os.getpid())
+        _finalize_state(session_id, generation, os.getpid())
 
 
-def start_session(session_id, owner_pid=0):
+def start_session(session_id, owner_pid=0, request_at_ns=None):
     session_id = str(session_id or "")
     if not session_id:
         return False
+    _prune_expired_tombstones()
+    requested = _request_ns(request_at_ns)
     with _state_lock(session_id) as acquired:
         if not acquired:
             return False
         path = _state_path(session_id)
         old = _read_json(path)
+        try:
+            stopped_at = int((old or {}).get("stopped_at_ns") or 0)
+        except Exception:
+            stopped_at = 0
+        if stopped_at and requested <= stopped_at:
+            return False
+        now = time.time()
         if (old and not old.get("stop_requested")
                 and _pid_alive(old.get("pid"))):
             old = dict(old)
-            old["lease_expires"] = time.time() + _ttl_seconds()
+            old["request_at_ns"] = requested
+            old["last_trusted_activity"] = now
+            old["activity_deadline"] = now + _max_silence_seconds()
+            old["lease_expires"] = now + _ttl_seconds()
             _write_json(path, old)
             return False
         generation = uuid.uuid4().hex
@@ -356,8 +488,12 @@ def start_session(session_id, owner_pid=0):
             "pid": 0,
             "owner_pid": owner_pid,
             "owner_token": process_start_token(owner_pid) if owner_pid > 0 else "",
-            "lease_expires": time.time() + _ttl_seconds(),
+            "request_at_ns": requested,
+            "last_trusted_activity": now,
+            "activity_deadline": now + _max_silence_seconds(),
+            "lease_expires": now + _ttl_seconds(),
             "stop_requested": False,
+            "stopped_at_ns": 0,
         }
         if not _write_json(path, state):
             return False
@@ -376,19 +512,39 @@ def start_session(session_id, owner_pid=0):
             return False
 
 
-def stop_session(session_id):
+def stop_session(session_id, request_at_ns=None):
     session_id = str(session_id or "")
     if not session_id:
         return False
+    _prune_expired_tombstones()
+    requested = _request_ns(request_at_ns)
     with _state_lock(session_id) as acquired:
         if not acquired:
             return False
         path = _state_path(session_id)
         state = _read_json(path)
         if not state:
-            return False
+            state = {
+                "session_id": session_id,
+                "generation": "",
+                "pid": 0,
+                "request_at_ns": requested,
+                "stopped_at_ns": requested,
+                "stop_requested": True,
+                "tombstone_expires": time.time() + TOMBSTONE_SECONDS,
+            }
+            return _write_json(path, state)
+        try:
+            stopped_at = int(state.get("stopped_at_ns") or 0)
+        except Exception:
+            stopped_at = 0
+        if stopped_at >= requested:
+            return True
         state = dict(state)
         state["stop_requested"] = True
+        state["request_at_ns"] = max(int(state.get("request_at_ns") or 0), requested)
+        state["stopped_at_ns"] = requested
+        state["tombstone_expires"] = time.time() + TOMBSTONE_SECONDS
         # No wait and no kill: the daemon polls this marker at most every
         # CONTROL_POLL_SECONDS, and if it is in _report it exits after the
         # report's own bounded timeout. This keeps the hook non-blocking and
@@ -404,16 +560,18 @@ def main(argv=None):
         start = sub.add_parser("start")
         start.add_argument("--session", required=True)
         start.add_argument("--owner-pid", type=int, default=0)
+        start.add_argument("--request-at-ns", type=int, default=0)
         stop = sub.add_parser("stop")
         stop.add_argument("--session", required=True)
+        stop.add_argument("--request-at-ns", type=int, default=0)
         daemon = sub.add_parser("daemon")
         daemon.add_argument("--session", required=True)
         daemon.add_argument("--generation", required=True)
         args = parser.parse_args(argv)
         if args.command == "start":
-            start_session(args.session, args.owner_pid)
+            start_session(args.session, args.owner_pid, args.request_at_ns)
         elif args.command == "stop":
-            stop_session(args.session)
+            stop_session(args.session, args.request_at_ns)
         else:
             _daemon(args.session, args.generation)
         return 0

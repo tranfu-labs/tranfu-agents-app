@@ -138,7 +138,9 @@ def test_daemon_self_renews_reliable_owner_during_long_turn(heartbeat_dir, monke
     tf_heartbeat._daemon("long-turn", "g1")
 
     assert renewed
-    assert not path.exists()
+    tombstone = tf_heartbeat._read_json(path)
+    assert tombstone["stop_requested"] is True
+    assert tombstone["pid"] == 0
 
 
 def test_unavailable_owner_uses_absolute_ttl_and_sends_idle_once(
@@ -158,7 +160,93 @@ def test_unavailable_owner_uses_absolute_ttl_and_sends_idle_once(
     tf_heartbeat._daemon("ttl-close", "g1")
 
     assert terminal == [("ttl-close", "heartbeat ttl expired")]
-    assert not path.exists()
+    tombstone = tf_heartbeat._read_json(path)
+    assert tombstone["terminal_reason"] == "ttl_expired"
+    assert tombstone["pid"] == 0
+
+
+def test_reliable_owner_cannot_renew_past_activity_deadline(
+        heartbeat_dir, monkeypatch):
+    path = tf_heartbeat._state_path("hard-stop")
+    state = {
+        "session_id": "hard-stop", "generation": "g1", "pid": os.getpid(),
+        "owner_pid": 55, "owner_token": "owner-start",
+        "lease_expires": 999.0, "last_trusted_activity": 10.0,
+        "activity_deadline": 100.0, "stop_requested": False,
+    }
+    assert tf_heartbeat._write_json(path, state)
+    terminal = []
+    renewed = []
+    monkeypatch.setattr(tf_heartbeat.time, "time", lambda: 100.0)
+    monkeypatch.setattr(tf_heartbeat, "_owner_status", lambda _state: ("alive", True))
+    monkeypatch.setattr(tf_heartbeat, "_renew_lease", lambda *_args: renewed.append(True))
+    monkeypatch.setattr(tf_heartbeat, "_terminal_idle",
+                        lambda session, step: terminal.append((session, step)))
+
+    tf_heartbeat._daemon("hard-stop", "g1")
+
+    assert renewed == []
+    assert terminal == [("hard-stop", "heartbeat activity deadline")]
+    tombstone = tf_heartbeat._read_json(path)
+    assert tombstone["terminal_reason"] == "activity_deadline"
+    assert tombstone["pid"] == 0
+
+
+def test_real_start_extends_default_deadline_and_override_is_honored(
+        heartbeat_dir, monkeypatch):
+    spawned = []
+    clock = [0.0]
+    monkeypatch.setattr(tf_heartbeat.time, "time", lambda: clock[0])
+    monkeypatch.setattr(tf_heartbeat, "_resolve_owner_pid", lambda pid: int(pid or 0))
+    monkeypatch.setattr(tf_heartbeat, "process_start_token", lambda _pid: "owner")
+    monkeypatch.setattr(tf_heartbeat, "_pid_alive", lambda pid: int(pid or 0) == 101)
+    monkeypatch.setattr(
+        tf_heartbeat.subprocess, "Popen",
+        lambda *args, **kwargs: spawned.append(args[0]) or _Proc(101),
+    )
+
+    assert tf_heartbeat.start_session("long", 55, 100) is True
+    first = tf_heartbeat._read_json(tf_heartbeat._state_path("long"))
+    assert first["activity_deadline"] == 14400.0
+
+    clock[0] = 6300.0  # 1h45: the original deadline has not expired.
+    assert tf_heartbeat.start_session("long", 55, 200) is False
+    renewed = tf_heartbeat._read_json(tf_heartbeat._state_path("long"))
+    assert renewed["activity_deadline"] == 20700.0
+
+    monkeypatch.setenv("TF_HEARTBEAT_MAX_SILENCE_SECONDS", "21600")
+    clock[0] = 7000.0
+    assert tf_heartbeat.start_session("long", 55, 300) is False
+    overridden = tf_heartbeat._read_json(tf_heartbeat._state_path("long"))
+    assert overridden["activity_deadline"] == 28600.0
+    assert len(spawned) == 1
+
+
+def test_terminal_tombstone_rejects_late_start_but_new_turn_restarts(
+        heartbeat_dir, monkeypatch):
+    pids = iter((101, 102))
+    alive = {101, 102}
+    monkeypatch.setattr(tf_heartbeat, "_resolve_owner_pid", lambda pid: int(pid or 0))
+    monkeypatch.setattr(tf_heartbeat, "process_start_token", lambda _pid: "owner")
+    monkeypatch.setattr(tf_heartbeat, "_pid_alive", lambda pid: int(pid or 0) in alive)
+    monkeypatch.setattr(tf_heartbeat.subprocess, "Popen",
+                        lambda *_args, **_kwargs: _Proc(next(pids)))
+
+    assert tf_heartbeat.start_session("race", 55, 100) is True
+    first_generation = tf_heartbeat._read_json(
+        tf_heartbeat._state_path("race"),
+    )["generation"]
+    assert tf_heartbeat.stop_session("race", 200) is True
+    assert tf_heartbeat.start_session("race", 55, 100) is False
+    stopped = tf_heartbeat._read_json(tf_heartbeat._state_path("race"))
+    assert stopped["generation"] == first_generation
+    assert stopped["stop_requested"] is True
+
+    assert tf_heartbeat.start_session("race", 55, 300) is True
+    restarted = tf_heartbeat._read_json(tf_heartbeat._state_path("race"))
+    assert restarted["generation"] != first_generation
+    assert restarted["stop_requested"] is False
+    assert restarted["request_at_ns"] == 300
 
 
 def test_hook_stop_launches_nonblocking_drain_and_start_has_owner(monkeypatch):
@@ -178,6 +266,8 @@ def test_hook_stop_launches_nonblocking_drain_and_start_has_owner(monkeypatch):
     assert len(calls) == 2
     assert calls[0][0][2:4] == ["start", "--session"]
     assert calls[1][0][2:4] == ["stop", "--session"]
+    assert "--request-at-ns" in calls[0][0]
+    assert "--request-at-ns" in calls[1][0]
     assert all(call[1]["start_new_session"] is True for call in calls)
 
 

@@ -19,6 +19,9 @@ def app_mod(tmp_path):
     app.TRASH_DAYS = 30
     app.STATE_TTL_SECONDS = app._env_float("TF_STATE_TTL", "1.5")
     app.HEARTBEAT_BATCH_SECONDS = app._env_float("TF_HEARTBEAT_BATCH_SECONDS", "15")
+    app.HEARTBEAT_MAX_SILENCE_SECONDS = app._env_float(
+        "TF_HEARTBEAT_MAX_SILENCE_SECONDS", "14400",
+    )
     with app._state_cache_lock:
         app._state_cache.update({"at": 0.0, "data": None, "computing": False})
     with app._heartbeat_pending_lock:

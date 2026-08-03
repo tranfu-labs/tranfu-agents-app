@@ -31,7 +31,7 @@
 (顶层延迟会与 `app.include_router(...)` 产生循环 import):
 
 - 可变开关:`DB_PATH`、`INGEST_KEY`、`ADMIN_KEY`、`ADMIN_MAX_ROWS`、`TRASH_DAYS`、
-  `STATE_TTL_SECONDS`、`HEARTBEAT_BATCH_SECONDS`、`REQUIRE_TOKEN`、`READ_AUTH_OK`、`TRUST_PROXY`、`HSTS_FORCE`、
+  `STATE_TTL_SECONDS`、`HEARTBEAT_BATCH_SECONDS`、`HEARTBEAT_MAX_SILENCE_SECONDS`、`REQUIRE_TOKEN`、`READ_AUTH_OK`、`TRUST_PROXY`、`HSTS_FORCE`、
   `ADMIN_RATE_*`、`ADMIN_LOCK_*`。
 - 路径常量(测试 monkeypatch 目标):`FRONTEND_INDEX`、`INSTALL_PATH`、`LLMS_PATH`、`ROBOTS_PATH`。
 - 全局锁与缓存:`_lock`、`_catalog_lock`、`_catalog_state`、`_catalog_thread_started`。
@@ -60,6 +60,8 @@ re-export 到 `app` 命名空间,使 `tests/conftest.py` 的 `app._state_cache.u
   且任何新事件行插入前都要把 pending batch 的最后确认心跳固化为旧段末点。SQLite 与 pending 同时存在时取较新值;
   同一事件 pending 入队必须单调不减;ingest/flush 同时需要锁时固定按
   `app._lock → _heartbeat_pending_lock` 获取,SQLite commit 成功后才清 pending,后台 flush 单轮异常后继续重试。
+  固定 synthetic step 的跨版本集合集中在 `config.TURN_HEARTBEAT_STEPS`;ingest 必须拒绝 terminal 后的迟到
+  synthetic heartbeat,并按最近非 synthetic active `recv + HEARTBEAT_MAX_SILENCE_SECONDS` 同时约束即时写与 pending。
 - `tests/test_module_boundary.py` 守门:
   - `server/app.py` 行数 ≤ 220。
   - `routes/*.py` 可独立 import。
