@@ -35,6 +35,152 @@ def _shim_row(app_mod):
         return conn.execute("SELECT shim_version,updated FROM agent_shim_versions").fetchone()
 
 
+def test_terminal_fence_ignores_distributed_turn_heartbeat_and_real_prompt_reopens(
+        client, app_mod, monkeypatch):
+    import server.routes.board as board
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:01:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+        "2026-06-12T00:03:00+00:00",
+        "2026-06-12T00:04:00+00:00",
+    )
+    ev(client, session_id="terminal", current_step="prompt")
+    ev(client, session_id="terminal", status="done", current_step="turn end")
+    terminal = _event_row(app_mod, "terminal")
+    revision = board._state_revision()
+
+    ignored = ev(
+        client, session_id="terminal", status="running",
+        current_step="turn heartbeat",
+    )
+
+    assert ignored.json()["reason"] == "terminal_session"
+    assert len(_event_rows(app_mod, "terminal")) == 2
+    assert _event_row(app_mod, "terminal")["last_seen"] == terminal["last_seen"]
+    assert app_mod._heartbeat_pending == {}
+    assert board._state_revision() == revision
+
+    ev(client, session_id="terminal", status="running", current_step="prompt")
+    accepted = ev(
+        client, session_id="terminal", status="running",
+        current_step="turn heartbeat",
+    )
+    assert accepted.json()["logged"] is True
+    assert len(_event_rows(app_mod, "terminal")) == 4
+
+
+def test_server_deadline_stops_old_daemon_without_terminal_or_client_upgrade(
+        client, app_mod, monkeypatch):
+    import server.routes.board as board
+
+    app_mod.HEARTBEAT_BATCH_SECONDS = 3600
+    app_mod.HEARTBEAT_MAX_SILENCE_SECONDS = 14400
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:01:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+        "2026-06-12T04:00:01+00:00",
+        "2026-06-12T04:01:00+00:00",
+        "2026-06-12T04:02:00+00:00",
+    )
+    ev(client, session_id="old-shim", current_step="prompt")
+    ev(client, session_id="old-shim", current_step="turn heartbeat")
+    ev(client, session_id="old-shim", current_step="turn heartbeat")
+    pending = dict(app_mod._heartbeat_pending)
+    revision = board._state_revision()
+    rows = _event_rows(app_mod, "old-shim")
+
+    ignored = ev(client, session_id="old-shim", current_step="turn heartbeat")
+
+    assert ignored.json()["reason"] == "activity_deadline"
+    assert _event_rows(app_mod, "old-shim") == rows
+    assert dict(app_mod._heartbeat_pending) == pending
+    assert board._state_revision() == revision
+
+    ev(client, session_id="old-shim", current_step="prompt")
+    reopened = ev(client, session_id="old-shim", current_step="turn heartbeat")
+    assert reopened.json()["logged"] is True
+
+
+def test_turn_heartbeat_without_trusted_activity_is_ignored(client, app_mod, monkeypatch):
+    _set_times(monkeypatch, "2026-06-12T00:00:00+00:00")
+
+    response = ev(client, session_id="orphan-only", current_step="turn heartbeat")
+
+    assert response.json()["reason"] == "no_trusted_activity"
+    assert _event_rows(app_mod, "orphan-only") == []
+
+
+def test_ignored_turn_heartbeat_keeps_semantic_skill_side_effect(
+        client, app_mod, monkeypatch):
+    import server.routes.board as board
+
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:01:00+00:00",
+        "2026-06-12T00:02:00+00:00",
+    )
+    ev(client, session_id="skill-terminal", current_step="prompt")
+    ev(client, session_id="skill-terminal", status="done", current_step="turn end")
+    revision = board._state_revision()
+
+    response = ev(
+        client, session_id="skill-terminal", current_step="turn heartbeat",
+        skill="kept-skill",
+    )
+
+    assert response.json()["reason"] == "terminal_session"
+    with app_mod.db() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM skill_uses WHERE session_id=? AND skill=?",
+            ("skill-terminal", "kept-skill"),
+        ).fetchone()[0] == 1
+    assert board._state_revision() == revision + 1
+
+
+def test_invalid_legacy_trusted_time_fails_closed(client, app_mod, monkeypatch):
+    _set_times(
+        monkeypatch,
+        "2026-06-12T00:00:00+00:00",
+        "2026-06-12T00:01:00+00:00",
+    )
+    ev(client, session_id="invalid-anchor", current_step="prompt")
+    with app_mod.db() as conn:
+        conn.execute(
+            "UPDATE events SET recv='invalid',ts='invalid' WHERE session_id=?",
+            ("invalid-anchor",),
+        )
+        conn.commit()
+
+    response = ev(client, session_id="invalid-anchor", current_step="turn heartbeat")
+
+    assert response.json()["reason"] == "invalid_trusted_activity"
+    assert len(_event_rows(app_mod, "invalid-anchor")) == 1
+
+
+def test_pending_turn_heartbeat_is_capped_at_trusted_deadline(app_mod):
+    import server.routes.ingest as ingest
+
+    assert ingest._queue_heartbeat(
+        7,
+        "2026-06-12T04:00:01+00:00",
+        "2026-06-12T04:00:00+00:00",
+    ) is True
+    assert app_mod._heartbeat_pending[7] == "2026-06-12T04:00:00+00:00"
+
+
+def test_distributed_turn_heartbeat_name_remains_in_compatibility_set():
+    from server.config import TURN_HEARTBEAT_STEPS
+
+    assert "turn heartbeat" in TURN_HEARTBEAT_STEPS
+
+
 def test_pure_heartbeat_batches_last_seen_until_flush(client, app_mod, monkeypatch):
     app_mod.HEARTBEAT_BATCH_SECONDS = 15
     _set_times(

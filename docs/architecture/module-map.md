@@ -27,6 +27,8 @@ agent 机器                         中心服务器(单容器)                 
   可选 `/api/token-usage` 作为 Sub2API `/api/v1/admin/*` 的唯一浏览器可见 BFF 契约层，认证、分页、聚合、USD 单位、进程级共享限并发、分阶段后台增强、有界 stale-while-revalidate 缓存、降级和脱敏由 `server/token_usage_sub2api.py` 负责；路由只校验查询参数与组装 HTTP 响应，
   `/assets/*` 指纹化静态资源长期缓存,SPA HTML 保持 revalidate,
   连续段内纯心跳 `last_seen` 默认按 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒进程内批量写入;
+  已分发的 synthetic `turn heartbeat` 在 terminal 后返回 200 ignored,且客户端与服务端都以最近真实 hook 活动
+  `+ TF_HEARTBEAT_MAX_SILENCE_SECONDS` 为独立硬截止,daemon/owner 不得自续该截止;
   最后确认心跳取 SQLite/pending 较新值,同一事件 pending 入队单调不减,任何新行插入前固化旧行 pending,
   flush 与 ingest 在全局写锁内原子交接且失败保留 pending,后台循环在单轮异常后继续按间隔重试;
   同状态/同步骤超过 180 秒后恢复必须落新行并保留旧段末点,
@@ -79,7 +81,8 @@ agent 机器                         中心服务器(单容器)                 
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
   - `tf_heartbeat.py` 为 Claude Code / Codex 每个 session 维护 detached turn 心跳;周期 `running` 事件走 no-spool,
-    Stop/SessionEnd 只写 drain 标记,宿主检查可靠时 daemon 自续租,宿主消失或不可用 TTL 到期发送一次 `idle` 关段;
+    Stop/SessionEnd 以请求顺序时间写 terminal tombstone,宿主检查可靠时 daemon 只续软 lease;距最近真实 hook 默认
+    4 小时的硬截止、宿主消失或不可用 TTL 到期均最多发送一次 `idle` 关段;
   - `tf_client.sh` + `wrapper/tf-run` bash 封装(started 带 profile,心跳,done/error);
   - `tf_hook.py` Claude Code / Codex / Hermes 钩子分发器(读 stdin 事件→状态/Skill 使用→调 tf_report;
     Claude Code 识别 `Skill` 工具调用,并在 `Stop` / `SessionEnd` 按位置守门扫描 transcript 里的真实斜杠 skill,

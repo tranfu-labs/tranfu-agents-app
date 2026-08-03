@@ -41,7 +41,8 @@ openssl rand -hex 24
   Environment Variables 里复制这串值粘到 `/admin` 的钥匙框。
 - 可选调整:`TF_TRASH_DAYS=30` 控制回收站保留天数,`TF_ADMIN_MAX_ROWS=200` 控制单次删除免手输确认的最大行数,
   `TF_STATE_TTL=1.5` 控制 `/api/state` / `/api/state/stream` 快照缓存秒数(建议 0.5~3.0),
-  `TF_HEARTBEAT_BATCH_SECONDS=15` 控制纯心跳 `last_seen` 批量写入间隔(设 0 可禁用)。
+  `TF_HEARTBEAT_BATCH_SECONDS=15` 控制纯心跳 `last_seen` 批量写入间隔(设 0 可禁用),
+  `TF_HEARTBEAT_MAX_SILENCE_SECONDS=14400` 同时限制客户端和服务端 synthetic turn heartbeat 距最近真实活动的静默上界。
 - 如部署环境不能访问 GitHub release,给 SKILLS 页公司库漏斗设置 `TF_SKILLS_CATALOG_URL=<内网 catalog index.json>`。
 
 **3) 配 Domain**
@@ -88,6 +89,7 @@ Environment=TF_DB=/var/lib/tranfu/tf.db
 # Environment=TF_ADMIN_MAX_ROWS=200
 # Environment=TF_STATE_TTL=1.5
 # Environment=TF_HEARTBEAT_BATCH_SECONDS=15
+# Environment=TF_HEARTBEAT_MAX_SILENCE_SECONDS=14400
 # 可选:内网 tranfu-skills catalog 镜像,用于 SKILLS 页公司库采纳漏斗
 # Environment=TF_SKILLS_CATALOG_URL=https://agents.example.com/catalog/index.json
 WorkingDirectory=$(pwd)

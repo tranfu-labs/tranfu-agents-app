@@ -10,11 +10,11 @@ import secrets
 import threading
 import time
 from contextlib import closing
-from datetime import timezone
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from server.config import STALE_SECONDS
+from server.config import ACTIVE_ST, STALE_SECONDS, TURN_HEARTBEAT_STEPS
 from server.db import _audit, _clip, _maybe_prune, _parse, _sha, db, now_iso, now_utc, stats_day_for
 from server.identity import canon_operator, verify_operator
 from server.profile import _skill_mode, _skill_names, _skill_use_name
@@ -43,6 +43,14 @@ def _heartbeat_batch_seconds():
         return 15.0
 
 
+def _heartbeat_max_silence_seconds():
+    from server import app
+    try:
+        return max(60.0, float(app.HEARTBEAT_MAX_SILENCE_SECONDS))
+    except Exception:  # pragma: no cover
+        return 14400.0
+
+
 def _start_heartbeat_flush_thread():
     global _heartbeat_thread_started
     with _heartbeat_pending_lock:
@@ -66,11 +74,21 @@ def _heartbeat_flush_loop():
                 continue
 
 
-def _queue_heartbeat(event_id, last_seen):
+def _bounded_heartbeat(last_seen, ceiling=None):
+    if not ceiling:
+        return last_seen
+    try:
+        return ceiling if _parse(last_seen) > _parse(ceiling) else last_seen
+    except (AttributeError, TypeError, ValueError):
+        return last_seen
+
+
+def _queue_heartbeat(event_id, last_seen, ceiling=None):
     if _heartbeat_batch_seconds() <= 0:
         return False
     _start_heartbeat_flush_thread()
     event_id = int(event_id)
+    last_seen = _bounded_heartbeat(last_seen, ceiling)
     with _heartbeat_pending_lock:
         current = _heartbeat_pending.get(event_id)
         _heartbeat_pending[event_id] = (
@@ -142,6 +160,39 @@ def _heartbeat_gap_exceeded(confirmed, recv_dt):
         return (recv_dt - confirmed_dt).total_seconds() > STALE_SECONDS
     except (AttributeError, TypeError, ValueError):
         return False
+
+
+def _is_turn_heartbeat(status, step):
+    return status == "running" and str(step or "") in TURN_HEARTBEAT_STEPS
+
+
+def _turn_heartbeat_window(conn, op, rt, ag, sid, recv_dt):
+    """Return (deadline_iso, ignore_reason) for a synthetic heartbeat.
+
+    The trusted anchor deliberately ignores every distributed synthetic name.
+    This protects already-running old daemons without waiting for client updates.
+    """
+    placeholders = ",".join("?" for _ in TURN_HEARTBEAT_STEPS)
+    trusted = conn.execute(f"""SELECT status,COALESCE(recv,ts) trusted_time FROM events
+        WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=? AND session_id=?
+          AND NOT (status='running' AND COALESCE(current_step,'') IN ({placeholders}))
+        ORDER BY id DESC LIMIT 1""",
+        (op, rt, ag, sid, *sorted(TURN_HEARTBEAT_STEPS)),
+    ).fetchone()
+    if not trusted:
+        return None, "no_trusted_activity"
+    if trusted["status"] not in ACTIVE_ST:
+        return None, "terminal_session"
+    try:
+        anchor = _parse(trusted["trusted_time"])
+        if anchor.tzinfo is None:
+            anchor = anchor.replace(tzinfo=timezone.utc)
+        deadline = anchor + timedelta(seconds=_heartbeat_max_silence_seconds())
+    except (AttributeError, TypeError, ValueError):
+        return None, "invalid_trusted_activity"
+    if recv_dt > deadline:
+        return deadline.isoformat(), "activity_deadline"
+    return deadline.isoformat(), None
 
 
 def flush_heartbeat_batch():
@@ -291,13 +342,32 @@ async def ingest_event(request: Request, x_tf_key: str = Header(default=""),
         last = conn.execute("""SELECT id,status,current_step,last_seen,recv,ts FROM events
             WHERE operator=? AND runtime=? AND COALESCE(agent,runtime)=? AND session_id=?
             ORDER BY id DESC LIMIT 1""", (op, rt, ag, sid)).fetchone()
+        synthetic_deadline = None
+        if _is_turn_heartbeat(status, step):
+            synthetic_deadline, ignored_reason = _turn_heartbeat_window(
+                conn, op, rt, ag, sid, recv_dt,
+            )
+            if ignored_reason:
+                conn.commit()
+                if state_dirty:
+                    _mark_state_dirty()
+                return {
+                    "ok": True,
+                    "heartbeat": True,
+                    "ignored": True,
+                    "reason": ignored_reason,
+                    "verified": bool(verified),
+                }
         same_state = (last and last["status"] == status
                       and (last["current_step"] or "") == (step or ""))
         confirmed = _last_confirmed_heartbeat(last) if same_state else None
         if same_state and not _heartbeat_gap_exceeded(confirmed, recv_dt):
-            if state_dirty or not _queue_heartbeat(last["id"], recv):
+            if state_dirty or not _queue_heartbeat(last["id"], recv, synthetic_deadline):
                 # semantic writes stay immediate; otherwise pure liveness can batch.
-                last_seen = _latest_heartbeat(confirmed, recv) or recv
+                last_seen = _bounded_heartbeat(
+                    _latest_heartbeat(confirmed, recv) or recv,
+                    synthetic_deadline,
+                )
                 conn.execute("UPDATE events SET last_seen=? WHERE id=?", (last_seen, last["id"]))
                 state_dirty = True
             conn.commit()

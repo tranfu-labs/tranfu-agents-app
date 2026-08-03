@@ -74,6 +74,15 @@
     hook 发送正常终态,心跳器收到 drain 后不得再开新 heartbeat;宿主消失或 TTL 兜底退出时只发送一次
     `status=idle` 关段,不得制造 error 质量计数。该心跳器失败、退出或清理状态文件都必须静默,不得阻塞
     使用者 agent。
+15. **turn heartbeat 生命周期必须有界。** hook 派生 start/stop helper 前记录本机请求顺序时间；terminal stop
+    留下短期 tombstone，请求时间不晚于 terminal 的迟到 start 不得重开 generation，更晚的新 prompt/tool 可正常重启。
+    daemon 只有在真实 `UserPromptSubmit` / `PreToolUse` start 时才可把可信活动硬截止延至当前时间后
+    `TF_HEARTBEAT_MAX_SILENCE_SECONDS`（默认 14400 秒）；owner 存活和 daemon 软 lease 自续不得移动硬截止。
+    达到硬截止后最多发送一次 `idle` 并退出。服务端必须独立兼容已分发 synthetic step `turn heartbeat`：同一
+    身份/session 最近非 synthetic 事件为 terminal，或 synthetic 接收时间超过最近非 synthetic active `recv`
+    加同一上界时，返回 200 ignored，不 INSERT、不 UPDATE、不入 pending、不标记 state dirty；截止前即时写与
+    pending 也不得把 `last_seen` 推过该上界。新非 synthetic active 事件刷新服务端锚点。未来改 synthetic 名称时，
+    旧 shim 支持窗口内必须同时识别旧名与新名。本规则不改变 180 秒在线、900 秒读侧分段或 ADR-0025 跨 session 累加。
 
 ## 签发端点防爆破(SHOULD)
 - `POST /v1/enroll`(凭 `TF_KEY` 签发持久 per-operator token)应纳入与管理接口同类的按 IP 速率限制
@@ -85,6 +94,8 @@
 - `TF_HEARTBEAT_BATCH_SECONDS`:纯心跳 `last_seen` 批量写入间隔,秒,float 或 int;默认 `15`。
   设为 `0` 时禁用 batch,恢复每次纯心跳即时更新 `events.last_seen`。状态/步骤变化、终态切换、profile 更新、
   新 skill usage、首次或变化的非空 `shim_version` 仍必须即时处理。
+- `TF_HEARTBEAT_MAX_SILENCE_SECONDS`:synthetic turn heartbeat 距最近真实 hook 活动的最大静默秒数；默认
+  `14400`（4 小时），客户端与服务端使用同一口径，最小值 60 秒。
 
 ## 不变量
 - 不存在任何 token / 成本字段(见 ADR-0002)。
@@ -144,3 +155,10 @@
   `tools.apply_patch(...)` → 只提取 `alpha`;字符串/注释伪调用、动态 `cmd` 或仅非 `cmd` 字段含路径 → 不提取。
 - 部署后不运行批量历史扫描;没有再次活动的旧 session 不产生新记录,续聊旧 session 可在下一次正常
   `Stop` / `SessionEnd` 中自然补记。
+- owner 持续存活但 Stop 永久缺失 → 默认 4 小时硬截止后 daemon 发送一次 idle、留下 terminal tombstone并退出；
+  新 PreToolUse 可把截止延后，1 小时 45 分静默 turn 不会提前退出。
+- start(request=100) → stop(200) → 迟到 start helper(request=100) 不重开；新 turn start(300) 正常启动。
+- done 后连续发送 `running / turn heartbeat` → 均返回 200 ignored，events、pending、terminal `last_seen` 与 state
+  revision 不变；done 后先发真实 prompt，再发 synthetic heartbeat则恢复正常。
+- 未升级旧 daemon 没有 terminal、持续每分钟发送 synthetic heartbeat → 最近真实 active `recv + 4h` 后不再推进；
+  截止前已有 pending 即使稍后 flush 也不得超过上界。

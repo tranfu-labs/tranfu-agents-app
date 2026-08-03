@@ -31,7 +31,8 @@ python3 ~/.tranfu/tf_hooks.py --target claude restore
 
 在 `UserPromptSubmit` / `PreToolUse` 后,分发器会为该 session 启动 detached turn 心跳器,默认每 60 秒发送一次 `running`。
 周期心跳失败不会写入共享 spool;`Stop` / `SessionEnd` 只写 drain 标记并立即返回,不会阻塞 Claude。
-宿主被 kill 或无法可靠检查且 TTL 到期时,心跳器最多发送一次 `idle` 关段事件,不计为 error/run 质量异常。
+只有新的真实 prompt/tool hook 能延长硬截止(默认 4 小时);daemon 和存活 owner 只能续软 lease。
+达到硬截止、宿主被 kill 或无法可靠检查且 TTL 到期时,心跳器最多发送一次 `idle` 关段事件,不计为 error/run 质量异常。
 不会额外安装 `PostToolUse`。
 
 ## 验证

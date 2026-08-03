@@ -73,6 +73,9 @@ STALE_SECONDS = 180                                # = 3 heartbeat periods (§1)
 # must stay independent from STALE_SECONDS: online status, ingest resume and
 # admin retention protection all keep the narrower 180s semantics.
 ACTIVE_SEGMENT_GAP_SECONDS = 900
+# Synthetic turn-heartbeat names are an internal cross-version contract. Keep
+# old distributed names here when a future shim renames the step.
+TURN_HEARTBEAT_STEPS = frozenset({"turn heartbeat"})
 # §1: blocked is a LIVE status — it still occupies a run, so it counts as active
 # time and does not flip to idle. quality also surfaces a separate blocked count.
 ACTIVE_ST = ("running", "started", "waiting", "blocked")

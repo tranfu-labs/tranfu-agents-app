@@ -24,7 +24,7 @@ the wrapper/hook command loads from the per-runtime tf_env.<runtime>.sh file.
 session_id comes from the hook JSON, so every event in a session shares one
 identity = one card.
 """
-import sys, os, json, re, subprocess
+import sys, os, json, re, subprocess, time
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -215,7 +215,9 @@ def _heartbeat_action(action, d):
     script = os.path.join(HERE, "tf_heartbeat.py")
     if not os.path.exists(script):
         return
-    args = ["python3", script, action, "--session", str(sid)]
+    request_at_ns = time.time_ns()
+    args = ["python3", script, action, "--session", str(sid),
+            "--request-at-ns", str(request_at_ns)]
     if action == "start":
         try:
             # Only pass the immediate parent here. Wrapper climbing and the

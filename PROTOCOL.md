@@ -70,6 +70,9 @@ X-TF-Token: <operator 令牌>    // 可选；开启强制归因时必填（见 �
 - 服务端判活阈值 = **180s**（3 个心跳周期）。超过未见心跳的存活态会被显示为 `idle`。
 - 连续 180s 内的重复心跳不产生新历史行，只刷新存活时间；超过 180s 后恢复会落一条新计时段
   起点，避免把离线期间算成运行时长（见 §6 去重）。
+- Claude Code / Codex 的 synthetic `running / turn heartbeat` 另受可信活动硬截止约束：默认只在最近一次
+  `UserPromptSubmit` / `PreToolUse` 后 4 小时内有效。owner 存活或 daemon 自身循环不能延长该截止；terminal
+  后的迟到 synthetic heartbeat 与超过截止的旧客户端 heartbeat 均返回成功但不再推进 `last_seen`。
 
 ## 身份模型 —— 一个人，多个 agent
 
@@ -236,6 +239,8 @@ shim 会在轮次/会话结束时**本地读取该会话的 rollout 文件**，�
   服务端可把纯心跳 `last_seen` 进程内合并后批量写入(默认 `TF_HEARTBEAT_BATCH_SECONDS=15` 秒);
   状态/步骤变化、skill、profile、shim 版本变化仍即时落库。SQLite 与 pending 同时存在时以较新时间为准;
   任何新历史行写入前先固化旧行 pending,flush 提交成功后才清 pending,因此不会回退或短暂隐藏最后确认心跳。
+  synthetic `turn heartbeat` 的即时写和 pending 还共同受最近真实 active `recv +
+  TF_HEARTBEAT_MAX_SILENCE_SECONDS` 上界约束；当前已分发名称作为跨版本兼容值保留。
 - **看板状态读取。** 浏览器优先使用 `GET /api/state/stream` SSE 接收完整 state payload;SSE 不可用时
   回退到 `GET /api/state`。两者共用服务端 TTL 快照缓存与 single-flight 重算保护。
 - **Agents 指定窗口读侧接口。** `GET /api/agents?w={today|this_week|last_week|7d|14d|30d|90d|custom}`
