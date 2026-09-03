@@ -28,6 +28,18 @@ shim 自更新。以后 Claude Code / Codex / Hermes 在会话开始时会后台
 `~/.tranfu/tf_env.<runtime>.sh` 里设置 `export TF_AUTO_UPDATE=0` 后重启 agent。OpenClaw 插件文件也会被刷新,
 但需要重启 OpenClaw 才加载新 JS。
 
+安装器还会默认启用每日 Skill 更新。客户端先按 `tfs installed --json` 把 tfs 声明的受管 Skill
+备份到 `~/.tranfu/skill-backups/`,再执行 `tfs update --skills-only --json`;具体更新哪些 scope、如何判断 hash
+或本地修改均由 tfs 负责。默认保留最近 3 份完整备份,可查看或回滚:
+
+```bash
+python3 ~/.tranfu/tf_skill_update.py status --json
+python3 ~/.tranfu/tf_skill_update.py rollback --latest
+```
+
+要关闭,重跑安装命令并加 `--no-auto-update-skills`,或设置 `TF_SKILL_AUTO_UPDATE=0` 后运行
+`python3 ~/.tranfu/tf_skill_update.py uninstall-schedule`。这不会删除 Skill、备份、tfs registry 或 Hook。
+
 ---
 
 ## 2. 选你的接入方式(按你用的 agent 选择)
@@ -179,6 +191,12 @@ export TF_TIPS="先喂目标人群和一个样例,它会贴着语气走"  # 可�
 ```bash
 python3 ~/.tranfu/tf_hooks.py --target claude uninstall
 python3 ~/.tranfu/tf_hooks.py --target codex uninstall
+```
+
+再卸载每日 Skill 更新任务:
+
+```bash
+python3 ~/.tranfu/tf_skill_update.py uninstall-schedule
 ```
 
 Hermes 需要从 `~/.hermes/config.yaml` 删除指向 `~/.tranfu/tf-hermes-hook.sh` 的 hooks 条目。

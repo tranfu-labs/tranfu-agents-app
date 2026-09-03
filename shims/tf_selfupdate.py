@@ -278,6 +278,21 @@ def _ensure_codex_hook_guard():
         return False
 
 
+def _ensure_skill_update_schedule():
+    """Best-effort daily Skill updater lifecycle, independent of shim throttle."""
+    script = ROOT / "tf_skill_update.py"
+    if not script.exists():
+        return False
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "ensure-schedule", "--json"],
+            timeout=20, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 def update_once():
     if os.environ.get("TF_AUTO_UPDATE") == "0":
         return False
@@ -311,6 +326,10 @@ def update_once():
 def main():
     try:
         _ensure_codex_hook_guard()
+    except Exception:
+        pass
+    try:
+        _ensure_skill_update_schedule()
     except Exception:
         pass
     try:

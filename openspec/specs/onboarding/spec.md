@@ -74,6 +74,16 @@
     不同 session 可并发。daemon 每轮可靠检查宿主 PID 及启动身份时自续租;仅在宿主检查不可用时 TTL 才
     作为绝对孤儿兜底。宿主明确消失或 TTL 到期时发送一次 `idle` 后退出并清理状态,不发送 `error`。
     不接入 `PostToolUse`,所有进程、信号、文件、网络失败必须静默且不得阻塞宿主 agent。
+14. **每日 Skill 自动更新必须与 tfs 分层。** stdlib-only `tf_skill_update.py` 只负责用户级调度、更新前备份、
+    有界状态与显式整轮回滚。runner 先调用 `tfs installed --json` 获取 tfs 声明的受管路径,不按
+    scope/runtime 过滤;所有现有安全目标和 `~/.tfs/installed.json` 备份成功后,只调用
+    `tfs update --skills-only --json`,不得添加 scope/runtime/self/force/ack-deletions 参数。
+    scope、runtime、版本、hash、本地修改、远端状态与更新资格均由 tfs 决定,runner 不得复制或二次裁决。
+    备份默认保留 `~/.tranfu/skill-backups/` 下最近 3 个完整 run,rollback 只能由用户显式触发。
+    macOS 使用 managed LaunchAgent,Linux 使用 managed systemd user timer;同一 OS 用户最多一个任务。
+    新安装默认启用,以 `TF_SKILL_AUTO_UPDATE=0` 重跑安装器或传 `--no-auto-update-skills` 可关闭;旧客户端通过一次 Hook 下载
+    新 runner/selfupdate,下一次 Hook 在远端节流前 ensure schedule。任何 tfs/inventory/备份/update/schedule
+    失败不得影响 Hook、TRANFU 上报或 agent,更新结果不得进入 Agent 遥测或看板。
 
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
@@ -114,3 +124,9 @@
   bootstrap/kickstart。卸载只删除该 managed plist,不删除用户 Hook、信任记录或第三方配置。
 - 本机已有新守护但 `.selfupdate.json` 仍处于一小时节流窗口 → 下一次 Codex 自更新进程补齐 LaunchAgent,
   且不发起新的 manifest 网络请求。
+- fake tfs 观察到 runner 先调用 `installed --json`,完整备份后才调用一次
+  `update --skills-only --json`;inventory 混合 scope/runtime 时 runner 不筛选,update argv 不含其它业务参数。
+- 任一现有目标备份失败 → update 未调用;update 成功/失败/坏 JSON/超时后 backup run 均保留且不自动 rollback。
+- 创建第 4 个完整 backup run → 只删除最旧 managed run;显式 rollback 可恢复选定 run 的目标和 tfs registry。
+- 两次安装或两个 runtime 先后接入 → macOS 只有一个 managed LaunchAgent,Linux 只有一组 managed user units;
+  `TF_SKILL_AUTO_UPDATE=0` / `--no-auto-update-skills` 后 schedule 消失但 Skill、备份、registry、Hook 均保留。

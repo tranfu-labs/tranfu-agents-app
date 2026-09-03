@@ -49,6 +49,8 @@ def test_install_sh_present(client):
     r = client.get("/install.sh")
     assert r.status_code == 200
     assert "#!/" in r.text or r.text
+    assert "--no-auto-update-skills" in r.text
+    assert "tf_skill_update.py install-schedule" in r.text
 
 
 def test_install_sh_missing_returns_404(client, app_mod, monkeypatch):

@@ -34,6 +34,8 @@ def test_shim_manifest_lists_targets_and_hashes(client):
     by_path = {f["path"]: f for f in manifest["files"]}
     assert by_path["tf_hook.py"]["target"] == "tf_hook.py"
     assert by_path["tf_heartbeat.py"]["target"] == "tf_heartbeat.py"
+    assert by_path["tf_skill_update.py"]["target"] == "tf_skill_update.py"
+    assert by_path["tf_skill_update.py"]["executable"] is True
     assert by_path["wrapper/tf-run"]["target"] == "tf-run"
     hook_body = client.get("/shims/tf_hook.py").content
     assert by_path["tf_hook.py"]["sha256"] == hashlib.sha256(hook_body).hexdigest()

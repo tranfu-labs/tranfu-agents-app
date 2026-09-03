@@ -22,6 +22,10 @@ agent 会自动:装好上报工具(到 `~/.tranfu`)→ 把你登记为**调度�
 粘一次即可,装好后这台机器不再问。
 新版安装器会按版本清单全量安装本地 shim,校验成功后写入本地版本清单;之后会话开始时后台自动更新
 shim,不用再手动通知。若看板显示「旧 shim」,让该机器最后重跑一次安装命令即可进入自动更新链路。
+安装器也会默认创建每日 Skill 更新任务:更新前备份 tfs 声明的受管 Skill,然后执行
+`tfs update --skills-only --json`。TRANFU//AGENTS 不判断 scope/hash/本地修改,这些全部由 tfs 决定;
+最近 3 份备份保存在 `~/.tranfu/skill-backups/`,可用
+`python3 ~/.tranfu/tf_skill_update.py rollback --latest` 显式回滚。
 
 **填好示例(多儿):**
 
@@ -117,7 +121,8 @@ export TF_ROLE="品牌文案执行体"     # 这个 agent 的角色/定位
   不想参与统计可在本机设置 `export TF_REPORT_SKILLS=0` 后重启对应 agent。
 - 想把内容也回传做团队复盘:告诉 agent「打开内容回传」。
   ⚠️ 打开后这些内容会显示给所有有看板权限的人,慎用(看板应放在内网/VPN/SSO 之后)。
-- 退出:对 agent 说「关闭 TRANFU 上报」或「卸载 TRANFU//AGENTS」,它会撤掉相关配置;
+- 退出:对 agent 说「关闭 TRANFU 上报」或「卸载 TRANFU//AGENTS」,它会先卸载 managed Skill 更新任务,
+  再撤掉相关上报配置;
   或手动删掉 `~/.tranfu` 和 shell 配置里的 `TF_*` 段落。
 
 ---

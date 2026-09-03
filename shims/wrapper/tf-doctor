@@ -7,7 +7,8 @@
   3. 身份文件 —— tf_env.sh / tf_env.<runtime>.sh 是否齐、含 server/operator/key
   4. shim 新旧 —— 本机 manifest.json 版本 vs 服务端 /shims/manifest
   5. hooks —— 按 runtime 检查 claude/codex/hermes/openclaw 是否接好
-  6. 看板连通 + key —— 发一条最小心跳看 HTTP 状态码 (200 通 / 401 key 不对 / 连不上)
+  6. Skill 自动更新 —— 用户级 schedule / tfs / 最近执行状态
+  7. 看板连通 + key —— 发一条最小心跳看 HTTP 状态码 (200 通 / 401 key 不对 / 连不上)
      这一步本身就是一条合法心跳，等于顺便做了一次接入验证。
 
 人读默认逐行打 ✓/!/✗ 并给结论与下一步;`--json` 给 agent 解析。
@@ -171,6 +172,34 @@ def check_hooks(rt):
     return {"name": "上报方式", "status": PASS, "detail": f"runtime={rt or 'cli'},用 tf-run 包装上报"}
 
 
+def check_skill_auto_update():
+    script = ROOT / "tf_skill_update.py"
+    if not script.is_file():
+        return {"name": "Skill 自动更新", "status": WARN,
+                "detail": "缺 tf_skill_update.py,重跑安装命令获取新版 shim"}
+    try:
+        proc = subprocess.run(
+            ["python3", str(script), "status", "--json"],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = json.loads(proc.stdout)
+    except Exception:
+        return {"name": "Skill 自动更新", "status": WARN,
+                "detail": "无法读取状态(可手动: python3 ~/.tranfu/tf_skill_update.py status --json)"}
+    if not data.get("enabled"):
+        return {"name": "Skill 自动更新", "status": PASS, "detail": "已明确关闭"}
+    if data.get("status") != "installed":
+        return {"name": "Skill 自动更新", "status": WARN,
+                "detail": "调度未安装(重跑安装命令或手动 install-schedule)"}
+    if not data.get("tfs_found"):
+        return {"name": "Skill 自动更新", "status": WARN,
+                "detail": "调度已安装,但未找到 tfs;安装 tranfu-skills 后会自动恢复"}
+    last = data.get("last_result") or "never"
+    backup = data.get("backup_run") or "-"
+    return {"name": "Skill 自动更新", "status": PASS,
+            "detail": f"{data.get('scheduler')} 已启用 · 最近={last} · 备份={backup}"}
+
+
 def _hooks_status(target):
     try:
         p = subprocess.run(
@@ -228,6 +257,7 @@ def run(runtime):
     checks.append(check_identity(env))
     checks.append(check_shim_version(server))
     checks.append(check_hooks(rt))
+    checks.append(check_skill_auto_update())
     checks.append(check_board(env))
     ok = not any(c["status"] == FAIL for c in checks)
     summary = (f"✅ 已接入。去看板你的 Pod 看「{env.get('TF_AGENT') or rt or '该 agent'} [{rt or 'cli'}] 运行中」。"

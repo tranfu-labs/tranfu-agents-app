@@ -21,6 +21,7 @@
 set -e
 SERVER=""; KEY=""; OPERATOR="$USER"; RUNTIME=""; AGENT=""; ROLE=""; ABOUT=""; TIPS=""; MODELS=""
 AUTO_UPDATE="${TF_AUTO_UPDATE:-1}"
+SKILL_AUTO_UPDATE="${TF_SKILL_AUTO_UPDATE:-1}"
 CLAUDE_HOOKS=""; CLAUDE_SETTINGS=""
 CODEX_HOOKS=""; CODEX_SETTINGS=""
 OPENCLAW_PLUGIN=""
@@ -32,6 +33,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --models) MODELS="$2"; shift 2;;
   --auto-update) AUTO_UPDATE="$2"; shift 2;;
   --no-auto-update) AUTO_UPDATE="0"; shift;;
+  --auto-update-skills) SKILL_AUTO_UPDATE="1"; shift;;
+  --no-auto-update-skills) SKILL_AUTO_UPDATE="0"; shift;;
   --install-claude-hooks) CLAUDE_HOOKS="install"; shift;;
   --no-claude-hooks) CLAUDE_HOOKS="skip"; shift;;
   --claude-hooks) CLAUDE_HOOKS="$2"; shift 2;;
@@ -159,12 +162,12 @@ PY
 }
 
 if ! _install_from_manifest; then
-  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_heartbeat.py tf_selfupdate.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py tf_codex_hook_guard.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
+  for f in tf_client.sh tf_client.py tf_profile.py tf_report.py tf_hook.py tf_heartbeat.py tf_selfupdate.py tf_skill_update.py tf_rollout_scan.py tf_hooks.py tf_claude_hooks.py tf_codex_hook_guard.py wrapper/tf-run wrapper/tf-hermes-hook.sh wrapper/tf-doctor; do
     curl -fsSL "$BASE/$f" -o ~/.tranfu/"$(basename "$f")"
   done
   rm -f ~/.tranfu/manifest.json
 fi
-chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_codex_hook_guard.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf-hermes-hook.sh ~/.tranfu/tf-doctor
+chmod +x ~/.tranfu/tf-run ~/.tranfu/tf_hooks.py ~/.tranfu/tf_claude_hooks.py ~/.tranfu/tf_codex_hook_guard.py ~/.tranfu/tf_selfupdate.py ~/.tranfu/tf_skill_update.py ~/.tranfu/tf-hermes-hook.sh ~/.tranfu/tf-doctor
 
 _install_openclaw_plugin() {
   mkdir -p "${HOME}/.tranfu/openclaw"
@@ -228,6 +231,20 @@ if [ -n "$RUNTIME" ]; then
     echo "unset TF_MODELS" >> "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
   fi
   chmod 600 "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
+fi
+
+# Daily tfs Skill updates are one user-level schedule shared by all runtimes.
+# Failure is non-fatal: telemetry installation and agent startup must continue.
+echo ""
+if [ "$SKILL_AUTO_UPDATE" = "0" ]; then
+  echo "Skill auto-update: disabled"
+  TF_SKILL_AUTO_UPDATE=0 python3 ~/.tranfu/tf_skill_update.py uninstall-schedule --json >/dev/null 2>&1 \
+    || echo "  ! could not remove the managed Skill update schedule"
+else
+  echo "Skill auto-update: enabling daily backup + tfs update"
+  TF_SKILL_AUTO_UPDATE=1 python3 ~/.tranfu/tf_skill_update.py install-schedule --json >/dev/null 2>&1 \
+    && echo "  ✓ daily Skill update schedule ready" \
+    || echo "  ! schedule unavailable; run: python3 ~/.tranfu/tf_skill_update.py install-schedule"
 fi
 
 # Idempotently wire the shell rc to load it (covers interactive shells, tf-run,

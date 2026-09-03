@@ -78,6 +78,8 @@ agent 机器                         中心服务器(单容器)                 
     best-effort 读取 `display_name/display_name_zh`;
   - `tf_selfupdate.py` 在会话开始后台检查 `/shims/manifest`,经 staging + sha256 + py_compile 后原子更新本地 shim,
     并在版本一致但文件缺失/哈希不符时补齐目标文件;
+  - `tf_skill_update.py` 维护用户级每日调度,从 `tfs installed --json` 获取受管路径并在更新前备份,
+    随后原样调用 `tfs update --skills-only --json`;scope/hash/更新资格全部归 tfs,runner 只保存有界状态并提供显式整轮回滚;
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;
     OpenClaw 插件可带 `skill_mode=equipped` 上报装备态);
   - `tf_heartbeat.py` 为 Claude Code / Codex 每个 session 维护 detached turn 心跳;周期 `running` 事件走 no-spool,
@@ -106,10 +108,12 @@ agent 机器                         中心服务器(单容器)                 
 - **下游**:M1 的 `/v1/events`。
 - **禁止依赖**:Python shim 不得依赖第三方库;所有 shim/plugin 不得抛错/阻塞宿主 agent;不得默认上报敏感内容。
   Skill 使用统计只允许上报 Skill 名与 `skill_mode`,不得上报参数、prompt、代码或输出。
+  Skill 更新 runner 不得复制 tfs 的 scope/runtime/version/hash/本地修改判断,不得把备份或更新结果写入 Agent 遥测。
 
 ### M4 — 安装与分发 (`install.sh` + M1 的 `/install.sh`、`/shims/manifest`、`/shims/{path}`)
 - **职责**:一键把 shim 装到 `~/.tranfu`、写 shell rc(身份/密钥)、装完自动注册一次。
   Codex Hook 安装/卸载同时幂等安装/卸载健康守护 LaunchAgent;自更新器在远端节流判断前补齐守护。
+  安装器默认幂等启用每日 Skill 备份更新 schedule,`--no-auto-update-skills` 可关闭。
 - **入口**:`curl -fsSL $SERVER/install.sh | bash -s -- --server .. --key .. --operator .. --runtime .. --agent .. --role ..`。
 - **上游**:管理员提供的 server/key。
 - **下游**:按 `$SERVER/shims/manifest` 全量取 shim 文件;装完调 `tf_report.py --status started --profile` 注册。

@@ -10,7 +10,7 @@ TRANFU//AGENTS 是**自托管、厂商中立的团队 AI Agent 可观测看板**
 - `Dockerfile`、`compose.yml`、`.env.example`、`server/requirements.txt` — 部署。
 - `.github/workflows/ci.yml` — PR/main 跑编译 + pytest;`.github/workflows/deploy.yml` — push main 跑 pytest 卡口后构建并推 `ghcr.io/tranfu-labs/tranfu-agents-app:latest` + `:<sha>`(回滚用 sha tag);Coolify 本阶段仍用 `compose.yml` build 部署,GHCR 镜像备用。
 - `frontend/` — React + TypeScript 看板 SPA(Vite 构建);FastAPI 在 `/` 与 SPA 深链提供 `frontend/dist`。
-- `shims/` — 各客户端上报工具:`tf_profile.py`(探测)、`tf_report.py`(统一发射)、`tf_heartbeat.py`(按 session 的 turn 内心跳 daemon;周期心跳 no-spool,Stop/SessionEnd drain,孤儿/TTL idle 关段)、`tf_client.sh`/`wrapper/tf-run`(bash 封装)、`tf_hook.py`(Claude Code / Codex / Hermes 钩子分发;Hermes 链路另落 `~/.tranfu/logs/hermes-hook.ndjson` 常态诊断日志,见 ADR-0022)、`tf_rollout_scan.py`(Codex rollout Skill 补采,兼容旧 `function_call` 与 Desktop `custom_tool_call exec`)、`tf_hooks.py`(Hook JSON 幂等管理)、`tf_codex_hook_guard.py`(Codex 已信任 Hook 纯换序自愈 + LaunchAgent 健康守护,新 hash 只通知,见 ADR-0024)、`tf_selfupdate.py`(manifest 自更新 + 守护补齐)、`tf_client.py`(python 客户端)、`claude-code/`(hooks.settings.json + README)、`mcp/`(MCP reporter server.py)。
+- `shims/` — 各客户端上报工具:`tf_profile.py`(探测)、`tf_report.py`(统一发射)、`tf_heartbeat.py`(按 session 的 turn 内心跳 daemon;周期心跳 no-spool,Stop/SessionEnd drain,孤儿/TTL idle 关段)、`tf_client.sh`/`wrapper/tf-run`(bash 封装)、`tf_hook.py`(Claude Code / Codex / Hermes 钩子分发;Hermes 链路另落 `~/.tranfu/logs/hermes-hook.ndjson` 常态诊断日志,见 ADR-0022)、`tf_rollout_scan.py`(Codex rollout Skill 补采,兼容旧 `function_call` 与 Desktop `custom_tool_call exec`)、`tf_hooks.py`(Hook JSON 幂等管理)、`tf_codex_hook_guard.py`(Codex 已信任 Hook 纯换序自愈 + LaunchAgent 健康守护,新 hash 只通知,见 ADR-0024)、`tf_selfupdate.py`(manifest 自更新 + 守护补齐)、`tf_skill_update.py`(每日调用 tfs 前备份 + 显式回滚 + 用户级调度;不复制 tfs 的 scope/hash 判断)、`tf_client.py`(python 客户端)、`claude-code/`(hooks.settings.json + README)、`mcp/`(MCP reporter server.py)。
 - `install.sh` — 一键安装:按 `$SERVER/shims/manifest` 全量拉客户端到 `~/.tranfu`,写 shell rc,装完自动注册一次。
 - 文档:`README`、`QUICKSTART`(队友 5 分钟接入)、`USAGE`(自然语言接入)、`DEPLOY`(部署)、`UPDATE`(更新现有部署)、`DEV-SETUP`(开发从零部署)、`PROTOCOL`(TATP 事件协议)、`SKILL.md`(给 agent 读的自助安装)、`llms.txt`/`robots.txt`。
 
@@ -60,6 +60,10 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
   才允许引入有界短 TTL 缓存(默认 5 秒,键按 `days/w/wstart/wend/rt/src/scope` 归一化)。
   `/api/skills` 与 `/api/skills/evidence` 可用 ETag / `If-None-Match` 做同 URL / 同参数 revalidate,但未经业务确认不得加会跳过服务端校验的 5-15 秒 TTL 或前端内存缓存。
 - **shim 只用 Python 标准库,且绝不抛错**——上报/更新失败必须静默,不能影响使用者的 agent 运行。
+- Skill 自动更新由 `tf_skill_update.py` 做用户级调度和更新前备份,实际更新只调用
+  `tfs update --skills-only --json`;scope/runtime/version/hash/本地修改与更新资格均由 tfs 决定,本项目不得复制。
+  备份目标只取 `tfs installed --json`,默认保留最近 3 个完整 run,rollback 只能由用户显式触发;
+  任何 inventory/备份/update/schedule 失败不得影响 Hook、上报或 agent。
 - `shim_version` 是事件**顶层可选字段**(不再是 profile 子字段),`tf_report.py` 每次心跳兜底自动注入;
   服务端按身份 sticky(独立表 `agent_shim_versions`),profile 全量替换不得清掉它;前端三态判定
   `current` / `outdated` / `unknown`(字段缺失 = unknown,**不能**误判为 outdated)。

@@ -149,12 +149,14 @@ def test_main_ensures_codex_guard_before_throttled_update(tmp_path, monkeypatch)
     calls = []
     monkeypatch.setattr(tf_selfupdate, "_ensure_codex_hook_guard",
                         lambda: calls.append("guard") or True)
+    monkeypatch.setattr(tf_selfupdate, "_ensure_skill_update_schedule",
+                        lambda: calls.append("skills") or True)
     monkeypatch.setattr(tf_selfupdate, "update_once",
                         lambda: calls.append("update") or False)
 
     tf_selfupdate.main()
 
-    assert calls == ["guard", "update"]
+    assert calls == ["guard", "skills", "update"]
 
 
 def test_guard_ensure_only_runs_for_codex(tmp_path, monkeypatch):
@@ -166,3 +168,18 @@ def test_guard_ensure_only_runs_for_codex(tmp_path, monkeypatch):
                         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not run")))
 
     assert tf_selfupdate._ensure_codex_hook_guard() is False
+
+
+def test_selfupdate_only_ensures_persisted_skill_schedule_choice(tmp_path, monkeypatch):
+    _use_root(tmp_path, monkeypatch)
+    script = tmp_path / "tf_skill_update.py"
+    script.write_text("# updater\n", encoding="utf-8")
+    calls = []
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr(tf_selfupdate.subprocess, "run",
+                        lambda args, **_kwargs: calls.append(args) or Result())
+    assert tf_selfupdate._ensure_skill_update_schedule() is True
+    assert calls[0][-2:] == ["ensure-schedule", "--json"]

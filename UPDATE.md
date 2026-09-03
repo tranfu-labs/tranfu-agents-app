@@ -148,6 +148,29 @@ sticky 保存,后续不带这字段的心跳不会清掉它。
    打开 `/hooks`,绝不写信任配置。仍能触发 Hook 的机器会在下一次自更新进程中自动补齐;
    **升级前已经完全不执行 Hook 的机器必须重跑一次 install.sh**,因为旧自更新器已没有启动入口。
 
+### 每日 Skill 自动更新
+
+新版 shim 包含 `tf_skill_update.py`,默认维护一个用户级每日任务。每轮顺序固定为:
+
+1. `tfs installed --json` 获取 tfs 自己声明的受管路径;
+2. 把现有路径和 `~/.tfs/installed.json` 备份到 `~/.tranfu/skill-backups/<run-id>/`;
+3. 只执行 `tfs update --skills-only --json`;
+4. 保存最近结果,保留最近 3 个完整备份。
+
+scope、runtime、版本、hash、本地修改和更新资格都由 tfs 负责,runner 不复制这些规则。更新结果不进入
+Agent 遥测或看板。常用命令:
+
+```bash
+python3 ~/.tranfu/tf_skill_update.py status --json
+python3 ~/.tranfu/tf_skill_update.py run --force --json
+python3 ~/.tranfu/tf_skill_update.py rollback --latest
+python3 ~/.tranfu/tf_skill_update.py uninstall-schedule
+```
+
+新安装会立即接好 schedule。仍能触发 Hook 的旧客户端会先下载新版 runner/selfupdate,再在下一次 Hook
+补齐 schedule。要关闭,以 `TF_SKILL_AUTO_UPDATE=0` 重跑安装命令,或直接给安装命令加 `--no-auto-update-skills`;
+关闭 schedule 不会删除 Skill、备份、tfs registry 或 Hook。
+
 ## 7. SKILLS 统计页升级注意
 
 本版本新增 SKILLS 顶级页与 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,
