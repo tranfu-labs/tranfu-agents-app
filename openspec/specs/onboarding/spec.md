@@ -83,7 +83,9 @@
     macOS 使用 managed LaunchAgent,Linux 使用 managed systemd user timer;同一 OS 用户最多一个任务。
     新安装默认启用,以 `TF_SKILL_AUTO_UPDATE=0` 重跑安装器或传 `--no-auto-update-skills` 可关闭;旧客户端通过一次 Hook 下载
     新 runner/selfupdate,下一次 Hook 在远端节流前 ensure schedule。任何 tfs/inventory/备份/update/schedule
-    失败不得影响 Hook、TRANFU 上报或 agent,更新结果不得进入 Agent 遥测或看板。
+    失败不得影响 Hook、TRANFU 上报或 agent,更新结果不得进入 Agent 遥测或看板。所有 tfs 子进程必须只在
+    自己的环境中把 tfs 入口 bin 目录前置到 PATH,使 NVM 等 `#!/usr/bin/env node` 能解析同目录 node;
+    version/inventory/update 复用该入口,不得加载 `.zshrc` / `.bashrc` 或改变其它子进程环境。
 
 ## 可验证行为
 - `curl $SERVER/install.sh` 出脚本;`curl $SERVER/shims/manifest` 出当前版本清单;`curl $SERVER/shims/tf_hook.py` / `curl $SERVER/shims/tf_hooks.py` 出文件;
@@ -130,3 +132,5 @@
 - 创建第 4 个完整 backup run → 只删除最旧 managed run;显式 rollback 可恢复选定 run 的目标和 tfs registry。
 - 两次安装或两个 runtime 先后接入 → macOS 只有一个 managed LaunchAgent,Linux 只有一组 managed user units;
   `TF_SKILL_AUTO_UPDATE=0` / `--no-auto-update-skills` 后 schedule 消失但 Skill、备份、registry、Hook 均保留。
+- 极简 PATH 不含 NVM bin + tfs 使用 `#!/usr/bin/env node` + 同目录存在 node → version、inventory、update
+  三类调用均成功;去掉同目录 node 时保持 best-effort 失败且不影响 Hook 或 agent。

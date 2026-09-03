@@ -84,6 +84,8 @@ tf_skill_update.py uninstall-schedule [--json]
 3. Homebrew、`/usr/local/bin`、`~/.local/bin` 与 `~/.nvm/versions/node/*/bin` 等常见入口。
 
 候选必须是当前用户可执行常规文件，且 `tfs --version` 成功。找不到时记录 `tfs_not_found`；不自动安装或升级 CLI。
+version、inventory、update 都通过同一个 tfs 执行入口,只在该子进程环境中把 tfs 所在 bin 目录前置到 PATH,
+使 LaunchAgent 极简环境仍可解析 NVM 等 `#!/usr/bin/env node`;不加载用户 shell rc。
 
 ### 3. 创建备份
 

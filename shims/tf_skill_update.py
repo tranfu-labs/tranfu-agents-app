@@ -182,11 +182,11 @@ def _candidate_tfs_paths(config):
         yield from add(value)
 
 
-def _exec(args, timeout=COMMAND_TIMEOUT):
+def _exec(args, timeout=COMMAND_TIMEOUT, env=None):
     try:
         proc = subprocess.run(
             list(args), capture_output=True, text=True, timeout=timeout,
-            env=dict(os.environ),
+            env=dict(os.environ) if env is None else dict(env),
         )
         return {
             "returncode": int(proc.returncode),
@@ -201,6 +201,20 @@ def _exec(args, timeout=COMMAND_TIMEOUT):
                 "stderr": type(exc).__name__}
 
 
+def _tfs_env(tfs_bin):
+    """Return a minimal per-command PATH that can resolve tfs' Node shebang."""
+    env = dict(os.environ)
+    bin_dir = str(Path(tfs_bin).parent)
+    current = env.get("PATH", "")
+    parts = [part for part in current.split(os.pathsep) if part and part != bin_dir]
+    env["PATH"] = os.pathsep.join([bin_dir] + parts)
+    return env
+
+
+def _tfs_exec(tfs_bin, args, timeout=COMMAND_TIMEOUT):
+    return _exec([tfs_bin] + list(args), timeout=timeout, env=_tfs_env(tfs_bin))
+
+
 def _resolve_tfs(config=None):
     config = config or _load_config()
     for candidate in _candidate_tfs_paths(config):
@@ -208,7 +222,7 @@ def _resolve_tfs(config=None):
         try:
             if not path.is_file() or not os.access(str(path), os.X_OK):
                 continue
-            result = _exec([str(path), "--version"], timeout=8)
+            result = _tfs_exec(str(path), ["--version"], timeout=8)
             if result["returncode"] == 0:
                 return os.path.abspath(str(path))
         except Exception:
@@ -227,7 +241,7 @@ def _parse_json_result(result):
 
 
 def _inventory(tfs_bin):
-    result = _exec([tfs_bin, "installed", "--json"], timeout=60)
+    result = _tfs_exec(tfs_bin, ["installed", "--json"], timeout=60)
     data = _parse_json_result(result)
     items = data.get("installed") if data else None
     if not isinstance(items, list):
@@ -385,7 +399,7 @@ def run_update(force=False, now=None):
             run_id, _run_dir = _snapshot_inventory(items, now)
         except Exception:
             return _state("failed", error="backup_failed", **attempted)
-        result = _exec([tfs_bin, "update", "--skills-only", "--json"])
+        result = _tfs_exec(tfs_bin, ["update", "--skills-only", "--json"])
         data = _parse_json_result(result)
         if data is None:
             error = "update_failed" if result.get("returncode") else "update_bad_json"

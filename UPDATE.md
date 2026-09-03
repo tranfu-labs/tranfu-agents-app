@@ -171,6 +171,10 @@ python3 ~/.tranfu/tf_skill_update.py uninstall-schedule
 补齐 schedule。要关闭,以 `TF_SKILL_AUTO_UPDATE=0` 重跑安装命令,或直接给安装命令加 `--no-auto-update-skills`;
 关闭 schedule 不会删除 Skill、备份、tfs registry 或 Hook。
 
+macOS LaunchAgent 不加载 `.zshrc` / `.bashrc`;runner 调用 tfs 时会只为该子进程把 tfs 所在 bin 目录
+前置到 PATH,让 NVM 等安装的 `#!/usr/bin/env node` 找到同目录 node。状态出现 `tfs_not_found` 时先确认
+`tfs` 与 `node` 的入口是否仍在同一有效 bin 目录;无需把用户 shell rc 接进后台任务。
+
 ## 7. SKILLS 统计页升级注意
 
 本版本新增 SKILLS 顶级页与 Skill 使用统计。服务端更新后兼容旧 shim,但**只有队友重跑 install.sh 拉到新版本地 shim 后**,

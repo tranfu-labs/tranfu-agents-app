@@ -2,6 +2,7 @@
 import json
 import os
 import plistlib
+import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,7 +48,7 @@ def test_run_backs_up_tfs_inventory_before_exact_update(tmp_path, monkeypatch):
     ]
     calls = []
 
-    def fake_exec(args, timeout=updater.COMMAND_TIMEOUT):
+    def fake_exec(args, timeout=updater.COMMAND_TIMEOUT, env=None):
         calls.append(list(args))
         if args[1:] == ["installed", "--json"]:
             return {"returncode": 0, "stdout": json.dumps({"installed": inventory}), "stderr": ""}
@@ -82,7 +83,7 @@ def test_unsafe_or_failed_backup_stops_before_update(tmp_path, monkeypatch):
     _use_home(tmp_path, monkeypatch)
     calls = []
 
-    def fake_exec(args, timeout=updater.COMMAND_TIMEOUT):
+    def fake_exec(args, timeout=updater.COMMAND_TIMEOUT, env=None):
         calls.append(list(args))
         return {"returncode": 0, "stdout": json.dumps({
             "installed": [{"name": Path.home().name, "path": str(Path.home())}],
@@ -108,6 +109,47 @@ def test_same_local_day_does_not_run_twice(tmp_path, monkeypatch):
     now = datetime(2026, 9, 3, 12, 0).astimezone()
 
     assert updater.run_update(now=now)["reason"] == "already_attempted_today"
+
+
+def test_minimal_launchagent_path_resolves_node_next_to_tfs(tmp_path, monkeypatch):
+    _use_home(tmp_path, monkeypatch)
+    bin_dir = tmp_path / "nvm" / "versions" / "node" / "v24" / "bin"
+    bin_dir.mkdir(parents=True)
+    node = bin_dir / "node"
+    tfs = bin_dir / "tfs"
+    node.write_text(
+        "#!/bin/sh\nexec %s \"$@\"\n" % shlex.quote(sys.executable),
+        encoding="utf-8",
+    )
+    tfs.write_text(
+        "#!/usr/bin/env node\n"
+        "import json, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args == ['--version']:\n"
+        "    print('9.9.9')\n"
+        "elif args == ['installed', '--json']:\n"
+        "    print(json.dumps({'installed': []}))\n"
+        "elif args == ['update', '--skills-only', '--json']:\n"
+        "    print(json.dumps({'skills': []}))\n"
+        "else:\n"
+        "    raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    node.chmod(0o755)
+    tfs.chmod(0o755)
+    config = updater._load_config()
+    config["tfs_path"] = str(tfs)
+    updater._save_config(config)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    monkeypatch.delenv("TF_TFS_BIN", raising=False)
+
+    result = updater.run_update(
+        force=True, now=datetime(2026, 9, 5, 4, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "noop"
+    assert result["backup_run"]
+    assert updater._load_config()["tfs_path"] == str(tfs)
 
 
 def test_explicit_rollback_restores_skill_and_registry(tmp_path, monkeypatch):
@@ -180,7 +222,7 @@ def test_linux_systemd_units_use_user_timer(tmp_path, monkeypatch):
     monkeypatch.setattr(updater, "_resolve_tfs", lambda config=None: "/fake/tfs")
     monkeypatch.setattr(updater.shutil, "which", lambda name: "/bin/systemctl" if name == "systemctl" else None)
     calls = []
-    monkeypatch.setattr(updater, "_exec", lambda args, timeout=updater.COMMAND_TIMEOUT:
+    monkeypatch.setattr(updater, "_exec", lambda args, timeout=updater.COMMAND_TIMEOUT, env=None:
                         calls.append(list(args)) or {"returncode": 0, "stdout": "", "stderr": ""})
 
     result = updater.install_schedule()
