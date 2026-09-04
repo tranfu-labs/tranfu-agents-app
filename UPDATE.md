@@ -152,8 +152,8 @@ sticky 保存,后续不带这字段的心跳不会清掉它。
 
 新版 shim 包含 `tf_skill_update.py`,默认维护一个用户级每日任务。每轮顺序固定为:
 
-1. `tfs installed --json` 获取 tfs 自己声明的受管路径;
-2. 把现有路径和 `~/.tfs/installed.json` 备份到 `~/.tranfu/skill-backups/<run-id>/`;
+1. `tfs update --skills-only --check-only --json` 获取本轮 `outdated.path`;
+2. 只把这些目标和 `~/.tfs/installed.json` 备份到 `~/.tranfu/skill-backups/<run-id>/`;
 3. 只执行 `tfs update --skills-only --json`;
 4. 保存最近结果,保留最近 3 个完整备份。
 

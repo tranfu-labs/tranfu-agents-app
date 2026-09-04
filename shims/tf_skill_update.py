@@ -2,8 +2,8 @@
 """Schedule, back up, run, and roll back tfs skill updates.
 
 This shim deliberately treats tfs as the sole authority for update semantics.
-It snapshots paths returned by ``tfs installed --json`` and then invokes
-``tfs update --skills-only --json`` without adding scope/runtime policy.
+It snapshots ``outdated`` paths returned by the tfs update check-only plan,
+then invokes ``tfs update --skills-only --json`` without adding scope policy.
 """
 from __future__ import annotations
 
@@ -240,13 +240,24 @@ def _parse_json_result(result):
         return None
 
 
-def _inventory(tfs_bin):
-    result = _tfs_exec(tfs_bin, ["installed", "--json"], timeout=60)
+def _update_plan(tfs_bin):
+    result = _tfs_exec(
+        tfs_bin, ["update", "--skills-only", "--check-only", "--json"], timeout=60,
+    )
     data = _parse_json_result(result)
-    items = data.get("installed") if data else None
+    items = data.get("skills") if data else None
     if not isinstance(items, list):
-        raise RuntimeError("inventory_failed")
-    return items
+        raise RuntimeError("update_plan_failed")
+    planned = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("status") != "outdated":
+            continue
+        name = item.get("name")
+        path = item.get("path")
+        if not isinstance(name, str) or not name or not isinstance(path, str) or not path:
+            raise RuntimeError("update_plan_failed")
+        planned.append({"name": name, "path": path})
+    return planned
 
 
 def _run_id(now):
@@ -259,11 +270,11 @@ def _run_id(now):
     return candidate
 
 
-def _validate_inventory_path(item, require_exists=True):
+def _validate_plan_path(item, require_exists=True):
     name = item.get("name") if isinstance(item, dict) else None
     raw = item.get("path") if isinstance(item, dict) else None
     if not isinstance(name, str) or not name or not isinstance(raw, str) or not raw:
-        raise ValueError("invalid_inventory_item")
+        raise ValueError("invalid_plan_item")
     path = Path(raw).expanduser()
     if not path.is_absolute():
         raise ValueError("path_not_absolute")
@@ -282,7 +293,7 @@ def _validate_inventory_path(item, require_exists=True):
     return resolved
 
 
-def _snapshot_inventory(items, now=None):
+def _snapshot_plan(items, now=None):
     now = now or _utc_now()
     run_id = _run_id(now)
     run_dir = BACKUP_ROOT / run_id
@@ -304,7 +315,7 @@ def _snapshot_inventory(items, now=None):
             name = item.get("name", "") if isinstance(item, dict) else ""
             raw = item.get("path", "") if isinstance(item, dict) else ""
             record = {"name": str(name), "path": str(raw)}
-            path = _validate_inventory_path(item)
+            path = _validate_plan_path(item)
             if path is None:
                 record.update({"status": "skipped", "reason": "missing"})
                 manifest["items"].append(record)
@@ -392,11 +403,11 @@ def run_update(force=False, now=None):
             config["tfs_path"] = tfs_bin
             _save_config(config)
         try:
-            items = _inventory(tfs_bin)
+            items = _update_plan(tfs_bin)
         except Exception:
-            return _state("failed", error="inventory_failed", **attempted)
+            return _state("failed", error="update_plan_failed", **attempted)
         try:
-            run_id, _run_dir = _snapshot_inventory(items, now)
+            run_id, _run_dir = _snapshot_plan(items, now)
         except Exception:
             return _state("failed", error="backup_failed", **attempted)
         result = _tfs_exec(tfs_bin, ["update", "--skills-only", "--json"])
@@ -449,7 +460,7 @@ def rollback(run_id=""):
         for index, item in enumerate(manifest.get("items", []), start=1):
             if item.get("status") != "copied":
                 continue
-            target = _validate_inventory_path(item, require_exists=False)
+            target = _validate_plan_path(item, require_exists=False)
             backup = (run_dir / str(item.get("backup", ""))).resolve()
             if not str(backup).startswith(str(run_dir.resolve()) + os.sep) or not backup.is_dir():
                 raise ValueError("backup_item_invalid")

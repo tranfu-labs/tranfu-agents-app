@@ -22,7 +22,7 @@ agent 会自动:装好上报工具(到 `~/.tranfu`)→ 把你登记为**调度�
 粘一次即可,装好后这台机器不再问。
 新版安装器会按版本清单全量安装本地 shim,校验成功后写入本地版本清单;之后会话开始时后台自动更新
 shim,不用再手动通知。若看板显示「旧 shim」,让该机器最后重跑一次安装命令即可进入自动更新链路。
-安装器也会默认创建每日 Skill 更新任务:更新前备份 tfs 声明的受管 Skill,然后执行
+安装器也会默认创建每日 Skill 更新任务:更新前只备份 tfs check-only 计划里的 `outdated` Skill,然后执行
 `tfs update --skills-only --json`。TRANFU//AGENTS 不判断 scope/hash/本地修改,这些全部由 tfs 决定;
 最近 3 份备份保存在 `~/.tranfu/skill-backups/`,可用
 `python3 ~/.tranfu/tf_skill_update.py rollback --latest` 显式回滚。

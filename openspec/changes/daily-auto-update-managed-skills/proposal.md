@@ -1,6 +1,7 @@
 # 提案：daily-auto-update-managed-skills
 
 - 状态：Implemented
+- 后续：备份目标选择已由 `backup-planned-skill-updates` 收窄为 tfs check-only 的 `outdated.path`。
 - 关联：`specs/onboarding`、M3 shim、M4 安装与分发、ADR-0007、ADR-0010、ADR-0024
 
 ## 背景

@@ -83,7 +83,7 @@ curl -fsSL <server>/install.sh | bash -s -- \
 安装器会(全部幂等,重跑安全):
 - 先做**预检**(python3 / curl / 看板可达 / `~/.tranfu` 可写),任一不过会**明确报错并停**——按「错误处理」转述,**不要绕过**。
 - 按 `<server>/shims/manifest` 校验 sha256 全量装 shim 到 `~/.tranfu`,清掉旧版孤儿文件,把身份 env 写进 `~/.tranfu`(key chmod 600);并往你登录 shell 的 rc 追加一段带标记的托管块(仅 `source` env + 加 `PATH`,幂等可重跑)。
-- 默认安装一个用户级每日 Skill 更新任务:先按 `tfs installed --json` 备份 tfs 声明的受管 Skill,
+- 默认安装一个用户级每日 Skill 更新任务:先按 `tfs update --skills-only --check-only --json` 备份本轮 `outdated` Skill,
   再原样执行 `tfs update --skills-only --json`;scope/hash/更新资格全部由 tfs 决定。没有 tfs 时只在自检中提示,
   不影响接入。用户明确要求关闭时给安装命令加 `--no-auto-update-skills`。
 - 若 runtime 是 `claude-code`/`codex` → 幂等合并用户级 hooks(保留已有其它 hooks);`hermes` → 装 hook 脚本并打印要合并进 `~/.hermes/config.yaml` 的配置(**合并后必须重启 Hermes gateway + Hermes 进程才生效——重要的事情见第 3 步 ⚠️**);`openclaw` → 装原生插件(装备态 Skill 统计)。

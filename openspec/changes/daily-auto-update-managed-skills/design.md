@@ -1,5 +1,8 @@
 # 设计：daily-auto-update-managed-skills
 
+> 后续变更 `backup-planned-skill-updates` 已将本设计中的全量 `tfs installed --json` 备份替换为
+> `tfs update --skills-only --check-only --json` 返回的 `outdated.path`;当前事实以 onboarding spec 为准。
+
 ## 核心决策
 
 本项目只编排下面这一条命令，不介入命令内部更新规则：

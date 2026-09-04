@@ -78,7 +78,7 @@ agent 机器                         中心服务器(单容器)                 
     best-effort 读取 `display_name/display_name_zh`;
   - `tf_selfupdate.py` 在会话开始后台检查 `/shims/manifest`,经 staging + sha256 + py_compile 后原子更新本地 shim,
     并在版本一致但文件缺失/哈希不符时补齐目标文件;
-  - `tf_skill_update.py` 维护用户级每日调度,从 `tfs installed --json` 获取受管路径并在更新前备份,
+  - `tf_skill_update.py` 维护用户级每日调度,从 tfs update check-only 计划获取 `outdated.path` 并在更新前备份,
     随后原样调用 `tfs update --skills-only --json`;scope/hash/更新资格全部归 tfs,runner 只保存有界状态并提供显式整轮回滚;
     tfs 子进程 PATH 仅前置其入口 bin 目录以解析 NVM 等同目录 node,不得加载用户 shell rc;
   - `tf_report.py` 组装并 POST 事件(可带 `--profile`;可选 `--skill` 上报本会话使用过的 Skill 名;

@@ -28,7 +28,7 @@ shim 自更新。以后 Claude Code / Codex / Hermes 在会话开始时会后台
 `~/.tranfu/tf_env.<runtime>.sh` 里设置 `export TF_AUTO_UPDATE=0` 后重启 agent。OpenClaw 插件文件也会被刷新,
 但需要重启 OpenClaw 才加载新 JS。
 
-安装器还会默认启用每日 Skill 更新。客户端先按 `tfs installed --json` 把 tfs 声明的受管 Skill
+安装器还会默认启用每日 Skill 更新。客户端先按 tfs update check-only 计划把本轮 `outdated` Skill
 备份到 `~/.tranfu/skill-backups/`,再执行 `tfs update --skills-only --json`;具体更新哪些 scope、如何判断 hash
 或本地修改均由 tfs 负责。默认保留最近 3 份完整备份,可查看或回滚:
 

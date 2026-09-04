@@ -32,7 +32,7 @@ def _use_home(tmp_path, monkeypatch):
     return root, tfs_home
 
 
-def test_run_backs_up_tfs_inventory_before_exact_update(tmp_path, monkeypatch):
+def test_run_backs_up_only_tfs_update_plan_before_exact_update(tmp_path, monkeypatch):
     _root, tfs_home = _use_home(tmp_path, monkeypatch)
     first = tmp_path / "skills" / "alpha"
     second = tmp_path / "project" / ".codex" / "skills" / "beta"
@@ -42,16 +42,18 @@ def test_run_backs_up_tfs_inventory_before_exact_update(tmp_path, monkeypatch):
     (second / "SKILL.md").write_text("beta-old", encoding="utf-8")
     tfs_home.mkdir(parents=True)
     (tfs_home / "installed.json").write_text('{"version":1}', encoding="utf-8")
-    inventory = [
-        {"name": "alpha", "path": str(first), "scope": "user", "runtime": "codex"},
-        {"name": "beta", "path": str(second), "scope": "project", "runtime": "codex"},
+    plan = [
+        {"name": "alpha", "path": str(first), "scope": "user",
+         "runtime": "codex", "status": "outdated"},
+        {"name": "beta", "path": str(second), "scope": "project",
+         "runtime": "codex", "status": "noop"},
     ]
     calls = []
 
     def fake_exec(args, timeout=updater.COMMAND_TIMEOUT, env=None):
         calls.append(list(args))
-        if args[1:] == ["installed", "--json"]:
-            return {"returncode": 0, "stdout": json.dumps({"installed": inventory}), "stderr": ""}
+        if args[1:] == ["update", "--skills-only", "--check-only", "--json"]:
+            return {"returncode": 0, "stdout": json.dumps({"skills": plan}), "stderr": ""}
         if args[1:] == ["update", "--skills-only", "--json"]:
             assert any((p / "items" / "0001" / "SKILL.md").exists()
                        for p in updater.BACKUP_ROOT.iterdir())
@@ -68,14 +70,16 @@ def test_run_backs_up_tfs_inventory_before_exact_update(tmp_path, monkeypatch):
     result = updater.run_update(now=now)
 
     assert calls == [
-        ["/fake/tfs", "installed", "--json"],
+        ["/fake/tfs", "update", "--skills-only", "--check-only", "--json"],
         ["/fake/tfs", "update", "--skills-only", "--json"],
     ]
     assert result["status"] == "updated"
     manifest = next(updater.BACKUP_ROOT.iterdir()) / "manifest.json"
     data = json.loads(manifest.read_text(encoding="utf-8"))
     assert data["complete"] is True
-    assert [item["status"] for item in data["items"]] == ["copied", "copied"]
+    assert [item["status"] for item in data["items"]] == ["copied"]
+    assert data["items"][0]["path"] == str(first)
+    assert not any(item.get("path") == str(second) for item in data["items"])
     assert (manifest.parent / "tfs-installed.json").read_text(encoding="utf-8") == '{"version":1}'
 
 
@@ -86,7 +90,8 @@ def test_unsafe_or_failed_backup_stops_before_update(tmp_path, monkeypatch):
     def fake_exec(args, timeout=updater.COMMAND_TIMEOUT, env=None):
         calls.append(list(args))
         return {"returncode": 0, "stdout": json.dumps({
-            "installed": [{"name": Path.home().name, "path": str(Path.home())}],
+            "skills": [{"name": Path.home().name, "path": str(Path.home()),
+                        "status": "outdated"}],
         }), "stderr": ""}
 
     monkeypatch.setattr(updater, "_resolve_tfs", lambda config=None: "/fake/tfs")
@@ -96,7 +101,7 @@ def test_unsafe_or_failed_backup_stops_before_update(tmp_path, monkeypatch):
 
     assert result["status"] == "failed"
     assert result["error"] == "backup_failed"
-    assert calls == [["/fake/tfs", "installed", "--json"]]
+    assert calls == [["/fake/tfs", "update", "--skills-only", "--check-only", "--json"]]
 
 
 def test_same_local_day_does_not_run_twice(tmp_path, monkeypatch):
@@ -127,8 +132,8 @@ def test_minimal_launchagent_path_resolves_node_next_to_tfs(tmp_path, monkeypatc
         "args = sys.argv[1:]\n"
         "if args == ['--version']:\n"
         "    print('9.9.9')\n"
-        "elif args == ['installed', '--json']:\n"
-        "    print(json.dumps({'installed': []}))\n"
+        "elif args == ['update', '--skills-only', '--check-only', '--json']:\n"
+        "    print(json.dumps({'skills': []}))\n"
         "elif args == ['update', '--skills-only', '--json']:\n"
         "    print(json.dumps({'skills': []}))\n"
         "else:\n"
@@ -152,6 +157,28 @@ def test_minimal_launchagent_path_resolves_node_next_to_tfs(tmp_path, monkeypatc
     assert updater._load_config()["tfs_path"] == str(tfs)
 
 
+def test_outdated_plan_without_path_stops_before_update(tmp_path, monkeypatch):
+    _use_home(tmp_path, monkeypatch)
+    calls = []
+
+    def fake_exec(args, timeout=updater.COMMAND_TIMEOUT, env=None):
+        calls.append(list(args))
+        return {"returncode": 0, "stdout": json.dumps({
+            "skills": [{"name": "alpha", "status": "outdated"}],
+        }), "stderr": ""}
+
+    monkeypatch.setattr(updater, "_resolve_tfs", lambda config=None: "/fake/tfs")
+    monkeypatch.setattr(updater, "_exec", fake_exec)
+
+    result = updater.run_update(
+        force=True, now=datetime(2026, 9, 6, 4, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "failed"
+    assert result["error"] == "update_plan_failed"
+    assert calls == [["/fake/tfs", "update", "--skills-only", "--check-only", "--json"]]
+
+
 def test_explicit_rollback_restores_skill_and_registry(tmp_path, monkeypatch):
     _root, tfs_home = _use_home(tmp_path, monkeypatch)
     skill = tmp_path / "skills" / "alpha"
@@ -159,7 +186,7 @@ def test_explicit_rollback_restores_skill_and_registry(tmp_path, monkeypatch):
     (skill / "SKILL.md").write_text("old", encoding="utf-8")
     tfs_home.mkdir(parents=True)
     updater.TFS_REGISTRY.write_text("old-registry", encoding="utf-8")
-    run_id, _run_dir = updater._snapshot_inventory(
+    run_id, _run_dir = updater._snapshot_plan(
         [{"name": "alpha", "path": str(skill)}],
         datetime(2026, 9, 3, tzinfo=timezone.utc),
     )
@@ -241,7 +268,7 @@ def test_prune_keeps_three_complete_runs(tmp_path, monkeypatch):
         skill = tmp_path / f"skills-{day}" / f"skill-{day}"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text(str(day), encoding="utf-8")
-        updater._snapshot_inventory(
+        updater._snapshot_plan(
             [{"name": f"skill-{day}", "path": str(skill)}],
             datetime(2026, 9, day, tzinfo=timezone.utc),
         )

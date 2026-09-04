@@ -62,8 +62,8 @@ curl -s -XPOST http://localhost:8788/v1/events -H 'content-type: application/jso
 - **shim 只用 Python 标准库,且绝不抛错**——上报/更新失败必须静默,不能影响使用者的 agent 运行。
 - Skill 自动更新由 `tf_skill_update.py` 做用户级调度和更新前备份,实际更新只调用
   `tfs update --skills-only --json`;scope/runtime/version/hash/本地修改与更新资格均由 tfs 决定,本项目不得复制。
-  备份目标只取 `tfs installed --json`,默认保留最近 3 个完整 run,rollback 只能由用户显式触发;
-  任何 inventory/备份/update/schedule 失败不得影响 Hook、上报或 agent。调用 tfs 时只为其子进程前置
+  备份目标只取 `tfs update --skills-only --check-only --json` 返回的 `outdated.path`,默认保留最近 3 个完整 run,
+  rollback 只能由用户显式触发;任何 plan/备份/update/schedule 失败不得影响 Hook、上报或 agent。调用 tfs 时只为其子进程前置
   tfs 入口所在 bin 目录,使 NVM 等 `#!/usr/bin/env node` 安装在 LaunchAgent 极简 PATH 下可运行;
   不加载用户 `.zshrc` / `.bashrc`,不改变其它子进程环境。
 - `shim_version` 是事件**顶层可选字段**(不再是 profile 子字段),`tf_report.py` 每次心跳兜底自动注入;
