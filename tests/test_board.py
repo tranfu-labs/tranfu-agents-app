@@ -4,14 +4,11 @@
 """
 from datetime import datetime, timezone
 
-from conftest import ev
+from conftest import ev, set_ingest_clock
 
 
 def _set_ingest_times(monkeypatch, *values):
-    import server.routes.ingest as ingest
-
-    seq = iter(datetime.fromisoformat(value).replace(tzinfo=timezone.utc) for value in values)
-    monkeypatch.setattr(ingest, "now_utc", lambda: next(seq))
+    set_ingest_clock(monkeypatch, *values)
 
 
 # ---- /api/agent/{key} -----------------------------------------------------

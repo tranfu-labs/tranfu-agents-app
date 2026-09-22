@@ -2,6 +2,7 @@
 内存级 SQLite + 可控开关的 TestClient(对齐 AGENTS.md 的 TestClient 自测约定)。"""
 import os
 import sys
+from datetime import datetime, timezone
 
 import pytest
 
@@ -56,3 +57,31 @@ def ev(client, **over):
     payload.update(over)
     payload = {k: v for k, v in payload.items() if v is not None}
     return client.post("/v1/events", json=payload, headers=headers)
+
+
+def set_ingest_clock(monkeypatch, *values):
+    """按序列推进入库时间,并让读侧「现在」停在最近一次入库时间。
+
+    只替换 ingest.now_utc 时,读侧的 90 天窗口/今天仍走真实时钟,写死日期的
+    用例会随真实日期推移而过期;这里同时锁死 app.datetime(见 server/AGENTS.md
+    「时间源」)。
+    """
+    from server import app
+    import server.routes.ingest as ingest
+
+    times = [datetime.fromisoformat(v).replace(tzinfo=timezone.utc) for v in values]
+    seq = iter(times)
+    clock = {"now": times[0]}
+
+    def next_ingest_time():
+        clock["now"] = next(seq)
+        return clock["now"]
+
+    class ClockDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = clock["now"]
+            return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(ingest, "now_utc", next_ingest_time)
+    monkeypatch.setattr(app, "datetime", ClockDatetime)

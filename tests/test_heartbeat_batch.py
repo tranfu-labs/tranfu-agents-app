@@ -3,14 +3,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from conftest import ev
+from conftest import ev, set_ingest_clock
 
 
 def _set_times(monkeypatch, *values):
-    import server.routes.ingest as ingest
-
-    seq = iter(datetime.fromisoformat(v).replace(tzinfo=timezone.utc) for v in values)
-    monkeypatch.setattr(ingest, "now_utc", lambda: next(seq))
+    set_ingest_clock(monkeypatch, *values)
 
 
 def _event_row(app_mod, session_id="s1"):
