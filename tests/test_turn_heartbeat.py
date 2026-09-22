@@ -287,3 +287,42 @@ def test_idle_terminal_closes_active_card_without_error_quality(client):
     assert card["status"] == "idle"
     assert card["quality"]["runs"] == 0
     assert card["quality"]["error"] == 0
+
+
+def test_hook_owner_climbs_live_shell_wrapper_to_host_process():
+    import subprocess
+    code = ("import sys; sys.path.insert(0, %r); import tf_hook; "
+            "print(tf_hook._hook_owner_pid())" % os.path.dirname(tf_hook.__file__))
+    # Mirrors the installed hook command: `sh -c ". env; python3 tf_hook.py"`.
+    out = subprocess.run(["sh", "-c", ". /dev/null; python3 -c %s" % json.dumps(code)],
+                         stdout=subprocess.PIPE, text=True, timeout=10).stdout
+    host = int(out.strip())
+    assert host > 1
+    assert tf_heartbeat._pid_alive(host)
+    comm = os.path.basename(tf_heartbeat._ps_field(host, "comm")).casefold()
+    assert comm not in {"sh", "bash", "zsh", "dash"}
+
+
+def test_exited_wrapper_is_unknown_owner_not_dead_owner(heartbeat_dir, monkeypatch):
+    import subprocess
+    proc = subprocess.Popen(["sh", "-c", "exit 0"])
+    proc.wait()
+    assert tf_heartbeat._resolve_owner_pid(proc.pid) == 0
+
+    monkeypatch.setattr(tf_heartbeat.subprocess, "Popen",
+                        lambda *_args, **_kwargs: _Proc(101))
+    monkeypatch.setattr(tf_heartbeat, "_pid_alive", lambda pid: int(pid or 0) == 101)
+    assert tf_heartbeat.start_session("wrapper-gone", proc.pid, 100) is True
+    state = tf_heartbeat._read_json(tf_heartbeat._state_path("wrapper-gone"))
+    assert state["owner_pid"] == 0
+    assert tf_heartbeat._owner_status(state) == ("unknown", False)
+
+
+def test_live_non_wrapper_owner_is_kept():
+    import subprocess
+    proc = subprocess.Popen(["sleep", "30"])
+    try:
+        assert tf_heartbeat._resolve_owner_pid(proc.pid) == proc.pid
+    finally:
+        proc.kill()
+        proc.wait()

@@ -205,6 +205,60 @@ def _run_report(rargs, ev=None, tool=None, sid=None, skill=None):
     _hook_log(ev, tool, sid, skill, rargs, rc, err)
 
 
+_WRAPPER_PROCESS_NAMES = frozenset({
+    "sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3",
+})
+
+
+def _native_proc_info(pid):
+    """Return (comm, ppid) without forking, or None when unsupported."""
+    try:
+        pid = int(pid)
+        if pid <= 0:
+            return None
+        stat = "/proc/%d/stat" % pid
+        if os.path.exists(stat):
+            with open(stat, "rb") as f:
+                raw = f.read().decode("utf-8", errors="replace")
+            left, right = raw.index("("), raw.rindex(")")
+            return raw[left + 1:right], int(raw[right + 2:].split()[1])
+        if sys.platform != "darwin":
+            return None
+        import ctypes
+        import ctypes.util
+        lib = ctypes.CDLL(ctypes.util.find_library("proc") or "libproc.dylib")
+        # struct proc_bsdinfo (PROC_PIDTBSDINFO = 3): pbi_ppid at offset 16,
+        # pbi_comm[16] at offset 48, total size 136.
+        buf = ctypes.create_string_buffer(136)
+        if lib.proc_pidinfo(pid, 3, ctypes.c_uint64(0), buf, 136) != 136:
+            return None
+        ppid = int.from_bytes(buf.raw[16:20], sys.byteorder)
+        comm = buf.raw[48:64].split(b"\0", 1)[0].decode("utf-8", errors="replace")
+        return comm, ppid
+    except Exception:
+        return None
+
+
+def _hook_owner_pid():
+    """Climb shell/python hook wrappers to the long-lived host process."""
+    try:
+        current = os.getppid()
+    except Exception:
+        return 0
+    for _ in range(3):
+        info = _native_proc_info(current)
+        if not info:
+            break
+        comm, parent = info
+        name = os.path.basename(comm).casefold()
+        if name not in _WRAPPER_PROCESS_NAMES and not name.startswith("python"):
+            break
+        if parent <= 1 or parent == current:
+            break
+        current = parent
+    return current
+
+
 def _heartbeat_action(action, d):
     ev = _event_name(d)
     if ev not in TURN_HEARTBEAT_START_EVENTS + TURN_HEARTBEAT_STOP_EVENTS:
@@ -219,13 +273,11 @@ def _heartbeat_action(action, d):
     args = ["python3", script, action, "--session", str(sid),
             "--request-at-ns", str(request_at_ns)]
     if action == "start":
-        try:
-            # Only pass the immediate parent here. Wrapper climbing and the
-            # ps start-token lookup happen in the detached start helper, never
-            # on the host hook's synchronous path.
-            owner = os.getppid()
-        except Exception:
-            owner = 0
+        # Resolve the host owner here, while the `sh -c` hook wrapper is still
+        # alive: by the time the detached helper runs, the wrapper has exited
+        # and its parent can no longer be looked up. Only no-fork process
+        # table reads are used; the ps start-token lookup stays in the helper.
+        owner = _hook_owner_pid()
         if owner > 0:
             args += ["--owner-pid", str(owner)]
     try:
