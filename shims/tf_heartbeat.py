@@ -253,9 +253,15 @@ def _resolve_owner_pid(pid):
         current = int(pid or 0)
     except Exception:
         return 0
+    if current <= 0 or not _pid_alive(current):
+        # A wrapper that already exited cannot be climbed, and treating its
+        # dead PID as the owner would end the turn on the first daemon check.
+        # Unknown owner falls back to the lease TTL instead.
+        return 0
     for _ in range(3):
         name = os.path.basename(_ps_field(current, "comm")).casefold()
-        if not name or name not in _WRAPPER_PROCESS_NAMES:
+        if not name or (name not in _WRAPPER_PROCESS_NAMES
+                        and not name.startswith("python")):
             break
         try:
             parent = int(_ps_field(current, "ppid"))
@@ -264,7 +270,7 @@ def _resolve_owner_pid(pid):
         if parent <= 1 or parent == current:
             break
         current = parent
-    return current
+    return current if _pid_alive(current) else 0
 
 
 def _owner_status(state):
