@@ -33,7 +33,7 @@ HOME = Path.home()
 SHIM_DIR = Path(os.environ.get("TF_TRANFU_HOME") or Path(__file__).resolve().parent)
 RT_LABEL = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop",
             "codex": "Codex", "open-claw": "OpenClaw", "openclaw": "OpenClaw",
-            "hermes": "Hermes", "manus": "Manus", "mulerun": "MuleRun", "chatgpt": "ChatGPT"}
+            "hermes": "Hermes", "dsh": "DSH", "manus": "Manus", "mulerun": "MuleRun", "chatgpt": "ChatGPT"}
 # OpenClaw registers as "openclaw" (no hyphen); "open-claw" is kept as the
 # dashboard/runtime alias. Its CLI is `openclaw` (not `claw`). OpenClaw skill
 # usage is collected by the OpenClaw plugin from injected system-prompt metadata,

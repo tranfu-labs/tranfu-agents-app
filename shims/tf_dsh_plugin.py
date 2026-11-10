@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""
+TRANFU//AGENTS — DSH plugin installer (stdlib only, silent, idempotent).
+
+If a DSH home exists ($DSH_HOME or ~/.dsh with profiles/), link the shipped
+plugin bundle (~/.tranfu/dsh) into every DSH profile through the OFFICIAL CLI:
+
+    dsh plugin --profile <name> add link:<~/.tranfu/dsh>
+
+Profile files are never edited by hand. Re-running is a no-op once linked.
+`TF_DSH_PLUGIN=0` disables it. Always exits 0.
+
+Usage: tf_dsh_plugin.py [ensure|install|status]
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PKG = "@local/tranfu-agents"
+MAC_CLI = "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
+
+
+def tranfu_home():
+    return Path(os.environ.get("TF_TRANFU_HOME") or Path(__file__).resolve().parent)
+
+
+def plugin_dir():
+    return tranfu_home() / "dsh"
+
+
+def dsh_home():
+    return Path(os.environ.get("DSH_HOME") or Path.home() / ".dsh")
+
+
+def find_cli():
+    found = shutil.which("dsh")
+    if found:
+        return found
+    for cand in (MAC_CLI,):
+        if os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def profiles(home=None):
+    """Profile names under $DSH_HOME/profiles that are real DSH profiles."""
+    root = (home or dsh_home()) / "profiles"
+    out = []
+    try:
+        for p in sorted(root.iterdir()):
+            try:
+                data = json.loads((p / "package.json").read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(data, dict) and isinstance((data.get("dsh") or {}).get("profile"), dict):
+                out.append(p.name)
+    except Exception:
+        pass
+    return out
+
+
+def is_linked(profile, home=None):
+    try:
+        data = json.loads(((home or dsh_home()) / "profiles" / profile / "package.json")
+                          .read_text(encoding="utf-8"))
+        deps = data.get("dependencies") or {}
+        bundles = ((data.get("dsh") or {}).get("profile") or {}).get("bundles") or []
+        return deps.get(PKG) == "link:" + str(plugin_dir()) and PKG in bundles
+    except Exception:
+        return False
+
+
+def ensure():
+    """Returns list of profile names newly installed (possibly empty)."""
+    if os.environ.get("TF_DSH_PLUGIN") == "0":
+        return []
+    if not (plugin_dir() / "package.json").exists():
+        return []
+    home = dsh_home()
+    names = profiles(home)
+    if not names:
+        return []
+    cli = find_cli()
+    if not cli:
+        return []
+    env = os.environ.copy()
+    env["DSH_HOME"] = str(home)
+    done = []
+    for name in names:
+        if is_linked(name, home):
+            continue
+        try:
+            proc = subprocess.run(
+                [cli, "plugin", "--profile", name, "add", "link:" + str(plugin_dir())],
+                env=env, timeout=90, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if proc.returncode == 0:
+                done.append(name)
+        except Exception:
+            continue
+    return done
+
+
+def status():
+    home = dsh_home()
+    return {"dsh_home": str(home), "cli": find_cli(), "plugin_dir": str(plugin_dir()),
+            "profiles": {n: is_linked(n, home) for n in profiles(home)}}
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    cmd = argv[0] if argv else "ensure"
+    try:
+        if cmd == "status":
+            print(json.dumps(status(), ensure_ascii=False))
+        else:
+            done = ensure()
+            if done and "--quiet" not in argv:
+                print("DSH plugin linked: " + ", ".join(done) + " (restart DSH to load)")
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

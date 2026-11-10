@@ -132,3 +132,9 @@ agent 机器                         中心服务器(单容器)                 
 | M3 shim | 第三方库;抛错阻塞;默认上报内容/记忆 |
 | M4 安装 | 仓库必须公开 |
 | 全部 | 把密钥写进仓库/文档正文 |
+
+## shims:DSH 接入(dsh-runtime-hooks)
+- `shims/dsh/`:DSH bundle 薄壳(只观察事件、detached 调用分发器、不改 waterfall 决策)。
+- `shims/tf_dsh_event.py`:壳消息 → Claude 风格 payload → 复用 `tf_hook.main()`;依赖 `tf_hook.py`,不依赖 server。
+- `shims/tf_dsh_plugin.py`:检测 DSH、经官方 CLI 幂等安装;由 `install.sh` 与 `tf_selfupdate.py` 调用。
+- 禁止:手改 DSH profile 的 `package.json` / `cordis.patch.yml`;在 JS 壳里放映射逻辑。

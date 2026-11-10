@@ -1,7 +1,7 @@
 # Tranfu Agent Telemetry Protocol (TATP) v0.1
 
 一个小而中立的协议，让团队能实时看到每个人的 AI agent 正在做什么 ——
-无论它跑在 Claude Code、Codex、Open Claw、Hermes、Manus、MuleRun、ChatGPT 还是别的工具上。
+无论它跑在 Claude Code、Codex、Open Claw、Hermes、DSH、Manus、MuleRun、ChatGPT 还是别的工具上。
 
 TATP 是**完全原创**的。它只借鉴了"先发标识/操作名、内容载荷按需开启"这一类通用可观测性
 思路，但**不依赖、也不声称兼容任何第三方语义约定**。字段、状态机、鉴权与隐私规则都在本文件里
@@ -26,7 +26,7 @@ X-TF-Token: <operator 令牌>    // 可选；开启强制归因时必填（见 �
   "v":          "0.1",              // REQUIRED. 协议版本，便于服务端兼容路由
   "operator":   "bob",              // REQUIRED. 哪个队友（人）。组织语义，非身份凭证（见 §4）
   "agent":      "copy",             // optional. 这个人的命名 agent/lane: "copy" / "code" / "research"
-  "runtime":    "open-claw",        // REQUIRED. claude-code | codex | open-claw | hermes | manus | mulerun | chatgpt ...
+  "runtime":    "open-claw",        // REQUIRED. claude-code | codex | open-claw | hermes | dsh | manus | mulerun | chatgpt ...
   "session_id": "ab12cd34",         // REQUIRED. 每个 run 稳定；在该 agent 生命周期内复用
   "parent_session_id": "root-77",   // optional. 父 run 的 session_id；子 agent 用它挂到父 run 下，形成 agent 树
   "status":     "running",          // REQUIRED. 见下方枚举
@@ -392,3 +392,12 @@ profile 字段（见 §7）按 **full-snapshot / 全量覆盖**语义上报：�
   `inserted / skipped`。`events` 恢复不复用旧自增 id。
 - `admin_trash` 按 `TF_TRASH_DAYS`(默认 30)过期真删;`admin_audit` append-only 保留
   `delete / restore / purge_trash / denied / retention_prune`。
+
+**DSH(DeepSeek Harness,`runtime=dsh`):** DSH 没有 stdin hook,走进程内插件。`shims/dsh/` 是稳定的薄壳 bundle,
+只观察 `session/created`、`session/disposed`、`session/event`(`turn/start`/`turn/end`)、`tools/pre-execute`、
+`tools/result`、`agent/error`、`agent/turn-stopping`,detached 调用 `~/.tranfu/tf_dsh_event.py`;映射成 Claude
+风格 hook 后复用 `tf_hook.py`(状态、turn 心跳、自更新)。Skill 名仅取自 `skill` / `skill_view` 工具调用的
+`name` 参数;不传 prompt、messages、其它工具参数或输出。检测到 `$DSH_HOME`(默认 `~/.dsh`)下有 `profiles/`
+时,`install.sh` 与自更新通过官方 `dsh plugin --profile <name> add link:~/.tranfu/dsh` 自动安装(幂等,
+`TF_DSH_PLUGIN=0` 关闭);Python 分发器随 manifest 自更新,下一次事件生效,壳 JS 变化需重启 DSH。
+身份文件为 `~/.tranfu/tf_env.dsh.sh`。

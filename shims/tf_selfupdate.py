@@ -293,6 +293,24 @@ def _ensure_skill_update_schedule():
         return False
 
 
+def _ensure_dsh_plugin():
+    """Best-effort DSH plugin link (no-op without a DSH home), independent of
+    the manifest throttle so a freshly installed DSH is picked up quickly."""
+    if os.environ.get("TF_DSH_PLUGIN") == "0":
+        return False
+    script = ROOT / "tf_dsh_plugin.py"
+    if not script.exists():
+        return False
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "ensure", "--quiet"],
+            timeout=100, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 def update_once():
     if os.environ.get("TF_AUTO_UPDATE") == "0":
         return False
@@ -334,6 +352,11 @@ def main():
         pass
     try:
         update_once()
+    except Exception:
+        pass
+    # After the files are refreshed, so a just-shipped bundle is what gets linked.
+    try:
+        _ensure_dsh_plugin()
     except Exception:
         pass
 

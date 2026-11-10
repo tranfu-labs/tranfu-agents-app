@@ -201,3 +201,8 @@ python3 ~/.tranfu/tf_skill_update.py uninstall-schedule
 
 Hermes 需要从 `~/.hermes/config.yaml` 删除指向 `~/.tranfu/tf-hermes-hook.sh` 的 hooks 条目。
 然后删掉 `~/.tranfu` 与 shell 配置里的 TF_* 段落即可。
+
+### D) DSH(DeepSeek Harness)—— 全自动
+只要本机有 `~/.dsh`(或 `$DSH_HOME`)下的 `profiles/`,第 1 步的 `install.sh` 会自动把插件链接进每个 DSH profile
+(调用官方 `dsh plugin ... add link:`),并生成 `~/.tranfu/tf_env.dsh.sh`。**重启 DSH** 后开始上报;之后插件逻辑随
+shim 自更新,无需再操作。关闭:`export TF_DSH_PLUGIN=0` 后重跑安装。自检:`python3 ~/.tranfu/tf_dsh_plugin.py status`。
