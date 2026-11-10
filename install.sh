@@ -85,6 +85,7 @@ _detect_runtime() {
   if [ -n "${CODEX_SANDBOX:-}" ] || [ -n "${CODEX_HOME:-}" ]; then echo "codex"; return; fi
   if [ -n "${OPENCLAW_AGENT_ID:-}" ] || [ -n "${OPENCLAW_HOME:-}" ]; then echo "openclaw"; return; fi
   if [ -n "${HERMES_SESSION:-}" ] || [ -n "${HERMES_HOME:-}" ]; then echo "hermes"; return; fi
+  if [ -n "${DSH_SESSION_ID:-}" ] || [ -n "${DSH_SHELL:-}" ]; then echo "dsh"; return; fi
   echo ""
 }
 if [ -z "$RUNTIME" ]; then
@@ -233,6 +234,26 @@ if [ -n "$RUNTIME" ]; then
   chmod 600 "${HOME}/.tranfu/tf_env.${RT_SLUG}.sh"
 fi
 
+# DSH (DeepSeek Harness): a DSH home with profiles/ means the user runs DSH, so the
+# plugin is installed by default (opt out: TF_DSH_PLUGIN=0). Its identity file is
+# separate and carries only server/key/operator — never another agent's name/role.
+DSH_DETECTED=0
+if [ "${TF_DSH_PLUGIN:-}" != "0" ] && { [ "$RUNTIME" = "dsh" ] || [ -d "${DSH_HOME:-$HOME/.dsh}/profiles" ]; }; then
+  DSH_DETECTED=1
+  if [ "$RUNTIME" != "dsh" ]; then
+    {
+      echo "# TRANFU//AGENTS identity for DSH — written by install.sh, safe to re-run."
+      echo "export TF_SERVER=\"$SERVER\""
+      [ -n "$KEY" ] && echo "export TF_KEY=\"$KEY\"" || true
+      echo "export TF_OPERATOR=\"$OPERATOR\""
+      echo "export TF_AUTO_UPDATE=\"$AUTO_UPDATE\""
+      echo "export TF_RUNTIME=\"dsh\""
+      echo "unset TF_MODELS"
+    } > "${HOME}/.tranfu/tf_env.dsh.sh"
+    chmod 600 "${HOME}/.tranfu/tf_env.dsh.sh"
+  fi
+fi
+
 # Daily tfs Skill updates are one user-level schedule shared by all runtimes.
 # Failure is non-fatal: telemetry installation and agent startup must continue.
 echo ""
@@ -336,6 +357,12 @@ fi
 if [ "$OPENCLAW_PLUGIN" = "install" ]; then
   echo ""
   _install_openclaw_plugin
+fi
+if [ "$DSH_DETECTED" = "1" ]; then
+  echo ""
+  echo "DSH plugin: linking ~/.tranfu/dsh into DSH profiles"
+  python3 ~/.tranfu/tf_dsh_plugin.py ensure \
+    || echo "  ! could not link the DSH plugin — run: python3 ~/.tranfu/tf_dsh_plugin.py status"
 fi
 
 # 接入自检:hooks 都装完后跑一遍,给人即时确认(取代过去手动发 tf_emit 测试)。

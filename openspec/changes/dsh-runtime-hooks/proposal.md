@@ -41,7 +41,7 @@ DSH(DeepSeek Harness,桌面/CLI agent 宿主)尚未接入,其会话在看板上�
    detached spawn `~/.tranfu/tf_dsh_event.py`;壳内带 `protocol` 版本号。
 2. `shims/tf_dsh_event.py`(Python 标准库):事件名 → Claude 风格 `hook_event_name` / `tool_name` / `session_id`,
    再交给 `tf_hook.py` 的既有分发(`resolve` 复用),事件映射与 Skill 识别全在这里,随自更新升级。
-3. `shims/tf_dsh_plugin.py`:检测 DSH、定位 `dsh` 可执行文件、对每个 profile 幂等 `add link:~/.tranfu/dsh-plugin`;
+3. `shims/tf_dsh_plugin.py`:检测 DSH、定位 `dsh` 可执行文件、对每个 profile 幂等 `add link:~/.tranfu/dsh`;
    由 `tf_selfupdate.py` 的 `_ensure_dsh_plugin()` 与 `install.sh` 调用,不受 1 小时节流限制。
 4. `install.sh` 支持 `--runtime dsh`,生成 `tf_env.dsh.sh`;检测到 DSH 家目录时自动按 `dsh` 装一份。
 5. 文档、openspec spec delta、ADR、测试同步。

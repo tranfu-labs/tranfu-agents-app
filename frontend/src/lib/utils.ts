@@ -7,6 +7,7 @@ export const RT: Record<string, string> = {
   codex: 'Codex',
   'open-claw': 'Open Claw',
   hermes: 'Hermes',
+  dsh: 'DSH',
   manus: 'Manus',
   mulerun: 'MuleRun',
   chatgpt: 'ChatGPT',

@@ -51,9 +51,9 @@ Python 对未知 `protocol` / 未知事件静默 `exit 0`;高 protocol 的壳 + 
    → 其它平台常见路径(后续补);找不到则静默返回。
 3. **枚举 profile**:`$DSH_HOME/profiles/*/package.json` 且含 `dsh.profile`。
 4. **幂等安装**:profile `package.json` 的 `dependencies` 已含 `@local/tranfu-agents` 且 link 指向当前
-   `~/.tranfu/dsh-plugin` → 跳过;否则 `DSH_HOME=... dsh plugin --profile <name> add link:<~/.tranfu/dsh-plugin>`,
+   `~/.tranfu/dsh` → 跳过;否则 `DSH_HOME=... dsh plugin --profile <name> add link:<~/.tranfu/dsh>`,
    超时 60s,子进程输出丢弃。
-5. **壳升级**:`~/.tranfu/dsh-plugin/package.json` 的 `version` 与 profile 记录的不一致时重跑 `add`(幂等)。
+5. **壳升级**:`~/.tranfu/dsh/package.json` 的 `version` 与 profile 记录的不一致时重跑 `add`(幂等)。
    因为是 `link:`,文件同步后目录内容即最新,重启 DSH 后加载新壳。
 6. **开关**:`TF_DSH_PLUGIN=0` 关闭安装与升级;`TF_AUTO_UPDATE=0` 关闭文件更新(沿用)。
 
