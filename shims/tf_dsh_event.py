@@ -82,8 +82,16 @@ def to_hook_payload(msg):
     return d
 
 
+# Identity of the PROCESS THAT SPAWNED US (e.g. a Codex session's TF_AGENT) must
+# never become DSH's identity: drop it first, then let tf_env.dsh.sh decide.
+_INHERITED_IDENTITY = ("TF_AGENT", "TF_ROLE", "TF_ABOUT", "TF_TIPS", "TF_MODELS",
+                       "TF_SESSION", "TF_PARENT_SESSION")
+
+
 def main():
     try:
+        for k in _INHERITED_IDENTITY:
+            os.environ.pop(k, None)
         load_env_file(os.path.join(os.path.expanduser("~/.tranfu"), "tf_env.dsh.sh"))
         os.environ["TF_RUNTIME"] = "dsh"
         raw = sys.stdin.read()

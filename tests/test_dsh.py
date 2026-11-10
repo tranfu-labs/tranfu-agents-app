@@ -86,6 +86,18 @@ def test_main_feeds_tf_hook_and_never_raises(monkeypatch):
     tf_dsh_event.main()
 
 
+def test_main_drops_inherited_agent_identity(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(tf_hook, "main", lambda: seen.update(agent=os.environ.get("TF_AGENT"),
+                                                              role=os.environ.get("TF_ROLE")))
+    monkeypatch.setenv("TF_AGENT", "沸羊羊")          # 从 Codex 会话继承
+    monkeypatch.setenv("TF_ROLE", "Codex agent")
+    monkeypatch.setattr(tf_dsh_event, "load_env_file", lambda *a, **k: False)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(_msg("session/created"))))
+    tf_dsh_event.main()
+    assert seen == {"agent": None, "role": None}
+
+
 # ---------- tf_dsh_plugin ----------
 
 def _profile(home, name, linked_dir=None):
@@ -172,7 +184,8 @@ def test_env_file_generated_from_shared_env(dsh_env):
     f = th / "tf_env.dsh.sh"
     body = f.read_text()
     assert 'TF_SERVER="http://x"' in body and 'TF_KEY="k"' in body and 'TF_OPERATOR="op"' in body
-    assert 'TF_RUNTIME="dsh"' in body and "TF_AGENT" not in body and "TF_ROLE" not in body
+    assert 'TF_RUNTIME="dsh"' in body and 'TF_AGENT="大肥鱼"' in body
+    assert "other" not in body and "TF_ROLE" not in body
     assert oct(f.stat().st_mode & 0o777) == "0o600"
     f.write_text("custom")                      # 已存在不覆盖
     tf_dsh_plugin.ensure()
