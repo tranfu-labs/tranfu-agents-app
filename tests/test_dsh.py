@@ -162,6 +162,33 @@ def test_status_and_main(dsh_env, capsys):
     assert json.loads(capsys.readouterr().out)["profiles"] == {"desktop": True}
 
 
+def test_env_file_generated_from_shared_env(dsh_env):
+    tmp, th, _ = dsh_env
+    _profile(tmp / "dsh", "desktop")
+    (th / "tf_env.sh").write_text(
+        'export TF_SERVER="http://x"\nexport TF_KEY="k"\nexport TF_OPERATOR="op"\n'
+        'export TF_AGENT="other"\nexport TF_ROLE="r"\nexport TF_RUNTIME="codex"\n')
+    tf_dsh_plugin.ensure()
+    f = th / "tf_env.dsh.sh"
+    body = f.read_text()
+    assert 'TF_SERVER="http://x"' in body and 'TF_KEY="k"' in body and 'TF_OPERATOR="op"' in body
+    assert 'TF_RUNTIME="dsh"' in body and "TF_AGENT" not in body and "TF_ROLE" not in body
+    assert oct(f.stat().st_mode & 0o777) == "0o600"
+    f.write_text("custom")                      # 已存在不覆盖
+    tf_dsh_plugin.ensure()
+    assert f.read_text() == "custom"
+
+
+def test_env_file_skipped_without_shared_env_or_server(dsh_env):
+    tmp, th, _ = dsh_env
+    _profile(tmp / "dsh", "desktop")
+    tf_dsh_plugin.ensure()
+    assert not (th / "tf_env.dsh.sh").exists()
+    (th / "tf_env.sh").write_text('export TF_OPERATOR="op"\n')
+    tf_dsh_plugin.ensure()
+    assert not (th / "tf_env.dsh.sh").exists()
+
+
 # ---------- manifest / selfupdate ----------
 
 def test_manifest_includes_dsh_files_with_safe_targets():
