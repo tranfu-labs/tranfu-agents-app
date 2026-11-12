@@ -26,6 +26,7 @@ EVENT_MAP = {
     "tools/pre-execute": "PreToolUse",
     "tools/result": "PostToolUse",
     "agent/error": "Stop",
+    "agent/disposed": "SessionEnd",
     "agent/turn-stopping": "Stop",
 }
 # session/event is multiplexed by its inner `type`.
