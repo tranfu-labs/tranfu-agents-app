@@ -62,7 +62,7 @@ function emit(payload) {
     debug('emit', payload)
     if (process.env.TF_DSH_PLUGIN === '0' || !payload || !payload.session_id) return
     if (sink) {
-      sink({ protocol: PROTOCOL, ...payload })
+      sink({ protocol: PROTOCOL, ts: Date.now(), ...payload })
       return
     }
     const child = spawn('python3', [script()], {
@@ -72,7 +72,7 @@ function emit(payload) {
     })
     child.on('error', () => {})
     child.stdin.on('error', () => {})
-    child.stdin.end(JSON.stringify({ protocol: PROTOCOL, ...payload }))
+    child.stdin.end(JSON.stringify({ protocol: PROTOCOL, ts: Date.now(), ...payload }))
     child.unref()
   } catch {
     /* telemetry must never break DSH */

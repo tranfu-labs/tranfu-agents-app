@@ -326,3 +326,24 @@ def test_live_non_wrapper_owner_is_kept():
     finally:
         proc.kill()
         proc.wait()
+
+
+def test_start_racing_past_stop_must_not_resurrect_daemon(
+        heartbeat_dir, monkeypatch):
+    """两个 hook 进程乱序完成时,晚到的 start 不能把刚停掉的心跳复活。"""
+    pids = iter((301, 302, 303))
+    monkeypatch.setattr(tf_heartbeat, "_resolve_owner_pid", lambda pid: int(pid or 0))
+    monkeypatch.setattr(tf_heartbeat, "process_start_token", lambda _pid: "owner")
+    monkeypatch.setattr(tf_heartbeat, "_pid_alive", lambda pid: int(pid or 0) in {301, 302})
+    monkeypatch.setattr(tf_heartbeat.subprocess, "Popen",
+                        lambda *_a, **_k: _Proc(next(pids)))
+
+    assert tf_heartbeat.start_session("race", 55, 1_000_000_000) is True
+    assert tf_heartbeat.stop_session("race", 2_000_000_000) is True
+    # 本机时钟:start 只比 stop 晚 1 秒 -> 属于同一阵事件,拒绝复活
+    assert tf_heartbeat.start_session("race", 55, 3_000_000_000, local_clock=True) is False
+    # host 事件时间精确:start 的 host 时刻晚于 stop,是真正的新一轮 -> 允许
+    assert tf_heartbeat.start_session("race", 55, 3_000_000_000) is True
+    # 本机时钟但已过宽限窗口 -> 也允许新一轮
+    assert tf_heartbeat.stop_session("race", 4_000_000_000) is True
+    assert tf_heartbeat.start_session("race", 55, 10_000_000_000, local_clock=True) is True

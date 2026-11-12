@@ -74,6 +74,11 @@ def to_hook_payload(msg):
     if not name:
         return None
     d = {"hook_event_name": name, "session_id": sid}
+    # Host-side emission time (ms) lets the heartbeat keep host event order even
+    # though each event is dispatched in its own detached process.
+    ts = msg.get("ts")
+    if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+        d["_tf_event_ts_ms"] = int(ts)
     tool = msg.get("tool")
     if name in ("PreToolUse", "PostToolUse") and isinstance(tool, str) and tool:
         d["tool_name"] = tool

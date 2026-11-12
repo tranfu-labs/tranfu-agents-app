@@ -52,6 +52,9 @@ def _max_silence_seconds():
     return _env_float("TF_HEARTBEAT_MAX_SILENCE_SECONDS", 14400.0, 60.0)
 
 
+START_GRACE_NS = 3 * 1_000_000_000
+
+
 def _request_ns(value=None):
     try:
         parsed = int(value)
@@ -456,7 +459,7 @@ def _daemon(session_id, generation):
         _finalize_state(session_id, generation, os.getpid())
 
 
-def start_session(session_id, owner_pid=0, request_at_ns=None):
+def start_session(session_id, owner_pid=0, request_at_ns=None, local_clock=False):
     session_id = str(session_id or "")
     if not session_id:
         return False
@@ -471,7 +474,13 @@ def start_session(session_id, owner_pid=0, request_at_ns=None):
             stopped_at = int((old or {}).get("stopped_at_ns") or 0)
         except Exception:
             stopped_at = 0
-        if stopped_at and requested <= stopped_at:
+        # A stop wins over a start from the same flurry of host events. Two
+        # dispatcher processes can finish out of order, so also refuse a start
+        # that lands within a short grace window after the stop.
+        if stopped_at and (
+                requested <= stopped_at
+                or (local_clock and requested - stopped_at <= START_GRACE_NS)
+        ):
             return False
         now = time.time()
         if (old and not old.get("stop_requested")
@@ -567,6 +576,9 @@ def main(argv=None):
         start.add_argument("--session", required=True)
         start.add_argument("--owner-pid", type=int, default=0)
         start.add_argument("--request-at-ns", type=int, default=0)
+        # Set when the caller could only observe its own clock (no host event
+        # time): then a start that merely finished late must not beat a stop.
+        start.add_argument("--local-clock", action="store_true")
         stop = sub.add_parser("stop")
         stop.add_argument("--session", required=True)
         stop.add_argument("--request-at-ns", type=int, default=0)

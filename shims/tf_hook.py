@@ -259,6 +259,17 @@ def _hook_owner_pid():
     return current
 
 
+def _event_request_ns(d):
+    """Host-side event time in ns, when the runtime supplies one (DSH does)."""
+    try:
+        ts = d.get("_tf_event_ts_ms")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool) and ts > 0:
+            return int(ts) * 1_000_000
+    except Exception:
+        pass
+    return None
+
+
 def _heartbeat_action(action, d):
     ev = _event_name(d)
     if ev not in TURN_HEARTBEAT_START_EVENTS + TURN_HEARTBEAT_STOP_EVENTS:
@@ -269,9 +280,14 @@ def _heartbeat_action(action, d):
     script = os.path.join(HERE, "tf_heartbeat.py")
     if not os.path.exists(script):
         return
-    request_at_ns = time.time_ns()
+    request_at_ns = _event_request_ns(d)
+    local_clock = request_at_ns is None
+    if local_clock:
+        request_at_ns = time.time_ns()
     args = ["python3", script, action, "--session", str(sid),
             "--request-at-ns", str(request_at_ns)]
+    if action == "start" and local_clock:
+        args.append("--local-clock")
     if action == "start":
         # Resolve the host owner here, while the `sh -c` hook wrapper is still
         # alive: by the time the detached helper runs, the wrapper has exited

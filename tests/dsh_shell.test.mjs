@@ -43,7 +43,11 @@ function harness() {
 test('session/created reports started for the root session', () => {
   const { root, sent } = harness()
   root.emit('session/created', { id: 'session-root' })
-  assert.deepEqual(sent.at(-1), { protocol: 1, event: 'session/created', session_id: 'session-root' })
+  const last = sent.at(-1)
+  assert.equal(last.protocol, 1)
+  assert.equal(last.event, 'session/created')
+  assert.equal(last.session_id, 'session-root')
+  assert.equal(typeof last.ts, 'number')
 })
 
 test('root turn/end reports a terminal stop', () => {
