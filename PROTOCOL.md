@@ -395,7 +395,7 @@ profile 字段（见 §7）按 **full-snapshot / 全量覆盖**语义上报：�
 
 **DSH(DeepSeek Harness,`runtime=dsh`):** DSH 没有 stdin hook,走进程内插件。`shims/dsh/` 是稳定的薄壳 bundle,
 只观察 `session/created`、`session/disposed`、`session/event`(`turn/start`/`turn/end`)、`tools/pre-execute`、
-`tools/result`、`agent/error`、`agent/turn-stopping`,detached 调用 `~/.tranfu/tf_dsh_event.py`;映射成 Claude
+`tools/result`、`agent/error`、`agent/turn-stopping`、`agent/disposed`,detached 调用 `~/.tranfu/tf_dsh_event.py`;映射成 Claude
 风格 hook 后复用 `tf_hook.py`(状态、turn 心跳、自更新)。Skill 名仅取自 `skill` / `skill_view` 工具调用的
 `name` 参数;不传 prompt、messages、其它工具参数或输出。检测到 `$DSH_HOME`(默认 `~/.dsh`)下有 `profiles/`
 时,`install.sh` 与自更新通过官方 `dsh plugin --profile <name> add link:~/.tranfu/dsh` 自动安装(幂等,

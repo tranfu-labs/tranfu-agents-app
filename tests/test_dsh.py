@@ -30,6 +30,7 @@ def _msg(event, **kw):
     (_msg("tools/result", tool="bash"), "PostToolUse"),
     (_msg("agent/error"), "Stop"),
     (_msg("agent/turn-stopping"), "Stop"),
+    (_msg("agent/disposed"), "SessionEnd"),
 ])
 def test_event_mapping(msg, name):
     d = tf_dsh_event.to_hook_payload(msg)
