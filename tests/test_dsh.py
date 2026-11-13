@@ -188,9 +188,10 @@ def test_env_file_generated_from_shared_env(dsh_env):
     assert 'TF_RUNTIME="dsh"' in body and 'TF_AGENT="大肥鱼"' in body
     assert "other" not in body and "TF_ROLE" not in body
     assert oct(f.stat().st_mode & 0o777) == "0o600"
-    f.write_text("custom")                      # 已存在不覆盖
+    f.write_text("custom")                      # 已存在不覆盖正文
     tf_dsh_plugin.ensure()
-    assert f.read_text() == "custom"
+    assert f.read_text().startswith("custom")   # 只追加心跳上限,不改原有行
+    assert 'TF_HEARTBEAT_MAX_SILENCE_SECONDS="600"' in f.read_text()
 
 
 def test_env_file_skipped_without_shared_env_or_server(dsh_env):
@@ -228,3 +229,19 @@ def test_selfupdate_ensure_dsh_plugin(tmp_path, monkeypatch):
     monkeypatch.setattr(tf_selfupdate.subprocess, "run",
                         lambda *a, **k: (_ for _ in ()).throw(OSError()))
     assert tf_selfupdate._ensure_dsh_plugin() is False
+
+
+def test_env_file_carries_shorter_heartbeat_cap(dsh_env):
+    """DSH 的心跳上限必须比 4h 短:漏一次 turn/end 不该买 4 小时活跃。"""
+    _, th, _ = dsh_env
+    (th / "tf_env.sh").write_text('export TF_SERVER="https://x"\nexport TF_KEY="k"\n')
+    assert tf_dsh_plugin.ensure_env_file() is True
+    body = (th / "tf_env.dsh.sh").read_text()
+    assert 'export TF_HEARTBEAT_MAX_SILENCE_SECONDS="600"' in body
+    # 老文件缺这项时补上,且不动已有内容
+    (th / "tf_env.dsh.sh").write_text('export TF_SERVER="https://x"\nexport TF_AGENT="大肥鱼"\n')
+    assert tf_dsh_plugin.ensure_env_file() is True
+    body = (th / "tf_env.dsh.sh").read_text()
+    assert 'TF_AGENT="大肥鱼"' in body and 'TF_HEARTBEAT_MAX_SILENCE_SECONDS="600"' in body
+    # 幂等
+    assert tf_dsh_plugin.ensure_env_file() is False
